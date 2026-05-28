@@ -1,0 +1,6 @@
+Flask>=3.0,<4
+requests>=2.32,<3
+seedrcc>=0.2
+gunicorn>=21.2,<23
+pytest>=8,<9
+hypothesis>=6,<7

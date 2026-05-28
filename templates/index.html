@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streamly Hardened</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <section id="loginScreen" class="login-wrap hidden">
+    <div class="login-card">
+      <button id="loginCloseBtn" class="login-close" type="button" aria-label="Close" title="Continue as guest">×</button>
+      <div class="brand">
+        <div class="logo">S</div>
+        <div>
+          <h1>Streamly</h1>
+          <div class="muted">Hardened local Seedr client</div>
+        </div>
+      </div>
+      <p>Login with your Seedr account to browse your cloud files and add torrents. This app is running locally at 127.0.0.1.</p>
+      <form id="loginForm">
+        <label for="email">Seedr Email</label>
+        <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com">
+        <label for="password">Seedr Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="Password">
+        <button id="loginBtn" type="submit" style="width:100%; margin-top:18px;">Connect Account</button>
+        <div id="loginStatus" class="status"></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="appScreen" class="app">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand" style="margin:0;">
+          <div class="logo" style="width:40px;height:40px;border-radius:13px;font-size:18px;">S</div>
+          <div>
+            <h2>Streamly Hardened</h2>
+            <div id="accountLabel" class="muted">Connected</div>
+          </div>
+        </div>
+        <div class="tabs">
+          <button id="cloudTab" class="tab active" type="button">Cloud Drive</button>
+          <button id="searchTab" class="tab" type="button">Search</button>
+          <span id="userPill" class="user-pill">Logged in</span>
+          <button id="logoutBtn" class="danger" type="button">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main">
+      <section id="cloudView" class="grid cloud-layout">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Cloud Drive</h2>
+              <div id="pathLabel" class="muted">Folder ID: 0</div>
+            </div>
+            <div class="toolbar">
+              <button id="upBtn" class="secondary" type="button">Up</button>
+              <button id="refreshBtn" type="button">Refresh</button>
+            </div>
+          </div>
+          <div style="overflow:auto;">
+            <table class="table">
+              <thead>
+                <tr><th style="width:36px;"><input type="checkbox" id="selectAllCheck" title="Select all"></th><th>Name</th><th style="width:120px;">Type</th><th style="width:140px;">Size</th><th style="width:170px;">Changed</th></tr>
+              </thead>
+              <tbody id="cloudBody"></tbody>
+            </table>
+          </div>
+          <div id="cloudEmpty" class="empty hidden">No files or folders here.</div>
+        </div>
+
+        <aside class="panel side-card">
+          <h2 id="selectionHeading">Selected Item</h2>
+          <div class="metric"><span class="muted">Name</span><strong id="selName">None</strong></div>
+          <div class="metric"><span class="muted">Type</span><strong id="selType">-</strong></div>
+          <div class="metric"><span class="muted">Size</span><strong id="selSize">-</strong></div>
+          <div class="actions">
+            <button id="openBtn" type="button">Open</button>
+            <button id="downloadBtn" class="secondary" type="button">Download</button>
+            <button id="zipBtn" class="secondary" type="button">Zip</button>
+            <button id="deleteBtn" class="danger" type="button">Delete</button>
+            <button id="clearSelBtn" class="ghost" type="button" style="display:none;">Clear Selection</button>
+          </div>
+          <div id="cloudStatus" class="status"></div>
+          <h3 style="margin-top:18px;">Storage</h3>
+          <div class="meter"><div id="storageMeter"></div></div>
+          <div id="storageText" class="muted">Unknown</div>
+        </aside>
+      </section>
+
+      <section id="searchView" class="panel hidden">
+        <div class="panel-head">
+          <div>
+            <h2>Torrent Search</h2>
+            <div class="muted">IMDb-assisted search, Bitsearch results, category filtering, and sortable columns.</div>
+          </div>
+        </div>
+        <div style="padding:16px;">
+          <div class="magnet-paste-section">
+            <label class="magnet-paste-label">🧲 Have a magnet link? Paste it here</label>
+            <div class="magnet-paste-row">
+              <input id="magnetPasteInput" type="text" maxlength="8192" placeholder="magnet:?xt=urn:btih:..." autocomplete="off" spellcheck="false">
+              <button id="magnetPasteBtn" type="button">Add</button>
+            </div>
+            <div id="magnetPasteStatus" class="status"></div>
+          </div>
+          <div class="magnet-divider"><span>or search torrents below</span></div>
+          <div class="grid search-grid">
+            <div class="search-box-wrap">
+              <input id="searchQuery" type="text" maxlength="128" placeholder="Type a movie/show title for IMDb suggestions..." autocomplete="off">
+              <div id="suggestBox" class="suggest-box hidden"></div>
+            </div>
+            <select id="category" title="Category applies automatically">
+              <option value="">All Categories</option>
+              <option value="2">Movies</option>
+              <option value="3">TV Shows</option>
+              <option value="4">Anime</option>
+              <option value="5">Software</option>
+              <option value="6">Games</option>
+              <option value="7">Music</option>
+              <option value="8">Audiobooks</option>
+              <option value="9">Ebooks</option>
+              <option value="10">Adult</option>
+            </select>
+          </div>
+          <div class="toolbar" style="margin-top:12px;">
+            <button id="searchBtn" type="button">Search</button>
+            <button id="clearSearchBtn" class="secondary" type="button">Clear</button>
+            <span class="muted">Category changes apply automatically. Click table headers to sort.</span>
+          </div>
+          <div id="searchStatus" class="status"></div>
+        </div>
+        <div id="results" class="results">
+          <div class="torrent-table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th class="sortable num" data-sort="seeders">SE <span id="sortMark-seeders" class="sort-mark"></span></th>
+                  <th class="sortable num" data-sort="leechers">LE <span id="sortMark-leechers" class="sort-mark"></span></th>
+                  <th class="sortable" data-sort="date">Time <span id="sortMark-date" class="sort-mark"></span></th>
+                  <th class="sortable num" data-sort="size">Size <span id="sortMark-size" class="sort-mark"></span></th>
+                  <th>Category</th>
+                  <th style="width:130px;">Add</th>
+                </tr>
+              </thead>
+              <tbody id="torrentBody"></tbody>
+            </table>
+          </div>
+          <div id="mobileResults"></div>
+        </div>
+        <div id="pagination" class="pagination hidden"></div>
+      </section>
+
+    </main>
+  </section>
+
+  <section id="videoOverlay" class="overlay hidden">
+    <div class="player-box">
+      <div class="player-head">
+        <strong id="videoTitle" class="truncate">Video</strong>
+        <button id="closeVideoBtn" class="danger" type="button">Close</button>
+      </div>
+      <video id="videoPlayer" controls playsinline></video>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

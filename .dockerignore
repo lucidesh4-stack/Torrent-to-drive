@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.git/
+.gitignore
+.venv/
+venv/
+*.log
+bridge_config.json
+.DS_Store
+tests/
