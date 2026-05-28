@@ -4,7 +4,6 @@ services:
     runtime: docker
     plan: free
     region: oregon
-    rootDir: streamly_hardened
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     autoDeploy: true
