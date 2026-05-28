@@ -652,6 +652,9 @@
       showLogin();
       return;
     }
+    // Update the URL hash so refresh restores the correct tab
+    window.history.replaceState(null, null, `#${name}`);
+    
     $("cloudView").classList.toggle("hidden", name !== "cloud");
     $("searchView").classList.toggle("hidden", name !== "search");
     $("cloudTab").classList.toggle("active", name === "cloud");
@@ -732,9 +735,17 @@
     $("videoOverlay").classList.add("hidden");
   });
 
+  // Initialization Sequence
   getCsrf().then(async () => {
-    showApp(null);
-    setTab("search");
+    // 1. Determine which tab to show based on URL hash (e.g. #cloud or #search)
+    let initialTab = window.location.hash.replace("#", "") || "search";
+    if (initialTab !== "cloud" && initialTab !== "search") initialTab = "search";
+    
+    // Hide both views while loading to prevent flicker
+    $("cloudView").classList.add("hidden");
+    $("searchView").classList.add("hidden");
+    showApp(null); // Shows the header/navbar
+
     try {
       let data;
       try {
@@ -750,9 +761,15 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
-        setTab("cloud");
-        await loadFolder(0);
+        // If user is authenticated, respect their requested tab, default to search
+        setTab(initialTab);
+        if (initialTab === "cloud") {
+          await loadFolder(0);
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      // Not authenticated. Force them to search tab (Guest mode).
+      setTab("search");
+    }
   }).catch(() => status($("loginStatus"), "Server is running, but CSRF initialization failed. Restart the app.", "error"));
 })();
