@@ -45,7 +45,7 @@ class AppConfig:
             # In hosted dev/prod without explicit SECRET_KEY: derive from Upstash if available,
             # else generate ephemeral (logs out users on restart — acceptable for solo/free tier).
             if upstash_url and upstash_token:
-                from redis_store import RedisStore
+                from .redis_store import RedisStore
                 rs = RedisStore(upstash_url, upstash_token)
                 secret = rs.get_or_create_secret()
             else:

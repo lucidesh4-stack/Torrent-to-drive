@@ -12,7 +12,7 @@ from typing import Any, Callable, Mapping
 
 from flask import abort, g, jsonify, request, session
 
-from config import AppConfig
+from .config import AppConfig
 
 
 class ValidationError(ValueError):

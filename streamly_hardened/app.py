@@ -8,9 +8,9 @@ from typing import Any
 from flask import Flask, jsonify, render_template, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from config import AppConfig
-from redis_store import RedisStore
-from security import (
+from .config import AppConfig
+from .redis_store import RedisStore
+from .security import (
     ValidationError,
     csrf_required,
     ensure_sid,
@@ -31,8 +31,8 @@ from security import (
     validate_query,
     validate_sort,
 )
-from services import CloudService, SearchService, format_size, _safe_int
-from store import NotAuthenticated, TTLStore
+from .services import CloudService, SearchService, format_size, _safe_int
+from .store import NotAuthenticated, TTLStore
 
 log = logging.getLogger(__name__)
 
@@ -174,7 +174,7 @@ def create_app(
     @app.post("/api/login/silent")
     @rate_limited(limiter, cost=1.0)
     def login_silent():
-        """Attempt to restore session from stored refresh token. No body required."""
+        """Attempt to restore session from .stored refresh token. No body required."""
         sid = session.get("sid") or ensure_sid()
         try:
             _try_restore_from_refresh(sid)
