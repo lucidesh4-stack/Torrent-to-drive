@@ -304,17 +304,9 @@
         const nativeBtn = $("nativePlayerBtn");
         nativeBtn.onclick = () => {
           video.pause();
-          const isAndroid = /android/i.test(navigator.userAgent || navigator.vendor || window.opera);
-          if (isAndroid) {
-            // Android: Open StreamlyPlayer via deep link
-            const deepLink = `streamlyplayer://play?url=${encodeURIComponent(url)}`;
-            window.location.href = deepLink;
-          } else {
-            // iOS/Desktop: Force VLC protocol scheme
-            // Chrome throws scheme errors if vlc://https:// has too many slashes. Strip http/https.
-            const cleanUrl = url.replace(/^https?:\/\//, '');
-            window.location.href = `vlc://${cleanUrl}`;
-          }
+          // Open in StreamlyPlayer via deep link (Android + Windows)
+          const deepLink = `streamlyplayer://play?url=${encodeURIComponent(url)}`;
+          window.location.href = deepLink;
         };
         $("videoOverlay").classList.remove("hidden");
         video.play().catch(() => {});
