@@ -12,8 +12,8 @@ from urllib.parse import quote
 
 import requests
 
-from config import AppConfig
-from security import ValidationError
+from .config import AppConfig
+from .security import ValidationError
 
 log = logging.getLogger(__name__)
 
