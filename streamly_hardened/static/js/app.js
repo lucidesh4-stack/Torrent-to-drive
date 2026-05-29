@@ -306,12 +306,14 @@
           video.pause();
           const isAndroid = /android/i.test(navigator.userAgent || navigator.vendor || window.opera);
           if (isAndroid) {
-            // Android: Generic intent triggers "Open With" dialog
-            const intentUrl = `intent:${url}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
-            window.location.href = intentUrl;
+            // Android: Open StreamlyPlayer via deep link
+            const deepLink = `streamlyplayer://play?url=${encodeURIComponent(url)}`;
+            window.location.href = deepLink;
           } else {
             // iOS/Desktop: Force VLC protocol scheme
-            window.location.href = `vlc://${url}`;
+            // Chrome throws scheme errors if vlc://https:// has too many slashes. Strip http/https.
+            const cleanUrl = url.replace(/^https?:\/\//, '');
+            window.location.href = `vlc://${cleanUrl}`;
           }
         };
         $("videoOverlay").classList.remove("hidden");
