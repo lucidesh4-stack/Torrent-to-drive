@@ -299,6 +299,21 @@
         $("videoTitle").textContent = item.name || "Video";
         const video = $("videoPlayer");
         video.src = url;
+        
+        // Setup Native Player Button
+        const nativeBtn = $("nativePlayerBtn");
+        nativeBtn.onclick = () => {
+          video.pause();
+          const isAndroid = /android/i.test(navigator.userAgent || navigator.vendor || window.opera);
+          if (isAndroid) {
+            // Android: Generic intent triggers "Open With" dialog
+            const intentUrl = `intent:${url}#Intent;action=android.intent.action.VIEW;type=video/*;end`;
+            window.location.href = intentUrl;
+          } else {
+            // iOS/Desktop: Force VLC protocol scheme
+            window.location.href = `vlc://${url}`;
+          }
+        };
         $("videoOverlay").classList.remove("hidden");
         video.play().catch(() => {});
       } else {
