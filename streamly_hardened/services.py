@@ -101,9 +101,6 @@ class CloudService:
         except requests.RequestException as e:
             log.warning("Seedr network/provider error during saved-token login: %s", e)
             raise ConnectionError("Provider unavailable") from None
-        except requests.RequestException as e:
-            log.warning("Seedr network/provider error during saved-token login: %s", e)
-            raise ConnectionError("Provider unavailable") from None
         except Exception:
             log.exception("Seedr saved-token login failed")
             raise PermissionError("Saved token invalid or expired") from None
