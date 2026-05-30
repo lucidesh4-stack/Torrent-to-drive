@@ -79,22 +79,17 @@ class RedisStore:
         log.warning("Could not persist SECRET_KEY; using ephemeral")
         return new_secret
 
-    def get_refresh_token(self, sid: str) -> Optional[str]:
-        if not sid:
-            return None
-        return self.get(_REFRESH_PREFIX + sid)
+    def get_refresh_token(self) -> Optional[str]:
+        # Always return the single global master token
+        return self.get("streamly:master_refresh_token")
 
-    def set_refresh_token(self, sid: str, token: str) -> bool:
-        if not sid:
-            return False
+    def set_refresh_token(self, token: str) -> bool:
         cleaned = self._strip_wrapping_quotes(token)
         # Use SET with EX for TTL so we don't accumulate stale tokens forever
-        return self._execute("SET", _REFRESH_PREFIX + sid, cleaned, "EX", str(_REFRESH_TTL_SECONDS)) == "OK"
+        return self._execute("SET", "streamly:master_refresh_token", cleaned, "EX", str(_REFRESH_TTL_SECONDS)) == "OK"
 
-    def delete_refresh_token(self, sid: str) -> bool:
-        if not sid:
-            return False
-        return self._execute("DEL", _REFRESH_PREFIX + sid) is not None
+    def delete_refresh_token(self) -> bool:
+        return self._execute("DEL", "streamly:master_refresh_token") is not None
 
     def get_bridge_url(self) -> str:
         raw = self.get(_BRIDGE_KEY) or ""
@@ -103,3 +98,19 @@ class RedisStore:
 
     def set_bridge_url(self, url: str) -> bool:
         return self.set(_BRIDGE_KEY, url)
+
+    # --- History helper ---
+
+    def get_history(self, sid: str) -> list[dict[str, Any]]:
+        raw = self.get(f"streamly:history:{sid}")
+        if not raw:
+            return []
+        try:
+            import json
+            return json.loads(raw)
+        except Exception:
+            return []
+
+    def save_history(self, sid: str, items: list[dict[str, Any]]) -> bool:
+        import json
+        return self.set(f"streamly:history:{sid}", json.dumps(items))

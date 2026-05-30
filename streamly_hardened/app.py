@@ -73,33 +73,54 @@ def create_app(
         Returns the restored client (and updates the store/session) or raises NotAuthenticated."""
         if not rs:
             raise NotAuthenticated("Not authenticated")
-        rt = rs.get_refresh_token(sid)
+        rt = rs.get_refresh_token()
         if not rt:
             raise NotAuthenticated("Not authenticated")
         try:
             client, username = cloud.login_with_saved_token(rt)
         except PermissionError:
             # Refresh token is dead — clean it up so we stop trying
-            rs.delete_refresh_token(sid)
+            rs.delete_refresh_token()
             raise NotAuthenticated("Refresh token invalid")
         store.put(sid, client)
         session["username"] = username
         # Persist (possibly rotated) refresh token
         new_rt = CloudService.serialize_token(client)
         if new_rt and new_rt != rt:
-            rs.set_refresh_token(sid, new_rt)
-        log.info("Session restored via refresh_token for sid=%s...", sid[:8])
+            rs.set_refresh_token(new_rt)
+        log.info("Session restored via global master token for sid=%s...", sid[:8])
         return client
 
     def current_client():
         sid = session.get("sid")
         if not sid:
-            raise NotAuthenticated("Not authenticated")
+            sid = ensure_sid()
         try:
             return store.get(sid)
         except NotAuthenticated:
-            # In-memory store lost it (server restart, TTL expiry) — try refresh token
-            return _try_restore_from_refresh(sid)
+            # First try restoring from the global master token in Redis
+            try:
+                return _try_restore_from_refresh(sid)
+            except NotAuthenticated:
+                pass
+                
+            # If that fails and we have env vars, auto-login silently
+            if config.seedr_email and config.seedr_password:
+                try:
+                    client, username = cloud.login(config.seedr_email, config.seedr_password)
+                    store.put(sid, client)
+                    session["username"] = username
+                    if rs:
+                        rt = CloudService.serialize_token(client)
+                        if rt:
+                            rs.set_refresh_token(rt)
+                    log.info("Auto-logged in headless mode for sid=%s", sid[:8])
+                    return client
+                except Exception as e:
+                    log.error("Headless auto-login failed: %s", e)
+            
+            # Fallback
+            raise NotAuthenticated("Not authenticated")
 
     @app.errorhandler(ValidationError)
     def handle_validation(exc: ValidationError):
@@ -132,8 +153,7 @@ def create_app(
     @app.get("/")
     def index():
         ensure_sid()
-        get_csrf_token()
-        return render_template("index.html")
+        return render_template("index.html", csrf_token=get_csrf_token())
 
     @app.get("/healthz")
     def healthz():
@@ -168,7 +188,7 @@ def create_app(
         if rs:
             rt = CloudService.serialize_token(client)
             if rt:
-                rs.set_refresh_token(sid, rt)
+                rs.set_refresh_token(rt)
         return jsonify({"success": True, "username": username})
 
     @app.post("/api/login/silent")
@@ -176,22 +196,15 @@ def create_app(
     def login_silent():
         """Attempt to restore session from .stored refresh token. No body required."""
         sid = session.get("sid") or ensure_sid()
+        
+        # In single-account mode, simply calling current_client() will
+        # inherently trigger the fallback logic to log in using env vars.
         try:
-            _try_restore_from_refresh(sid)
+            current_client()
             return jsonify({"success": True, "username": session.get("username", "")})
         except NotAuthenticated:
             return json_error(401, "no_refresh_token", "No valid refresh token stored")
 
-    @app.post("/api/logout")
-    @csrf_required
-    def logout():
-        sid = session.get("sid")
-        if sid:
-            store.delete(sid)
-            if rs:
-                rs.delete_refresh_token(sid)
-        session.clear()
-        return jsonify({"success": True})
 
     @app.get("/fs/folder/<folder_id>/items")
     @rate_limited(limiter, cost=1.0)
@@ -288,6 +301,64 @@ def create_app(
         except Exception as e:
             log.warning("Provider error on add: %s", e)
             return json_error(502, "provider_error", "Provider rejected the request (e.g. storage full) or is unavailable")
+        return jsonify({"success": True})
+
+    # --- History API Routes ---
+
+    @app.get("/api/history")
+    @rate_limited(limiter, cost=1.0)
+    def get_history():
+        # Global history (not tied to specific session IDs)
+        try:
+            items = rs.get_history("global_history") if rs else []
+            return jsonify({"success": True, "items": items})
+        except Exception as e:
+            return json_error(500, "internal_error", str(e))
+
+    @app.post("/api/history/add")
+    @csrf_required
+    def add_history():
+        data = require_json_body(config)
+        magnet = validate_magnet(data.get("magnet"), config)
+        name = data.get("name", "Unknown Magnet")
+        import time
+        
+        new_item = {
+            "magnet": magnet,
+            "title": name,
+            "time": time.strftime("%d/%m/%Y, %H:%M:%S")
+        }
+        
+        items = rs.get_history("global_history") if rs else []
+        items = [it for it in items if it.get("magnet") != magnet]
+        items.insert(0, new_item)
+        items = items[:50] # keep last 50
+        
+        if rs:
+            rs.save_history("global_history", items)
+            
+        return jsonify({"success": True})
+
+    @app.post("/api/history/delete")
+    @csrf_required
+    def delete_history():
+        data = require_json_body(config)
+        magnet = data.get("magnet")
+        if not magnet:
+            return json_error(400, "bad_request", "Missing magnet link")
+            
+        items = rs.get_history("global_history") if rs else []
+        new_items = [it for it in items if it.get("magnet") != magnet]
+        if len(items) != len(new_items) and rs:
+            rs.save_history("global_history", new_items)
+            
+        return jsonify({"success": True})
+        
+    @app.post("/api/history/clear")
+    @csrf_required
+    def clear_history():
+        if rs:
+            rs.save_history("global_history", [])
         return jsonify({"success": True})
 
     @app.get("/api/url")
