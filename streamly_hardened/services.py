@@ -33,9 +33,7 @@ ClientFactory = Callable[[str, str], SeedrClientProtocol]
 
 
 def default_seedr_client_factory(email: str, password: str) -> SeedrClientProtocol:
-    # Lazy import keeps tests and non-Seedr tooling independent of the vendor SDK.
     from seedrcc import Seedr  # type: ignore
-
     return Seedr.from_password(email, password)
 
 
@@ -55,7 +53,6 @@ def _safe_int(value: Any, default: int = 0) -> int:
 
 
 def _safe_name(value: Any) -> str:
-    # The UI must still textContent-escape; this removes control chars and caps payload size.
     if not isinstance(value, str):
         value = str(value or "")
     return "".join(ch for ch in value if ch >= " " and ch != "\x7f")[:512]
@@ -82,11 +79,8 @@ class CloudService:
 
     def login_with_saved_token(self, token_b64: str) -> tuple[SeedrClientProtocol, str]:
         """Re-establish a Seedr session from a previously serialized Token (base64).
-
-        We store the full Token (not just refresh_token) because Seedr's OAuth doesn't
-        always rotate refresh tokens, and seedrcc's from_refresh_token() crashes if the
-        refresh response omits a new one. Storing the full token sidesteps that bug.
-        """
+        We store the full Token (not just refresh_token) because seedrcc's from_refresh_token()
+        crashes if the response omits a new refresh token. Storing the full token sidesteps that bug."""
         if not token_b64 or not isinstance(token_b64, str):
             raise PermissionError("No saved token available")
         try:
@@ -94,7 +88,6 @@ class CloudService:
             from seedrcc.token import Token  # type: ignore
             token = Token.from_base64(token_b64)
             client = Seedr(token=token)
-            # Validate by making a real API call — if creds are dead, this fails
             settings = client.get_settings()
             username = _safe_name(getattr(getattr(settings, "account", None), "username", ""))
             return client, username
@@ -106,16 +99,20 @@ class CloudService:
             raise PermissionError("Saved token invalid or expired") from None
 
     @staticmethod
-    def serialize_token(client: SeedrClientProtocol) -> str:
-        """Serialize the client's current Token to a base64 string for persistence."""
+    def serialize_token(client: SeedrClientProtocol) -> str | None:
+        """Serialize the client's current Token to a base64 string for persistence.
+        Returns None (not empty string) if serialization fails — callers must check for None."""
         token_obj = getattr(client, "token", None)
         if token_obj is None:
-            return ""
+            return None
         try:
             b64 = token_obj.to_base64()
-            return b64 if isinstance(b64, str) else ""
+            # FIX 2: Reject empty/falsy results. Returning None forces callers to skip storage.
+            if not isinstance(b64, str) or not b64:
+                return None
+            return b64
         except Exception:
-            return ""
+            return None
 
     def list_items(self, client: SeedrClientProtocol, folder_id: int) -> dict[str, Any]:
         contents = client.list_contents(folder_id)
@@ -150,7 +147,7 @@ class CloudService:
             client.delete_folder(item_id)
         elif item_type == "file":
             client.delete_file(item_id)
-        else:  # Defensive guard: validation should have caught this.
+        else:
             raise ValidationError("Invalid type")
 
     def add_magnet(self, client: SeedrClientProtocol, magnet: str) -> None:
@@ -162,6 +159,9 @@ class CloudService:
             if not isinstance(url, str) or not url.startswith(("https://", "http://")):
                 return ""
             return url
+        except requests.RequestException as e:
+            log.warning("Provider error fetching stream URL: %s", e)
+            raise ConnectionError("Provider unavailable") from None
         except Exception:
             log.exception("Failed fetching stream URL")
             return ""
@@ -183,21 +183,24 @@ class CloudService:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
                 return url
             return ""
+        except requests.RequestException as e:
+            log.warning("Archive URL request failed: %s", e)
+            raise ConnectionError("Provider unavailable") from None
         except Exception:
             log.exception("Failed fetching archive URL")
             return ""
 
     def get_zip_url_bulk(self, client: SeedrClientProtocol, items: list) -> str:
-        """Create one zip containing multiple items.
-
-        items: list of dicts like [{"type": "file", "id": 123}, {"type": "folder", "id": 456}]
-        """
+        """Create one zip containing multiple items. Returns empty string on failure."""
         token_obj = getattr(client, "token", None)
         token = getattr(token_obj, "access_token", None)
         if not isinstance(token, str) or not token:
             raise PermissionError("Provider token unavailable")
         archive_arr = items
-        return self._fetch_archive_url(token, archive_arr)
+        result = self._fetch_archive_url(token, archive_arr)
+        if not result:
+            raise ConnectionError("Failed to create zip — provider returned no URL")
+        return result
 
     def get_zip_url(self, client: SeedrClientProtocol, item_type: str, item_id: int) -> str:
         token_obj = getattr(client, "token", None)
@@ -205,25 +208,7 @@ class CloudService:
         if not isinstance(token, str) or not token:
             raise PermissionError("Provider token unavailable")
         archive_arr = [{"type": item_type, "id": item_id}]
-        try:
-            # seedrcc uses Seedr's oauth_test/resource.php endpoint internally. The previous
-            # /api/v2/download/archive endpoint returns 404 for this account/API version.
-            response = self.http.post(
-                "https://www.seedr.cc/oauth_test/resource.php",
-                data={
-                    "access_token": token,
-                    "func": "fetch_archive",
-                    "archive_arr": __import__("json").dumps(archive_arr, separators=(",", ":")),
-                },
-                timeout=self.config.archive_timeout_seconds,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            url = payload.get("archive_url") or payload.get("url") or ""
-            return url if isinstance(url, str) and url.startswith(("https://", "http://")) else ""
-        except (requests.RequestException, ValueError) as exc:
-            log.warning("Archive URL request failed: %s", exc)
-            return ""
+        return self._fetch_archive_url(token, archive_arr)
 
 
 _BITSEARCH_DNS_LOCK = threading.RLock()
@@ -237,11 +222,7 @@ def _is_name_resolution_error(exc: BaseException) -> bool:
 
 def _resolve_bitsearch_via_doh(timeout: float) -> str | None:
     """Resolve bitsearch.eu through Cloudflare DoH as a compatibility fallback.
-
-    The original prototype globally monkey-patched socket.getaddrinfo at import time.
-    This keeps the same user-visible behavior, but makes it scoped, cached, validated,
-    and only used after normal DNS resolution fails.
-    """
+    Uses a scoped, cached, validated approach — only used after normal DNS fails."""
     global _BITSEARCH_IP_CACHE
     now = time.monotonic()
     if _BITSEARCH_IP_CACHE and _BITSEARCH_IP_CACHE[1] > now:

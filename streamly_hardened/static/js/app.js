@@ -907,7 +907,7 @@
       add.dataset.state = "adding";
       add.textContent = "Adding...";
       try {
-        await postJson("/api/add", { magnet: result.magnet });
+        await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
         add.dataset.state = "done";
         add.textContent = "✓ Added";

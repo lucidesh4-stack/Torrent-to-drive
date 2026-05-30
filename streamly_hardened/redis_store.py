@@ -83,9 +83,13 @@ class RedisStore:
         # Always return the single global master token
         return self.get("streamly:master_refresh_token")
 
-    def set_refresh_token(self, token: str) -> bool:
+    def set_refresh_token(self, token: str | None) -> bool:
+        """Persist the refresh token to Redis with 30-day TTL.
+        FIX 2: Rejects falsy values (None, empty string) — callers must not pass them."""
+        if not token:
+            log.warning("set_refresh_token called with empty/None value — skipping Redis write")
+            return False
         cleaned = self._strip_wrapping_quotes(token)
-        # Use SET with EX for TTL so we don't accumulate stale tokens forever
         return self._execute("SET", "streamly:master_refresh_token", cleaned, "EX", str(_REFRESH_TTL_SECONDS)) == "OK"
 
     def delete_refresh_token(self) -> bool:
@@ -93,7 +97,6 @@ class RedisStore:
 
     def get_bridge_url(self) -> str:
         raw = self.get(_BRIDGE_KEY) or ""
-        # Heal previously corrupted values on read too
         return self._strip_wrapping_quotes(raw)
 
     def set_bridge_url(self, url: str) -> bool:
@@ -112,5 +115,7 @@ class RedisStore:
             return []
 
     def save_history(self, sid: str, items: list[dict[str, Any]]) -> bool:
+        """Save history to Redis. Returns True on success, False on failure.
+        FIX 2: Explicit return value so callers can detect and handle failures."""
         import json
         return self.set(f"streamly:history:{sid}", json.dumps(items))
