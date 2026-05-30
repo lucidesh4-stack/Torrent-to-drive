@@ -657,6 +657,7 @@
     const page = Number(pagination.page) || 1;
     const totalPages = Number(pagination.totalPages) || 1;
     const total = Number(pagination.total) || 0;
+    const isNarrow = window.innerWidth < 500;
 
     function addButton(label, num, disabled, active) {
       const btn = document.createElement("button");
@@ -671,29 +672,36 @@
       box.appendChild(btn);
     }
 
-    addButton("\u2039 Prev", Math.max(1, page - 1), page <= 1, false);
-    const pages = new Set([1, totalPages, page, page - 1, page + 1]);
-    for (let i = 1; i <= Math.min(totalPages, 3); i++) pages.add(i);
-    for (let i = Math.max(1, totalPages - 2); i <= totalPages; i++) pages.add(i);
-    const ordered = [...pages].filter(n => n >= 1 && n <= totalPages).sort((a, b) => a - b);
-    let last = 0;
-    for (const n of ordered) {
-      if (last && n > last + 1) {
-        const gap = document.createElement("span");
-        gap.className = "muted";
-        gap.textContent = "...";
-        box.appendChild(gap);
+    addButton("\u2039", Math.max(1, page - 1), page <= 1, false);
+
+    if (isNarrow) {
+      // Slim: only show current page between Prev/Next
+      addButton(String(page), page, false, true);
+    } else {
+      const pages = new Set([1, totalPages, page, page - 1, page + 1]);
+      for (let i = 1; i <= Math.min(totalPages, 3); i++) pages.add(i);
+      for (let i = Math.max(1, totalPages - 2); i <= totalPages; i++) pages.add(i);
+      const ordered = [...pages].filter(n => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+      let last = 0;
+      for (const n of ordered) {
+        if (last && n > last + 1) {
+          const gap = document.createElement("span");
+          gap.className = "muted";
+          gap.textContent = "...";
+          box.appendChild(gap);
+        }
+        addButton(String(n), n, false, n === page);
+        last = n;
       }
-      addButton(String(n), n, false, n === page);
-      last = n;
     }
-    addButton("Next \u203A", Math.min(totalPages, page + 1), page >= totalPages, false);
+
+    addButton("\u203A", Math.min(totalPages, page + 1), page >= totalPages, false);
 
     const info = document.createElement("div");
     info.className = "page-info";
     const tookText = typeof took === "number" ? ` in ${took}ms` : "";
     const perPage = Number(pagination.perPage || 50);
-    info.textContent = total ? `Showing page ${page} of ${totalPages} (${total} total results, ${perPage} per page${tookText})` : `Showing page ${page} of ${totalPages}`;
+    info.textContent = total ? `Page ${page} of ${totalPages} (${total} results, ${perPage}/page${tookText})` : `Page ${page} of ${totalPages}`;
     box.appendChild(info);
     box.classList.remove("hidden");
   }
