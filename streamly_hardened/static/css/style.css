@@ -48,6 +48,7 @@
       border-radius: 12px;
       padding: 12px 13px;
       outline: none;
+      font-size: 16px; /* prevents iOS auto-zoom on focus */
     }
     input:focus, select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(74,144,226,.18); }
     label { display: block; margin: 14px 0 7px; color: var(--muted); font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
@@ -145,11 +146,55 @@
 
     @media (max-width: 980px) {
       .cloud-layout { grid-template-columns: 1fr; }
-        .search-grid { grid-template-columns: 1fr; }
-      .topbar-inner { align-items: flex-start; padding: 12px 0; flex-direction: column; }
-      #cloudView .table th:nth-child(3), #cloudView .table td:nth-child(3), #cloudView .table th:nth-child(4), #cloudView .table td:nth-child(4) { display: none; }
-      .torrent-table-wrap { display: block; }
-      .mobile-result { display: none !important; }
+      .search-grid { grid-template-columns: 1fr; }
+      /* Keep tabs in a scrollable row instead of stacking */
+      .topbar-inner { padding: 10px 0; flex-wrap: nowrap; }
+      .topbar-inner .brand { flex-shrink: 0; }
+      .topbar-inner .logo { width: 34px; height: 34px; border-radius: 10px; font-size: 15px; }
+      .topbar-inner h2 { font-size: 16px; }
+      .tabs { flex-shrink: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+      .tabs::-webkit-scrollbar { display: none; }
+      .user-pill { max-width: 120px; font-size: 11px; padding: 6px 10px; }
+      #cloudView .table th:nth-child(3), #cloudView .table td:nth-child(3),
+      #cloudView .table th:nth-child(4), #cloudView .table td:nth-child(4),
+      #cloudView .table th:nth-child(5), #cloudView .table td:nth-child(5) { display: none; }
+    }
+
+    /* --- Mobile: switch torrent table → card layout --- */
+    @media (max-width: 700px) {
+      .torrent-table-wrap { display: none !important; }
+      #mobileResults { display: block !important; }
+      .mobile-result { display: block !important; }
+      .side-card { padding: 12px; }
+      .actions { flex-direction: column; }
+      .actions button { width: 100%; }
+      .topbar-inner h2 { font-size: 14px; }
+      .topbar-inner .brand { gap: 8px; }
+      .main { margin: 14px auto 40px; }
+      .panel { border-radius: 14px; }
+      .table td { padding: 10px 10px; }
+      .table th { padding: 10px 10px; font-size: 11px; }
+      .page-btn { padding: 7px 10px; font-size: 13px; }
+    }
+
+    /* --- Small phones: compact pagination --- */
+    @media (max-width: 420px) {
+      .pagination { gap: 4px; }
+      .page-btn { padding: 6px 9px; font-size: 12px; border-radius: 8px; }
+      .page-info { font-size: 12px; }
+      .user-pill { display: none !important; }
+      .login-card { padding: 20px; }
+      h1 { font-size: 24px; }
+      .topbar-inner { min-height: 56px; }
+      .search-unified-row { gap: 6px; }
+      .search-box-wrap { min-width: 0; }
+      /* History modal: card layout */
+      #historyOverlay .table { display: block; }
+      #historyOverlay thead { display: none; }
+      #historyOverlay tbody { display: block; }
+      #historyOverlay tr { display: flex; flex-direction: column; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+      #historyOverlay td { display: block; padding: 4px 0; border-bottom: none; text-align: left !important; }
+      #historyOverlay td:first-child { font-weight: 600; }
     }
 
 /* --- Magnet paste section --- */
@@ -225,10 +270,12 @@
 
 /* --- Multi-select cloud drive --- */
 .row-check {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
   cursor: pointer;
   accent-color: var(--blue, #3b82f6);
+  min-width: 20px;
+  min-height: 20px;
 }
 #cloudBody tr.selected {
   background: rgba(59, 130, 246, 0.12);
