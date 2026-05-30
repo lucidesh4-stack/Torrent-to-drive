@@ -1,0 +1,423 @@
+  function updateSelection() {
+    refreshSelectedShim();
+    const count = selectedKeys.size;
+    const heading = $("selectionHeading");
+    const clearBtn = $("clearSelBtn");
+
+    if (count === 0) {
+      heading.textContent = "Selected Item";
+      $("selName").textContent = "None";
+      $("selType").textContent = "-";
+      $("selSize").textContent = "-";
+      clearBtn.style.display = "none";
+    } else if (count === 1) {
+      const item = selected;
+      heading.textContent = "Selected Item";
+      $("selName").textContent = item ? item.name : "None";
+      $("selType").textContent = item ? item.type : "-";
+      $("selSize").textContent = item ? (item.size_str || "-") : "-";
+      clearBtn.style.display = "";
+    } else {
+      // Multi-select: aggregate
+      const selectedItems = items.filter(it => selectedKeys.has(it.key));
+      const totalBytes = selectedItems.reduce((sum, it) => sum + Number(it.size || 0), 0);
+      const types = new Set(selectedItems.map(it => it.type));
+      heading.textContent = `${count} items selected`;
+      $("selName").textContent = `${selectedItems.length} items`;
+      $("selType").textContent = types.size === 1 ? [...types][0] + "s" : "mixed";
+      $("selSize").textContent = bytes(totalBytes);
+      clearBtn.style.display = "";
+    }
+
+    // Visual: toggle row classes + checkbox state
+    document.querySelectorAll("#cloudBody tr").forEach((tr) => {
+      const isSel = selectedKeys.has(tr.dataset.key);
+      tr.classList.toggle("selected", isSel);
+      const cb = tr.querySelector(".row-check");
+      if (cb) cb.checked = isSel;
+    });
+
+    // Master checkbox indeterminate state
+    const allCb = $("selectAllCheck");
+    if (allCb) {
+      if (count === 0) { allCb.checked = false; allCb.indeterminate = false; }
+      else if (count === items.length) { allCb.checked = true; allCb.indeterminate = false; }
+      else { allCb.checked = false; allCb.indeterminate = true; }
+    }
+
+    // Open button: disabled when multi-select (open only makes sense for one)
+    $("openBtn").disabled = count !== 1;
+
+    // ----- Mobile selection sync -----
+    document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
+      row.classList.toggle("sel", selectedKeys.has(row.dataset.key));
+    });
+    const bulk = $("cloudBulkBar");
+    if (bulk) {
+      bulk.classList.toggle("hidden", count === 0);
+      const bc = $("cmBulkCount");
+      if (bc) bc.textContent = `${count} selected`;
+    }
+    // Mobile select-all checkbox state
+    const cmAll = $("cmSelectAll");
+    if (cmAll) {
+      if (count === 0) { cmAll.checked = false; cmAll.indeterminate = false; }
+      else if (count === items.length) { cmAll.checked = true; cmAll.indeterminate = false; }
+      else { cmAll.checked = false; cmAll.indeterminate = true; }
+    }
+  }
+
+  function toggleKey(key, additive, range) {
+    if (range && lastClickedKey) {
+      // Shift+click: select range between lastClickedKey and key
+      const visibleKeys = items.map(it => it.key);
+      const i1 = visibleKeys.indexOf(lastClickedKey);
+      const i2 = visibleKeys.indexOf(key);
+      if (i1 !== -1 && i2 !== -1) {
+        const [lo, hi] = i1 < i2 ? [i1, i2] : [i2, i1];
+        for (let i = lo; i <= hi; i++) selectedKeys.add(visibleKeys[i]);
+      }
+    } else if (additive) {
+      // Ctrl/Cmd+click: toggle
+      if (selectedKeys.has(key)) selectedKeys.delete(key);
+      else selectedKeys.add(key);
+      lastClickedKey = key;
+    } else {
+      // Plain click: single-select
+      selectedKeys.clear();
+      selectedKeys.add(key);
+      lastClickedKey = key;
+    }
+    updateSelection();
+  }
+
+  function renderCloud() {
+    const body = $("cloudBody");
+    body.textContent = "";
+    $("pathLabel").textContent = `Folder ID: ${currentFolder}`;
+    $("upBtn").disabled = currentFolder === 0;
+    $("cloudEmpty").classList.toggle("hidden", items.length !== 0);
+    selectedKeys.clear();
+    lastClickedKey = null;
+    updateSelection();
+
+    for (const item of items) {
+      const tr = document.createElement("tr");
+      tr.dataset.key = item.key;
+
+      const checkTd = document.createElement("td");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.className = "row-check";
+      cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(item.key, true, false); });
+      checkTd.appendChild(cb);
+
+      const nameTd = document.createElement("td");
+      const nameCell = document.createElement("div");
+      nameCell.className = "name-cell";
+      const icon = document.createElement("span");
+      icon.className = "icon";
+      icon.textContent = item.type === "folder" ? "\u{1F4C1}" : "\u{1F3AC}";
+      const name = document.createElement("span");
+      name.className = "truncate";
+      name.textContent = item.name || "Unnamed";
+      nameCell.append(icon, name);
+      nameTd.appendChild(nameCell);
+
+      const typeTd = document.createElement("td");
+      typeTd.className = "muted";
+      typeTd.textContent = item.type;
+
+      const sizeTd = document.createElement("td");
+      sizeTd.className = "muted";
+      sizeTd.textContent = item.size_str || "-";
+
+      const dateTd = document.createElement("td");
+      dateTd.className = "muted";
+      dateTd.textContent = fmtDate(item.last_update);
+
+      tr.append(checkTd, nameTd, typeTd, sizeTd, dateTd);
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest(".row-check")) return; // checkbox handles its own
+        toggleKey(item.key, e.ctrlKey || e.metaKey, e.shiftKey);
+      });
+      tr.addEventListener("dblclick", () => openItem(item));
+      body.appendChild(tr);
+    }
+
+    renderCloudMobile();
+  }
+
+  let cmTapTimer = null; // distinguishes single-tap (select) from double-tap (open)
+
+  function renderCloudMobile() {
+    const list = $("cloudMobileList");
+    if (!list) return;
+    list.textContent = "";
+    const cnt = $("cmCount");
+    if (cnt) cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}`;
+    const empty = $("cloudMobileEmpty");
+    if (empty) empty.classList.toggle("hidden", items.length !== 0);
+    $("cmUpBtn").disabled = currentFolder === 0;
+
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "cm-row";
+      row.dataset.key = item.key;
+
+      const tick = document.createElement("div");
+      tick.className = "cm-tick";
+      tick.textContent = "✓";
+
+      const ic = document.createElement("div");
+      ic.className = "cm-ic";
+      ic.textContent = item.type === "folder" ? "\u{1F4C1}" : "\u{1F3AC}";
+
+      const info = document.createElement("div");
+      info.className = "cm-info";
+      const fn = document.createElement("div");
+      fn.className = "cm-fn";
+      fn.textContent = item.name || "Unnamed";
+      const meta = document.createElement("div");
+      meta.className = "cm-meta";
+      const s1 = document.createElement("span");
+      s1.textContent = item.size_str || "-";
+      const s2 = document.createElement("span");
+      s2.textContent = fmtDate(item.last_update);
+      meta.append(s1, s2);
+      info.append(fn, meta);
+
+      const kebab = document.createElement("button");
+      kebab.type = "button";
+      kebab.className = "cm-kebab";
+      kebab.textContent = "\u22EE";
+      kebab.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCtxMenu(item, kebab);
+      });
+
+      row.append(tick, ic, info, kebab);
+
+      // tap = select/unselect ; double-tap = open
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".cm-kebab")) return;
+        if (cmTapTimer) {
+          clearTimeout(cmTapTimer);
+          cmTapTimer = null;
+          openItem(item); // double-tap
+          return;
+        }
+        cmTapTimer = setTimeout(() => {
+          cmTapTimer = null;
+          toggleKey(item.key, true, false); // single-tap toggles selection
+        }, 240);
+      });
+
+      list.appendChild(row);
+    }
+  }
+
+  let ctxItem = null;
+  function openCtxMenu(item, anchor) {
+    ctxItem = item;
+    const menu = $("cloudCtxMenu");
+    if (!menu) return;
+    menu.classList.remove("hidden");
+    const r = anchor.getBoundingClientRect();
+    const mw = 210;
+    let left = r.right - mw + window.scrollX;
+    if (left < 8) left = 8;
+    menu.style.left = left + "px";
+    menu.style.top = (r.bottom + 6 + window.scrollY) + "px";
+  }
+  function closeCtxMenu() {
+    const menu = $("cloudCtxMenu");
+    if (menu) menu.classList.add("hidden");
+    ctxItem = null;
+  }
+
+  async function ctxAction(act) {
+    const item = ctxItem;
+    closeCtxMenu();
+    if (!item) return;
+    // operate on this single item
+    selectedKeys.clear();
+    selectedKeys.add(item.key);
+    lastClickedKey = item.key;
+    updateSelection();
+    if (act === "download") return downloadSelected();
+    if (act === "delete") return deleteSelected();
+    if (act === "copy") {
+      try {
+        if (item.type !== "file") {
+          // folder: produce a zip link to copy
+          const data = await postJson("/api/zip", { type: item.type, id: item.id });
+          if (!data.url) throw new Error("No link");
+          await navigator.clipboard.writeText(data.url);
+        } else {
+          const url = await getFileUrl(item);
+          await navigator.clipboard.writeText(url);
+        }
+        toast("Link copied to clipboard");
+      } catch (err) {
+        toast(err.message || "Could not copy link");
+      }
+    }
+  }
+
+  function updateStorage(used, max) {
+    const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
+    $("storageMeter").style.width = pct.toFixed(1) + "%";
+    $("storageText").textContent = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
+    const cmMeter = $("cmStorageMeter");
+    const cmText = $("cmStorageText");
+    if (cmMeter) cmMeter.style.width = pct.toFixed(1) + "%";
+    if (cmText) cmText.textContent = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
+  }
+
+  function bytes(n) {
+    n = Number(n || 0);
+    if (n >= 1024 ** 4) return (n / 1024 ** 4).toFixed(2) + " TB";
+    if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + " GB";
+    if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + " MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
+    return n + " B";
+  }
+
+  async function loadFolder(id) {
+    status($("cloudStatus"), "Loading folder...", "");
+    try {
+      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin" }));
+      currentFolder = Number(id);
+      parentFolder = Number(data.parent || 0);
+      items = [];
+      for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
+      for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
+      updateStorage(data.used || 0, data.max || 1);
+      renderCloud();
+      status($("cloudStatus"), `Loaded ${items.length} item(s).`, "ok");
+    } catch (err) {
+      if ((err.message || "").toLowerCase().includes("login")) showLogin();
+      status($("cloudStatus"), err.message || "Failed to load folder", "error");
+    }
+  }
+
+  async function getFileUrl(item) {
+    if (!item || item.type !== "file") throw new Error("Select a file first");
+    const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
+    if (!data.url) throw new Error("No download/stream URL returned");
+    return data.url;
+  }
+
+  async function openItem(item = selected) {
+    if (!item) return toast("Select an item first");
+    if (item.type === "folder") return loadFolder(item.id);
+    try {
+      const url = await getFileUrl(item);
+      const ext = String(item.name || "").split(".").pop().toLowerCase();
+      if (["mp4", "webm", "mov", "m4v", "mkv", "avi"].includes(ext)) {
+        $("videoTitle").textContent = item.name || "Video";
+        const video = $("videoPlayer");
+        video.src = url;
+        
+        // Setup Native Player Button
+        const nativeBtn = $("nativePlayerBtn");
+        nativeBtn.onclick = () => {
+          video.pause();
+          // Open in StreamlyPlayer via deep link (Android + Windows)
+          const deepLink = `streamlyplayer://play?url=${encodeURIComponent(url)}`;
+          window.location.href = deepLink;
+        };
+        $("videoOverlay").classList.remove("hidden");
+        video.play().catch(() => {});
+      } else {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    } catch (err) {
+      toast(err.message || "Could not open item");
+    }
+  }
+
+  async function downloadSelected() {
+    if (selectedKeys.size === 0) return toast("Select item(s) first");
+    const selectedItems = items.filter(it => selectedKeys.has(it.key));
+
+    // Folders cannot be direct-downloaded — must be zipped
+    const folders = selectedItems.filter(it => it.type === "folder");
+    const files = selectedItems.filter(it => it.type === "file");
+
+    if (folders.length > 0 && files.length === 0) {
+      // All folders → redirect to zip
+      return zipSelected();
+    }
+    if (folders.length > 0) {
+      if (!confirm(`Selection has ${folders.length} folder(s). Folders will be zipped together with files. Continue?`)) return;
+      return zipSelected();
+    }
+
+    // All files: trigger individual downloads with delay
+    status($("cloudStatus"), `Downloading ${files.length} file(s)...`, "");
+    let done = 0;
+    for (const file of files) {
+      try {
+        const url = await getFileUrl(file);
+        // Force "save" behavior: create hidden <a download> and click it
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = file.name || "";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        done++;
+        status($("cloudStatus"), `Downloading ${done}/${files.length}...`, "");
+        if (done < files.length) await new Promise(r => setTimeout(r, 500));
+      } catch (err) {
+        toast(`Failed: ${file.name} — ${err.message}`);
+      }
+    }
+    status($("cloudStatus"), `Started ${done} download(s).`, "ok");
+  }
+
+  async function zipSelected() {
+    if (selectedKeys.size === 0) return toast("Select item(s) first");
+    const payload = items
+      .filter(it => selectedKeys.has(it.key))
+      .map(it => ({ type: it.type, id: it.id }));
+    status($("cloudStatus"), `Preparing zip of ${payload.length} item(s)...`, "");
+    try {
+      const endpoint = payload.length === 1 ? "/api/zip" : "/api/zip/bulk";
+      const body = payload.length === 1 ? { type: payload[0].type, id: payload[0].id } : { items: payload };
+      const data = await postJson(endpoint, body);
+      if (!data.url) throw new Error("Zip URL was not returned");
+      window.open(data.url, "_blank", "noopener,noreferrer");
+      status($("cloudStatus"), "Zip link opened.", "ok");
+    } catch (err) {
+      status($("cloudStatus"), err.message || "Zip failed", "error");
+    }
+  }
+
+  async function deleteSelected() {
+    if (selectedKeys.size === 0) return toast("Select item(s) first");
+    const payload = items
+      .filter(it => selectedKeys.has(it.key))
+      .map(it => ({ type: it.type, id: it.id }));
+    const msg = payload.length === 1
+      ? `Delete ${selected.type}: ${selected.name}?`
+      : `Delete ${payload.length} items? This cannot be undone.`;
+    if (!confirm(msg)) return;
+    status($("cloudStatus"), `Deleting ${payload.length} item(s)...`, "");
+    try {
+      if (payload.length === 1) {
+        await postJson("/api/delete", { type: payload[0].type, id: payload[0].id });
+      } else {
+        await postJson("/api/delete/bulk", { items: payload });
+      }
+      toast(`Deleted ${payload.length} item(s)`);
+      await loadFolder(currentFolder);
+    } catch (err) {
+      status($("cloudStatus"), err.message || "Delete failed", "error");
+    }
+  }
+

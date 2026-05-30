@@ -159,7 +159,21 @@ def create_app(
     @app.get("/")
     def index():
         ensure_sid()
-        return render_template("index.html", csrf_token=get_csrf_token())
+        # Auto cache-bust: bump whenever any static asset changes (mtime-based),
+        # so deploys never serve a stale CSS/JS mix.
+        import os as _os
+        static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+        try:
+            asset_ver = int(max(
+                _os.path.getmtime(_os.path.join(root, f))
+                for root, _dirs, files in _os.walk(static_dir)
+                for f in files
+            ))
+        except ValueError:
+            asset_ver = 1
+        return render_template(
+            "index.html", csrf_token=get_csrf_token(), asset_ver=asset_ver
+        )
 
     @app.get("/healthz")
     def healthz():

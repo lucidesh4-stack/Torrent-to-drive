@@ -100,6 +100,8 @@
     $("userPill").classList.toggle("hidden", !isAuthenticated);
     $("userPill").textContent = username ? username : "Guest";
     $("accountLabel").textContent = username ? `Connected as ${username}` : "Guest Mode";
+    const cmAcct = $("cmAccount");
+    if (cmAcct) cmAcct.textContent = username ? `Connected as ${username}` : "Guest Mode";
   }
 
   function showLogin() {
@@ -161,6 +163,24 @@
 
     // Open button: disabled when multi-select (open only makes sense for one)
     $("openBtn").disabled = count !== 1;
+
+    // ----- Mobile selection sync -----
+    document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
+      row.classList.toggle("sel", selectedKeys.has(row.dataset.key));
+    });
+    const bulk = $("cloudBulkBar");
+    if (bulk) {
+      bulk.classList.toggle("hidden", count === 0);
+      const bc = $("cmBulkCount");
+      if (bc) bc.textContent = `${count} selected`;
+    }
+    // Mobile select-all checkbox state
+    const cmAll = $("cmSelectAll");
+    if (cmAll) {
+      if (count === 0) { cmAll.checked = false; cmAll.indeterminate = false; }
+      else if (count === items.length) { cmAll.checked = true; cmAll.indeterminate = false; }
+      else { cmAll.checked = false; cmAll.indeterminate = true; }
+    }
   }
 
   function toggleKey(key, additive, range) {
@@ -184,14 +204,6 @@
       selectedKeys.add(key);
       lastClickedKey = key;
     }
-    updateSelection();
-  }
-
-  // Kept for any leftover callers
-  function updateSelected(item) {
-    selectedKeys.clear();
-    if (item) selectedKeys.add(item.key);
-    lastClickedKey = item ? item.key : null;
     updateSelection();
   }
 
@@ -248,12 +260,135 @@
       tr.addEventListener("dblclick", () => openItem(item));
       body.appendChild(tr);
     }
+
+    renderCloudMobile();
+  }
+
+  let cmTapTimer = null; // distinguishes single-tap (select) from double-tap (open)
+
+  function renderCloudMobile() {
+    const list = $("cloudMobileList");
+    if (!list) return;
+    list.textContent = "";
+    const cnt = $("cmCount");
+    if (cnt) cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}`;
+    const empty = $("cloudMobileEmpty");
+    if (empty) empty.classList.toggle("hidden", items.length !== 0);
+    $("cmUpBtn").disabled = currentFolder === 0;
+
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "cm-row";
+      row.dataset.key = item.key;
+
+      const tick = document.createElement("div");
+      tick.className = "cm-tick";
+      tick.textContent = "✓";
+
+      const ic = document.createElement("div");
+      ic.className = "cm-ic";
+      ic.textContent = item.type === "folder" ? "\u{1F4C1}" : "\u{1F3AC}";
+
+      const info = document.createElement("div");
+      info.className = "cm-info";
+      const fn = document.createElement("div");
+      fn.className = "cm-fn";
+      fn.textContent = item.name || "Unnamed";
+      const meta = document.createElement("div");
+      meta.className = "cm-meta";
+      const s1 = document.createElement("span");
+      s1.textContent = item.size_str || "-";
+      const s2 = document.createElement("span");
+      s2.textContent = fmtDate(item.last_update);
+      meta.append(s1, s2);
+      info.append(fn, meta);
+
+      const kebab = document.createElement("button");
+      kebab.type = "button";
+      kebab.className = "cm-kebab";
+      kebab.textContent = "\u22EE";
+      kebab.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCtxMenu(item, kebab);
+      });
+
+      row.append(tick, ic, info, kebab);
+
+      // tap = select/unselect ; double-tap = open
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".cm-kebab")) return;
+        if (cmTapTimer) {
+          clearTimeout(cmTapTimer);
+          cmTapTimer = null;
+          openItem(item); // double-tap
+          return;
+        }
+        cmTapTimer = setTimeout(() => {
+          cmTapTimer = null;
+          toggleKey(item.key, true, false); // single-tap toggles selection
+        }, 240);
+      });
+
+      list.appendChild(row);
+    }
+  }
+
+  let ctxItem = null;
+  function openCtxMenu(item, anchor) {
+    ctxItem = item;
+    const menu = $("cloudCtxMenu");
+    if (!menu) return;
+    menu.classList.remove("hidden");
+    const r = anchor.getBoundingClientRect();
+    const mw = 210;
+    let left = r.right - mw + window.scrollX;
+    if (left < 8) left = 8;
+    menu.style.left = left + "px";
+    menu.style.top = (r.bottom + 6 + window.scrollY) + "px";
+  }
+  function closeCtxMenu() {
+    const menu = $("cloudCtxMenu");
+    if (menu) menu.classList.add("hidden");
+    ctxItem = null;
+  }
+
+  async function ctxAction(act) {
+    const item = ctxItem;
+    closeCtxMenu();
+    if (!item) return;
+    // operate on this single item
+    selectedKeys.clear();
+    selectedKeys.add(item.key);
+    lastClickedKey = item.key;
+    updateSelection();
+    if (act === "download") return downloadSelected();
+    if (act === "delete") return deleteSelected();
+    if (act === "copy") {
+      try {
+        if (item.type !== "file") {
+          // folder: produce a zip link to copy
+          const data = await postJson("/api/zip", { type: item.type, id: item.id });
+          if (!data.url) throw new Error("No link");
+          await navigator.clipboard.writeText(data.url);
+        } else {
+          const url = await getFileUrl(item);
+          await navigator.clipboard.writeText(url);
+        }
+        toast("Link copied to clipboard");
+      } catch (err) {
+        toast(err.message || "Could not copy link");
+      }
+    }
   }
 
   function updateStorage(used, max) {
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
     $("storageMeter").style.width = pct.toFixed(1) + "%";
     $("storageText").textContent = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
+    const cmMeter = $("cmStorageMeter");
+    const cmText = $("cmStorageText");
+    if (cmMeter) cmMeter.style.width = pct.toFixed(1) + "%";
+    if (cmText) cmText.textContent = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
   }
 
   function bytes(n) {
@@ -486,7 +621,7 @@
 
   async function renderHistory() {
     const tbody = $("historyBody");
-    tbody.innerHTML = "<tr><td colspan='3' class='muted' style='text-align:center;'>Loading...</td></tr>";
+    tbody.innerHTML = "<tr><td colspan='2' class='muted' style='text-align:center;'>Loading...</td></tr>";
     
     try {
       const data = await parseResponse(await fetch("/api/history", { credentials: "same-origin" }));
@@ -505,15 +640,7 @@
         titleDiv.className = "truncate";
         titleDiv.style.fontWeight = "bold";
         titleDiv.textContent = item.title;
-        const magDiv = document.createElement("div");
-        magDiv.className = "truncate muted";
-        magDiv.style.fontSize = "12px";
-        magDiv.textContent = item.magnet;
-        nameTd.append(titleDiv, magDiv);
-        
-        const timeTd = document.createElement("td");
-        timeTd.className = "muted";
-        timeTd.textContent = item.time;
+        nameTd.append(titleDiv);
         
         const actionTd = document.createElement("td");
         actionTd.style.textAlign = "right";
@@ -521,37 +648,37 @@
         btnGroup.style.display = "inline-flex";
         btnGroup.style.gap = "4px";
         
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "secondary hist-icon";
+        copyBtn.textContent = "📋";
+        copyBtn.title = "Copy magnet link";
+        copyBtn.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(item.magnet);
+            copyBtn.textContent = "✓";
+            toast("Magnet copied");
+            setTimeout(() => { copyBtn.textContent = "📋"; }, 1500);
+          } catch (e) {
+            toast("Copy failed");
+          }
+        };
+
         const addBtn = document.createElement("button");
-        addBtn.textContent = "Add";
-        addBtn.style.padding = "6px 10px";
+        addBtn.className = "hist-icon";
+        addBtn.textContent = "＋";
         addBtn.title = "Add to Destination";
         addBtn.onclick = async () => {
           addBtn.disabled = true;
-          addBtn.textContent = "...";
+          addBtn.textContent = "\u2026";
           try {
-            const target = $("searchAddTarget") ? $("searchAddTarget").value : "seedr";
-            if (target === "webtor") {
-              const infohashMatch = item.magnet.match(/urn:btih:([a-zA-Z0-9]+)/i);
-              if (infohashMatch) {
-                window.open("https://webtor.io/" + infohashMatch[1].toLowerCase(), "_blank", "noopener,noreferrer");
-                toast("Opened from history on Webtor");
-                addBtn.textContent = "✓";
-                saveToHistory(item.magnet, item.title); // Update timestamp
-              } else {
-                toast("Invalid magnet link for Webtor");
-                addBtn.textContent = "Add";
-                addBtn.disabled = false;
-              }
-            } else {
-              await postJson("/api/add", { magnet: item.magnet });
-              toast("Added from history: " + item.title);
-              saveToHistory(item.magnet, item.title); // Update timestamp
-              addBtn.textContent = "✓";
-            }
+            await postJson("/api/add", { magnet: item.magnet });
+            toast("Added from history: " + item.title);
+            saveToHistory(item.magnet, item.title); // Update timestamp
+            addBtn.textContent = "✓";
           } catch (e) {
             toast("Failed: " + e.message);
             addBtn.disabled = false;
-            addBtn.textContent = "Add";
+            addBtn.textContent = "\uFF0B";
           }
         };
         
@@ -571,14 +698,14 @@
           }
         };
         
-        btnGroup.append(addBtn, delBtn);
+        btnGroup.append(copyBtn, addBtn, delBtn);
         actionTd.appendChild(btnGroup);
         
-        tr.append(nameTd, timeTd, actionTd);
+        tr.append(nameTd, actionTd);
         tbody.appendChild(tr);
       });
     } catch(e) {
-      tbody.innerHTML = "<tr><td colspan='3' class='error' style='text-align:center;'>Failed to load history</td></tr>";
+      tbody.innerHTML = "<tr><td colspan='2' class='error' style='text-align:center;'>Failed to load history</td></tr>";
     }
   }
 
@@ -601,6 +728,11 @@
   async function search(keepPage, page) {
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
+
+    // Close the suggestions dropdown + cancel any pending suggestion fetch
+    clearTimeout(suggestTimer);
+    $("suggestBox").classList.add("hidden");
+    $("suggestBox").textContent = "";
 
     // If user presses enter with a magnet link in search bar, handle it
     if (/^magnet:\?xt=urn:btih:/i.test(q)) {
@@ -727,10 +859,6 @@
       seeds.className = "num seed";
       seeds.textContent = result.seeds || 0;
 
-      const leeches = document.createElement("td");
-      leeches.className = "num leech";
-      leeches.textContent = result.leeches || 0;
-
       const date = document.createElement("td");
       date.className = "muted";
       date.textContent = result.date || "-";
@@ -739,14 +867,10 @@
       size.className = "num muted";
       size.textContent = result.size || "-";
 
-      const category = document.createElement("td");
-      category.className = "muted";
-      category.textContent = result.category || "Other";
-
       const addTd = document.createElement("td");
       const add = makeAddButton(result);
       addTd.appendChild(add);
-      tr.append(name, seeds, leeches, date, size, category, addTd);
+      tr.append(name, seeds, date, size, addTd);
       body.appendChild(tr);
 
       const card = document.createElement("div");
@@ -772,19 +896,24 @@
   function makeAddButton(result) {
     const add = document.createElement("button");
     add.type = "button";
+    add.className = "add-btn";
+    add.dataset.state = "idle";
     add.textContent = "Add";
     add.addEventListener("click", async () => {
       // Save to history immediately when the button is pressed
       saveToHistory(result.magnet, result.name);
 
       add.disabled = true;
+      add.dataset.state = "adding";
       add.textContent = "Adding...";
       try {
         await postJson("/api/add", { magnet: result.magnet });
         toast("Added to Seedr: " + (result.name || "torrent"));
+        add.dataset.state = "done";
         add.textContent = "✓ Added";
       } catch (err) {
         toast(err.message || "Failed to add");
+        add.dataset.state = "idle";
         add.textContent = "Add";
         add.disabled = false;
       }
@@ -858,7 +987,21 @@
     updateSelection();
   });
   $("searchBtn").addEventListener("click", () => search(false, 1));
-  
+
+  // ----- Mobile cloud wiring -----
+  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
+  if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => loadFolder(currentFolder));
+  if ($("cmSelectAll")) $("cmSelectAll").addEventListener("change", (e) => {
+    if (e.target.checked) { for (const it of items) selectedKeys.add(it.key); }
+    else { selectedKeys.clear(); }
+    updateSelection();
+  });
+  if ($("cmBulkDownload")) $("cmBulkDownload").addEventListener("click", downloadSelected);
+  if ($("cmBulkDelete")) $("cmBulkDelete").addEventListener("click", deleteSelected);
+  if ($("cmBulkClear")) $("cmBulkClear").addEventListener("click", () => { selectedKeys.clear(); lastClickedKey = null; updateSelection(); });
+  document.querySelectorAll("#cloudCtxMenu .cm-ctx-item").forEach((b) => b.addEventListener("click", () => ctxAction(b.dataset.act)));
+  document.addEventListener("click", (e) => { if (!e.target.closest("#cloudCtxMenu") && !e.target.closest(".cm-kebab")) closeCtxMenu(); });
+
   if ($("pasteBtn")) {
     $("pasteBtn").addEventListener("click", async () => {
       try {
@@ -888,7 +1031,17 @@
     }
   });
 
-    $("clearSearchBtn").addEventListener("click", () => { $("searchQuery").value = ""; $("suggestBox").classList.add("hidden"); $("torrentBody").textContent = ""; $("mobileResults").textContent = ""; $("pagination").classList.add("hidden"); $("pagination").textContent = ""; currentPage = 1; status($("searchStatus"), "", ""); });
+    $("clearSearchBtn").addEventListener("click", () => {
+      // Clear only the search text (and hide stale suggestions); keep results on screen
+      clearTimeout(suggestTimer);
+      $("searchQuery").value = "";
+      $("suggestBox").classList.add("hidden");
+      $("suggestBox").textContent = "";
+      $("searchQuery").focus();
+      // restore the Search button in case an "Add Link" state was showing
+      $("searchBtn").classList.remove("hidden");
+      $("addMagnetBtn").classList.add("hidden");
+    });
   // Automatically toggle Search vs Add button based on input content
   $("searchQuery").addEventListener("input", (e) => {
     getSuggestions();
