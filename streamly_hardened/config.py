@@ -21,6 +21,7 @@ class AppConfig:
     max_folder_id: int = 9_007_199_254_740_991
     max_file_id: int = 9_007_199_254_740_991
     max_json_bytes: int = 16 * 1024
+    max_bulk_items: int = 100  # Used by delete_bulk and zip_bulk
     session_ttl_seconds: int = 60 * 60 * 12
     client_store_max_entries: int = 100_000
     rate_limit_capacity: int = 60
@@ -65,4 +66,5 @@ class AppConfig:
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             bitsearch_api_key=os.getenv("BITSEARCH_API_KEY", ""),
+            max_bulk_items=int(os.getenv("MAX_BULK_ITEMS", "100")),
         )

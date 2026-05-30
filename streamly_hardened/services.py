@@ -33,16 +33,8 @@ ClientFactory = Callable[[str, str], SeedrClientProtocol]
 
 
 def default_seedr_client_factory(email: str, password: str) -> SeedrClientProtocol:
-    from seedrcc import Seedr  # type: ignore
+    from seedrcc import Seedr
     return Seedr.from_password(email, password)
-
-
-@dataclass(frozen=True)
-class CloudItem:
-    id: int
-    name: str
-    size: int
-    last_update: Any
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -78,14 +70,11 @@ class CloudService:
             raise PermissionError("Invalid credentials") from None
 
     def login_with_saved_token(self, token_b64: str) -> tuple[SeedrClientProtocol, str]:
-        """Re-establish a Seedr session from a previously serialized Token (base64).
-        We store the full Token (not just refresh_token) because seedrcc's from_refresh_token()
-        crashes if the response omits a new refresh token. Storing the full token sidesteps that bug."""
         if not token_b64 or not isinstance(token_b64, str):
             raise PermissionError("No saved token available")
         try:
-            from seedrcc import Seedr  # type: ignore
-            from seedrcc.token import Token  # type: ignore
+            from seedrcc import Seedr
+            from seedrcc.token import Token
             token = Token.from_base64(token_b64)
             client = Seedr(token=token)
             settings = client.get_settings()
@@ -100,14 +89,12 @@ class CloudService:
 
     @staticmethod
     def serialize_token(client: SeedrClientProtocol) -> str | None:
-        """Serialize the client's current Token to a base64 string for persistence.
-        Returns None (not empty string) if serialization fails — callers must check for None."""
+        """Serialize Token to base64 for Redis persistence. Returns None on failure."""
         token_obj = getattr(client, "token", None)
         if token_obj is None:
             return None
         try:
             b64 = token_obj.to_base64()
-            # FIX 2: Reject empty/falsy results. Returning None forces callers to skip storage.
             if not isinstance(b64, str) or not b64:
                 return None
             return b64
@@ -191,13 +178,11 @@ class CloudService:
             return ""
 
     def get_zip_url_bulk(self, client: SeedrClientProtocol, items: list) -> str:
-        """Create one zip containing multiple items. Returns empty string on failure."""
         token_obj = getattr(client, "token", None)
         token = getattr(token_obj, "access_token", None)
         if not isinstance(token, str) or not token:
             raise PermissionError("Provider token unavailable")
-        archive_arr = items
-        result = self._fetch_archive_url(token, archive_arr)
+        result = self._fetch_archive_url(token, items)
         if not result:
             raise ConnectionError("Failed to create zip — provider returned no URL")
         return result
@@ -207,8 +192,7 @@ class CloudService:
         token = getattr(token_obj, "access_token", None)
         if not isinstance(token, str) or not token:
             raise PermissionError("Provider token unavailable")
-        archive_arr = [{"type": item_type, "id": item_id}]
-        return self._fetch_archive_url(token, archive_arr)
+        return self._fetch_archive_url(token, [{"type": item_type, "id": item_id}])
 
 
 _BITSEARCH_DNS_LOCK = threading.RLock()
@@ -221,8 +205,6 @@ def _is_name_resolution_error(exc: BaseException) -> bool:
 
 
 def _resolve_bitsearch_via_doh(timeout: float) -> str | None:
-    """Resolve bitsearch.eu through Cloudflare DoH as a compatibility fallback.
-    Uses a scoped, cached, validated approach — only used after normal DNS fails."""
     global _BITSEARCH_IP_CACHE
     now = time.monotonic()
     if _BITSEARCH_IP_CACHE and _BITSEARCH_IP_CACHE[1] > now:
@@ -281,7 +263,6 @@ class SearchService:
         except (requests.RequestException, ValueError):
             log.info("IMDb suggestion request failed", exc_info=True)
             return []
-
         suggestions: list[dict[str, Any]] = []
         for item in data.get("d", []) if isinstance(data, dict) else []:
             imdb_id = item.get("id")
@@ -351,40 +332,33 @@ class SearchService:
         per_page = as_int(pagination.get("perPage"), pagination.get("limit"), payload.get("perPage"), payload.get("limit"), default=50)
         per_page = max(1, min(50, per_page))
         total = as_int(
-            pagination.get("total"),
-            pagination.get("totalResults"),
-            pagination.get("count"),
-            payload.get("total"),
-            payload.get("totalResults"),
-            payload.get("count"),
+            pagination.get("total"), pagination.get("totalResults"), pagination.get("count"),
+            payload.get("total"), payload.get("totalResults"), payload.get("count"),
             default=len(raw_results),
         )
         total_pages = as_int(
-            pagination.get("totalPages"),
-            pagination.get("pages"),
-            payload.get("totalPages"),
-            payload.get("pages"),
+            pagination.get("totalPages"), pagination.get("pages"),
+            payload.get("totalPages"), payload.get("pages"),
             default=max(1, (total + per_page - 1) // per_page),
         )
-        normalized_pagination = {
-            "page": as_int(pagination.get("page"), payload.get("page"), default=page),
-            "perPage": per_page,
-            "total": total,
-            "totalPages": total_pages,
-            "hasNext": bool(pagination.get("hasNext", page < total_pages)),
-            "hasPrev": bool(pagination.get("hasPrev", page > 1)),
+        return {
+            "results": raw_results,
+            "pagination": {
+                "page": as_int(pagination.get("page"), payload.get("page"), default=page),
+                "perPage": per_page,
+                "total": total,
+                "totalPages": total_pages,
+                "hasNext": bool(pagination.get("hasNext", page < total_pages)),
+                "hasPrev": bool(pagination.get("hasPrev", page > 1)),
+            },
+            "took": payload.get("took"),
         }
-        return {"results": raw_results, "pagination": normalized_pagination, "took": payload.get("took")}
 
 
 def format_size(num_bytes: int) -> str:
     b = max(0, int(num_bytes))
-    if b >= 1024**4:
-        return f"{b / (1024**4):.2f} TB"
-    if b >= 1024**3:
-        return f"{b / (1024**3):.2f} GB"
-    if b >= 1024**2:
-        return f"{b / (1024**2):.1f} MB"
-    if b >= 1024:
-        return f"{b / 1024:.1f} KB"
+    if b >= 1024**4: return f"{b / (1024**4):.2f} TB"
+    if b >= 1024**3: return f"{b / (1024**3):.2f} GB"
+    if b >= 1024**2: return f"{b / (1024**2):.1f} MB"
+    if b >= 1024:    return f"{b / 1024:.1f} KB"
     return f"{b} B"

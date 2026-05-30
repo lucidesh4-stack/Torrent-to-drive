@@ -15,7 +15,7 @@ set "REPO_URL=https://github.com/lucidesh4-stack/Torrent-to-drive.git"
 set "BRANCH=main"
 
 REM --- repo root = the folder ABOVE this deploy\ folder ---
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 set "REPO=%cd%"
 
 echo(

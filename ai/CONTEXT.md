@@ -37,50 +37,52 @@
 
 ```
 workspace/
-├── CHANGELOG.md            # Developer's handoff notes — read when resuming
-├── DEPLOY.md               # Render + Upstash setup guide
-├── RULES.md                # User's working rules (read every chat)
-├── CONTEXT.md              # THIS FILE — AI continuity + project state
-├── render.yaml             # Render blueprint
-├── streamly_hardened/
-│   ├── __init__.py         # Re-exports create_app → gunicorn: "streamly_hardened.app:create_app()"
-│   ├── app.py              # Flask factory. All routes + error handlers
-│   ├── config.py           # AppConfig dataclass + AppConfig.from_env()
-│   ├── security.py         # ValidationError, CSRF, rate limiter, CSP headers, validators
-│   ├── services.py         # CloudService (Seedr API) + SearchService (Bitsearch + IMDb)
-│   ├── store.py            # TTLStore (in-process session cache) + NotAuthenticated
-│   ├── redis_store.py      # RedisStore (Upstash HTTP wrapper) — persistence ONLY
-│   ├── requirements.txt
-│   ├── Dockerfile          # python:3.11-slim → gunicorn 2 workers × 4 threads
-│   ├── .dockerignore       # Excludes: __pycache__, *.pyc, tests/, bridge_config.json, .venv/
-│   ├── static/
-│   │   ├── css/
-│   │   │   ├── base.css        # Core/desktop styles — MUST LOAD FIRST
-│   │   │   └── responsive.css  # Media queries + mobile styles — MUST LOAD SECOND
-│   │   └── js/
-│   │       ├── app.js         # GENERATED BUNDLE — 1110 lines — DO NOT HAND-EDIT
-│   │       └── src/           # Edit here → python build_js.py → app.js
-│   │           ├── _wrap_open.txt   # (() => {
-│   │           ├── _wrap_close.txt  # })();
-│   │           ├── 1-core.js        # State vars, $, status/toast, auth/silent-relogin, postJson, showApp/showLogin, fmtDate, updateSelection(), toggleKey()
-│   │           ├── 2-cloud.js       # Cloud rendering (desktop + mobile), context menu, storage meter, bytes(), loadFolder(), openItem(), downloadSelected(), zipSelected(), deleteSelected()
-│   │           ├── 3-search-sort.js # syncSortControls(), getSuggestions() [350ms debounce + race guard], cycleSort()
-│   │           ├── 4-history.js     # saveToHistory(), renderHistory() + button listeners (copy/add/delete)
-│   │           ├── 5-search.js      # search(), renderPagination(), renderSearchTable(), makeAddButton()
-│   │           ├── 6-main.js        # setTab() [URL hash routing], all event wiring, init()
-│   │           └── build_js.py      # Concatenates src/*.js → app.js
-│   └── templates/
-│       └── index.html        # Loads CSS (base then responsive), injects csrf_token + asset_ver
-└── deploy/
-    ├── deploy.bat            # main: init git → rebuild app.js → verify → commit → push → auto-tag
-    ├── check.bat             # rebuild + verify only (no push)
-    ├── build.bat             # just rebuild app.js
-    ├── check.py              # Verifier: JS bracket balance + CSS brace balance + Flask routes 200
-    ├── rollback.bat          # undo last deploy via git tag
-    └── README.txt
+├── ai/                       ← all AI-maintained files
+│   ├── QUICK.md              ← 1-page reference (read first, every chat)
+│   ├── CHANGES.md            ← template + examples for changes.json
+│   ├── CONTEXT.md            ← full project state (read on resume)
+│   ├── RULES.md              ← user's working rules
+│   ├── CHANGELOG.md          ← decision history
+│   ├── ACTIVITY_LOG.md       ← deployment log
+│   ├── changes.json          ← current session changes (edit this)
+│   └── deploy/               ← deployment tooling
+│       ├── deploy_all.py     ← single-command: write + verify + docs + zip
+│       ├── check.py          ← JS + CSS + Flask smoke test
+│       ├── deploy.bat        ← git commit + push (Render auto-deploys)
+│       ├── check.bat
+│       └── build.bat
+├── DEPLOY.md                 ← Render + Upstash setup guide (root level)
+├── render.yaml               ← Render deployment config (root level)
+├── project.zip               ← auto-generated zip
+└── streamly_hardened/        ← source code (Seedr client)
+    ├── __init__.py
+    ├── app.py
+    ├── config.py
+    ├── security.py
+    ├── services.py
+    ├── store.py
+    ├── redis_store.py
+    ├── requirements.txt
+    ├── Dockerfile
+    ├── .dockerignore
+    ├── static/
+    │   ├── css/base.css         ← MUST LOAD FIRST
+    │   ├── css/responsive.css   ← MUST LOAD SECOND
+    │   └── js/
+    │       ├── app.js           ← GENERATED (don't touch)
+    │       └── src/             ← edit here
+    │           1-core.js
+    │           2-cloud.js
+    │           3-search-sort.js
+    │           4-history.js
+    │           5-search.js
+    │           6-main.js
+    │           _wrap_open.txt
+    │           _wrap_close.txt
+    │           build_js.py
+    └── templates/index.html
 ```
 
----
 
 ## USER PREFERENCES (CRITICAL)
 
@@ -148,10 +150,21 @@ This user works in a specific way. **Follow these always:**
 ---
 
 ## RECENT CHANGES LOG
+- **2026-05-31** — 2026-05-31 — Security and reliability fixes (initial batch). Changed: streamly_hardened/app.py, streamly_hardened/services.py, streamly_hardened/redis_store.py, streamly_hardened/static/js/src/5-search.js, ai/deploy/check.py, ai/deploy/deploy_all.py.
+
+- **2026-05-31** — 2026-05-31 — Security and reliability fixes (initial batch). Changed: streamly_hardened/app.py, streamly_hardened/services.py, streamly_hardened/redis_store.py, streamly_hardened/static/js/src/5-search.js, deploy/check.py, deploy/deploy_all.py.
+
+
+
+- **2026-05-31** — Initial fix batch: storage check, empty token guard, Redis health check, specific exception handlers, safe error messages. Workspace optimized: deploy_all.py now reads from changes.json, QUICK.md + CHANGES.md created. All 5 fixes verified via check.py.
+
+
+
+
+
 
 > Append entries here when something significant happens. Format: `[YYYY-MM-DD] What changed and why`
 
-- **2026-05-31** — Full project audit + login flow deep-dive + edge case enumeration (14 edge cases). User provided personal context: 7-year Seedr user, shared account model, custom video player. Planned 6 targeted fixes (storage check, empty token guard, logout, Redis health, except handlers, error messages). User will return to implement these.
 
 ---
 
@@ -252,19 +265,68 @@ This user works in a specific way. **Follow these always:**
 
 ---
 
-## WORKFLOW FOR MAKING CHANGES
+## OPTIMIZED WORKFLOW (use this)
 
-**Frontend (JS):**
-1. Edit fragment files in `static/js/src/` (never touch `app.js`)
-2. Run `deploy/check.py` (or `deploy/check.bat`) — rebuilds app.js + verifies
-3. Commit + push (`deploy/deploy.bat`)
+### Files at a glance
+```
+QUICK.md       ← 1-page reference (read first, every chat)
+CHANGES.md     ← template + examples for changes.json
+changes.json   ← current session's changes (edit this to deploy)
+deploy_all.py  ← run this: writes files + rebuilds + verifies + docs + zip
+check.py       ← smoke tests: JS brackets + CSS braces + Flask boots
+deploy.bat     ← commit + push → Render auto-deploys
+ACTIVITY_LOG.md ← deployment history
+```
 
-**Backend (Python):**
-1. Edit Python files directly
-2. Run `check.py` before committing
-3. Deploy
+### How to make changes (3 steps)
 
-**When session ends:** Update the "Active work", "Pending plans", and "Open questions" sections in this file before the chat ends — so the next chat starts exactly where this one left off.
+**Step 1 — You:** Describe the changes fully in chat.
+
+**Step 2 — Me:**
+1. Read `QUICK.md` (1 page, instant)
+2. Read the relevant code end-to-end
+3. Write `changes.json` with the updated file contents
+4. Run `python3 deploy/deploy_all.py`
+5. Check.py runs automatically → all verified
+6. Docs auto-updated (CHANGELOG, CONTEXT, ACTIVITY_LOG)
+7. `project.zip` created
+
+**Step 3 — You:**
+1. Double-click `deploy/deploy.bat` → commit + push
+2. Test on Render
+3. Report bugs with exact error messages
+
+### Git snapshot (safety net)
+`deploy_all.py` auto-commits a `before-{timestamp}` git tag before applying changes. To revert:
+```bash
+git reset --hard before-20260531-143022
+```
+
+### Writing changes.json
+See `CHANGES.md` for full template. Basic format:
+```json
+{
+  "session": "YYYY-MM-DD — what changed",
+  "changes": [{"file": "path", "content": "..."}]
+}
+```
+
+### Checklist before writing changes
+- [ ] Read current file from workspace
+- [ ] Trace full data path (caller → callee)
+- [ ] Check CHANGELOG for related decisions
+- [ ] Handle null/empty/max edge cases
+- [ ] CSS load order unchanged
+- [ ] Never edit app.js directly
+- [ ] Note judgment calls in comments
+
+---
+
+## WORKFLOW FOR MAKING CHANGES (legacy reference)
+
+The optimized workflow above replaces this. kept for reference:
+- Edit src/ fragments → check.py → deploy.bat (old manual way)
+- New way: write changes.json → deploy_all.py (automated)
 
 ---
 
