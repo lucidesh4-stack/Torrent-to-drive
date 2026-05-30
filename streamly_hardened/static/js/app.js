@@ -1,6 +1,6 @@
 
 (() => {
-  let csrfToken = "";
+  let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let currentFolder = 0;
   let parentFolder = 0;
   let selectedKeys = new Set();
@@ -64,7 +64,10 @@
       // Try silent re-login FIRST. Only show login popup if that fails too.
       const restored = await attemptSilentRelogin();
       if (!restored) {
-        showLogin();
+        // If we are already on cloud view, show login. Otherwise stay in guest mode.
+        if (document.getElementById("cloudView") && !document.getElementById("cloudView").classList.contains("hidden")) {
+          showLogin();
+        }
       }
     }
     const data = await response.json().catch(() => ({}));
@@ -75,14 +78,11 @@
     return data;
   }
 
-  async function getCsrf() {
-    const data = await parseResponse(await fetch("/api/csrf", { credentials: "same-origin" }));
-    csrfToken = data.csrfToken;
-    return csrfToken;
-  }
-
   async function postJson(url, body) {
-    if (!csrfToken) await getCsrf();
+    if (!csrfToken) {
+      const data = await parseResponse(await fetch("/api/csrf", { credentials: "same-origin" }));
+      csrfToken = data.csrfToken;
+    }
     return parseResponse(await fetch(url, {
       method: "POST",
       credentials: "same-origin",
@@ -96,7 +96,6 @@
     $("loginScreen").classList.add("hidden");
     $("appScreen").classList.remove("hidden");
     $("userPill").classList.toggle("hidden", !isAuthenticated);
-    $("logoutBtn").classList.toggle("hidden", !isAuthenticated);
     $("userPill").textContent = username ? username : "Guest";
     $("accountLabel").textContent = username ? `Connected as ${username}` : "Guest Mode";
   }
@@ -412,7 +411,9 @@
     const q = $("searchQuery").value.trim();
     const box = $("suggestBox");
     clearTimeout(suggestTimer);
-    if (q.length < 3) {
+    
+    // Don't suggest if it looks like a magnet link
+    if (q.length < 3 || /^magnet:\?xt=urn:btih:/i.test(q)) {
       box.classList.add("hidden");
       box.textContent = "";
       return;
@@ -472,9 +473,156 @@
     search(false, 1);
   }
 
+  // History Management (Redis Backend)
+  async function saveToHistory(magnet, title) {
+    try {
+      await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet" });
+    } catch (e) {
+      console.warn("Failed to save history", e);
+    }
+  }
+
+  async function renderHistory() {
+    const tbody = $("historyBody");
+    tbody.innerHTML = "<tr><td colspan='3' class='muted' style='text-align:center;'>Loading...</td></tr>";
+    
+    try {
+      const data = await parseResponse(await fetch("/api/history", { credentials: "same-origin" }));
+      const history = data.items || [];
+      
+      tbody.innerHTML = "";
+      $("historyEmpty").classList.toggle("hidden", history.length > 0);
+      
+      history.forEach(item => {
+        const tr = document.createElement("tr");
+        
+        const nameTd = document.createElement("td");
+        nameTd.style.maxWidth = "0"; // allows truncate inside table-layout: fixed
+        nameTd.style.width = "100%";
+        const titleDiv = document.createElement("div");
+        titleDiv.className = "truncate";
+        titleDiv.style.fontWeight = "bold";
+        titleDiv.textContent = item.title;
+        const magDiv = document.createElement("div");
+        magDiv.className = "truncate muted";
+        magDiv.style.fontSize = "12px";
+        magDiv.textContent = item.magnet;
+        nameTd.append(titleDiv, magDiv);
+        
+        const timeTd = document.createElement("td");
+        timeTd.className = "muted";
+        timeTd.textContent = item.time;
+        
+        const actionTd = document.createElement("td");
+        actionTd.style.textAlign = "right";
+        const btnGroup = document.createElement("div");
+        btnGroup.style.display = "inline-flex";
+        btnGroup.style.gap = "4px";
+        
+        const addBtn = document.createElement("button");
+        addBtn.textContent = "Add";
+        addBtn.style.padding = "6px 10px";
+        addBtn.title = "Add to Destination";
+        addBtn.onclick = async () => {
+          addBtn.disabled = true;
+          addBtn.textContent = "...";
+          try {
+            const target = $("searchAddTarget") ? $("searchAddTarget").value : "seedr";
+            if (target === "webtor") {
+              const infohashMatch = item.magnet.match(/urn:btih:([a-zA-Z0-9]+)/i);
+              if (infohashMatch) {
+                window.open("https://webtor.io/" + infohashMatch[1].toLowerCase(), "_blank", "noopener,noreferrer");
+                toast("Opened from history on Webtor");
+                addBtn.textContent = "✓";
+                saveToHistory(item.magnet, item.title); // Update timestamp
+              } else {
+                toast("Invalid magnet link for Webtor");
+                addBtn.textContent = "Add";
+                addBtn.disabled = false;
+              }
+            } else {
+              await postJson("/api/add", { magnet: item.magnet });
+              toast("Added from history: " + item.title);
+              saveToHistory(item.magnet, item.title); // Update timestamp
+              addBtn.textContent = "✓";
+            }
+          } catch (e) {
+            toast("Failed: " + e.message);
+            addBtn.disabled = false;
+            addBtn.textContent = "Add";
+          }
+        };
+        
+        const delBtn = document.createElement("button");
+        delBtn.className = "danger ghost";
+        delBtn.textContent = "✕";
+        delBtn.style.padding = "6px 10px";
+        delBtn.title = "Remove from history";
+        delBtn.onclick = async () => {
+          delBtn.disabled = true;
+          try {
+            await postJson("/api/history/delete", { magnet: item.magnet });
+            renderHistory();
+          } catch(e) {
+             toast("Failed to delete from history");
+             delBtn.disabled = false;
+          }
+        };
+        
+        btnGroup.append(addBtn, delBtn);
+        actionTd.appendChild(btnGroup);
+        
+        tr.append(nameTd, timeTd, actionTd);
+        tbody.appendChild(tr);
+      });
+    } catch(e) {
+      tbody.innerHTML = "<tr><td colspan='3' class='error' style='text-align:center;'>Failed to load history</td></tr>";
+    }
+  }
+
+  $("historyBtn").addEventListener("click", () => {
+    renderHistory();
+    $("historyOverlay").classList.remove("hidden");
+  });
+
+  $("closeHistoryBtn").addEventListener("click", () => {
+    $("historyOverlay").classList.add("hidden");
+  });
+
+  $("clearHistoryBtn").addEventListener("click", async () => {
+    if (confirm("Clear global magnet history?")) {
+      await postJson("/api/history/clear", {});
+      renderHistory();
+    }
+  });
+
   async function search(keepPage, page) {
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
+
+    // If user presses enter with a magnet link in search bar, handle it
+    if (/^magnet:\?xt=urn:btih:/i.test(q)) {
+      // Extract name from magnet
+      let magnetName = "Unknown Magnet";
+      const dnMatch = q.match(/[?&]dn=([^&]+)/);
+      if (dnMatch) {
+        try { magnetName = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
+      }
+      
+      // Save immediately to history before performing actions
+      saveToHistory(q, magnetName);
+      
+      status($("searchStatus"), "Adding magnet to Seedr...", "");
+      try {
+        await postJson("/api/add", { magnet: q });
+        status($("searchStatus"), "✓ Added: " + magnetName, "ok");
+        $("searchQuery").value = "";
+      } catch (err) {
+        status($("searchStatus"), err.message || "Failed to add magnet", "error");
+      }
+      return;
+    }
+
     if (!keepPage) currentPage = page || 1;
     status($("searchStatus"), "Searching...", "");
     $("pagination").classList.add("hidden");
@@ -488,6 +636,10 @@
       params.set("page", String(currentPage));
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
       const results = Array.isArray(data.results) ? data.results : [];
+      
+      // Make the table and toolbar visible only after searching
+      $("results").classList.remove("hidden");
+      
       renderSearchTable(results);
       renderPagination(data.pagination, data.took, data.results ? data.results.length : 0);
       status($("searchStatus"), `Found ${results.length} result(s)`, "ok");
@@ -612,6 +764,9 @@
     add.type = "button";
     add.textContent = "Add";
     add.addEventListener("click", async () => {
+      // Save to history immediately when the button is pressed
+      saveToHistory(result.magnet, result.name);
+
       add.disabled = true;
       add.textContent = "Adding...";
       try {
@@ -627,39 +782,14 @@
     return add;
   }
 
-  /* Magnet paste handler */
-  async function handlePasteMagnet() {
-    const input = $("magnetPasteInput");
-    const statusEl = $("magnetPasteStatus");
-    const raw = (input.value || "").trim();
-    if (!raw) {
-      status(statusEl, "Paste a magnet link first", "error");
-      return;
-    }
-    if (!/^magnet:\?xt=urn:btih:[a-zA-Z0-9]{32,64}/i.test(raw)) {
-      status(statusEl, "Invalid magnet format", "error");
-      return;
-    }
-    // Extract display name from &dn= if present
-    let name = raw;
-    const dnMatch = raw.match(/[?&]dn=([^&]+)/);
-    if (dnMatch) {
-      try { name = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
-    }
-    status(statusEl, "Adding to Seedr...", "");
-    try {
-      await postJson("/api/add", { magnet: raw });
-      status(statusEl, "✓ Added: " + name, "ok");
-      input.value = "";
-    } catch (err) {
-      status(statusEl, err.message || "Failed to add", "error");
-    }
-  }
-
     function setTab(name) {
     if (name === "cloud" && !isAuthenticated) {
       showLogin();
       return;
+    }
+    // Automatically dismiss login popup if we switch back to search
+    if (name === "search") {
+      $("loginScreen").classList.add("hidden");
     }
     // Update the URL hash so refresh restores the correct tab
     window.history.replaceState(null, null, `#${name}`);
@@ -677,7 +807,6 @@
     btn.disabled = true;
     status($("loginStatus"), "Connecting to Seedr...", "");
     try {
-      await getCsrf();
       const data = await postJson("/api/login", { email: $("email").value, password: $("password").value });
       $("password").value = "";
       showApp(data.username || "Logged in");
@@ -689,10 +818,6 @@
     }
   });
 
-  $("logoutBtn").addEventListener("click", async () => {
-    try { await postJson("/api/logout", {}); } catch (_) {}
-    location.reload();
-  });
   $("cloudTab").addEventListener("click", () => setTab("cloud"));
   $("searchTab").addEventListener("click", () => setTab("search"));
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
@@ -715,8 +840,24 @@
     updateSelection();
   });
   $("searchBtn").addEventListener("click", () => search(false, 1));
-  $("magnetPasteBtn").addEventListener("click", handlePasteMagnet);
-  $("magnetPasteInput").addEventListener("keydown", (e) => { if (e.key === "Enter") handlePasteMagnet(); });
+  
+  if ($("pasteBtn")) {
+    $("pasteBtn").addEventListener("click", async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        $("searchQuery").value = text;
+        $("searchQuery").focus();
+        
+        // Auto-add if it's a magnet link
+        if (/^magnet:\?xt=urn:btih:/i.test(text)) {
+           search(false, 1);
+        }
+      } catch (err) {
+        toast("Clipboard access denied");
+      }
+    });
+  }
+
   // Allow dismissing login overlay (continue as guest)
   $("loginCloseBtn").addEventListener("click", () => {
     $("loginScreen").classList.add("hidden");
@@ -730,7 +871,20 @@
   });
 
     $("clearSearchBtn").addEventListener("click", () => { $("searchQuery").value = ""; $("suggestBox").classList.add("hidden"); $("torrentBody").textContent = ""; $("mobileResults").textContent = ""; $("pagination").classList.add("hidden"); $("pagination").textContent = ""; currentPage = 1; status($("searchStatus"), "", ""); });
-  $("searchQuery").addEventListener("input", getSuggestions);
+  // Automatically toggle Search vs Add button based on input content
+  $("searchQuery").addEventListener("input", (e) => {
+    getSuggestions();
+    const q = e.target.value.trim();
+    if (/^magnet:\?xt=urn:btih:/i.test(q)) {
+      $("searchBtn").classList.add("hidden");
+      $("addMagnetBtn").classList.remove("hidden");
+    } else {
+      $("searchBtn").classList.remove("hidden");
+      $("addMagnetBtn").classList.add("hidden");
+    }
+  });
+
+  $("addMagnetBtn").addEventListener("click", () => search(false, 1));
   $("searchQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") search(false, 1); });
   $("category").addEventListener("change", () => { if ($("searchQuery").value.trim()) search(false, 1); });
   document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
@@ -745,15 +899,15 @@
   });
 
   // Initialization Sequence
-  getCsrf().then(async () => {
-    // 1. Determine which tab to show based on URL hash (e.g. #cloud or #search)
+  async function init() {
     let initialTab = window.location.hash.replace("#", "") || "search";
     if (initialTab !== "cloud" && initialTab !== "search") initialTab = "search";
     
-    // Hide both views while loading to prevent flicker
-    $("cloudView").classList.add("hidden");
-    $("searchView").classList.add("hidden");
-    showApp(null); // Shows the header/navbar
+    // Optimistically show header and search tab immediately
+    showApp(null); 
+    if (initialTab === "search") {
+      setTab("search");
+    }
 
     try {
       let data;
@@ -770,9 +924,8 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
-        // If user is authenticated, respect their requested tab, default to search
-        setTab(initialTab);
         if (initialTab === "cloud") {
+          setTab("cloud");
           await loadFolder(0);
         }
       }
@@ -780,5 +933,7 @@
       // Not authenticated. Force them to search tab (Guest mode).
       setTab("search");
     }
-  }).catch(() => status($("loginStatus"), "Server is running, but CSRF initialization failed. Restart the app.", "error"));
+  }
+
+  init();
 })();

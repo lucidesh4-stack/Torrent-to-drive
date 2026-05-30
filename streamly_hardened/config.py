@@ -34,6 +34,8 @@ class AppConfig:
     seedr_archive_url: str = "https://www.seedr.cc/api/v2/download/archive"
     upstash_redis_url: str = ""
     upstash_redis_token: str = ""
+    seedr_email: str = ""
+    seedr_password: str = ""
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -59,6 +61,8 @@ class AppConfig:
             session_ttl_seconds=int(os.getenv("SESSION_TTL_SECONDS", str(60 * 60 * 12))),
             upstash_redis_url=upstash_url,
             upstash_redis_token=upstash_token,
+            seedr_email=os.getenv("SEEDR_EMAIL", ""),
+            seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             bitsearch_api_key=os.getenv("BITSEARCH_API_KEY", ""),
         )

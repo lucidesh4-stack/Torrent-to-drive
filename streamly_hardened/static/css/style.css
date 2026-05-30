@@ -72,7 +72,7 @@
     .tab.active { color: white; border-color: var(--line); background: var(--panel-2); }
     .user-pill { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; color: #cbd5e1; background: #0b0e14; font-size: 13px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .main { width: min(1420px, calc(100% - 28px)); margin: 22px auto 60px; }
-    .panel { background: rgba(22, 27, 34, .96); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.28); overflow: hidden; }
+    .panel { background: rgba(22, 27, 34, .96); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.28); overflow: visible; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); background: rgba(17,24,39,.72); }
     .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .grid { display: grid; gap: 16px; }
@@ -121,7 +121,10 @@
     .overlay { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.88); display: grid; place-items: center; padding: 20px; }
     .player-box { width: min(1100px, 96vw); }
     .player-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
-    video { width: 100%; max-height: 78vh; background: black; border-radius: 14px; border: 1px solid var(--line); }
+    video { width: 100%; max-height: 78vh; background: black; border-radius: 14px; outline: none; }
+    video:fullscreen { border: none; border-radius: 0; max-height: 100vh; }
+    video:-webkit-full-screen { border: none; border-radius: 0; max-height: 100vh; }
+    video::-webkit-media-controls-enclosure { outline: none; }
     .toast { position: fixed; right: 18px; bottom: 18px; z-index: 50; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: 14px; padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
     
     /* Bridge Choice Modal */
@@ -245,4 +248,18 @@
   height: 16px;
   cursor: pointer;
   accent-color: var(--blue, #3b82f6);
+}
+
+/* Unified Search Bar */
+.search-unified-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 768px) {
+  .search-unified-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
