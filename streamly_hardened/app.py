@@ -62,14 +62,12 @@ def create_app(
     search = search_service or SearchService(config)
     store = client_store or TTLStore[Any](config.session_ttl_seconds, config.client_store_max_entries)
 
-    # Optional Upstash-backed refresh-token persistence
     rs: RedisStore | None = None
     if config.upstash_redis_url and config.upstash_redis_token:
         rs = RedisStore(config.upstash_redis_url, config.upstash_redis_token)
-        # FIX 3: Redis health check on startup — warn if Upstash is unreachable
         if rs:
             try:
-                test = rs.get("streamly:health_check_test")
+                rs.get("streamly:health_check_test")
                 log.info("Upstash Redis reachable — history and token persistence active")
             except Exception:
                 log.warning(
@@ -78,8 +76,6 @@ def create_app(
                 )
 
     def _try_restore_from_refresh(sid: str):
-        """Rebuild a Seedr client from a stored refresh token (global master token).
-        Returns the restored client (and updates the store/session) or raises NotAuthenticated."""
         if not rs:
             raise NotAuthenticated("Not authenticated")
         rt = rs.get_refresh_token()
@@ -92,7 +88,6 @@ def create_app(
             raise NotAuthenticated("Refresh token invalid")
         store.put(sid, client)
         session["username"] = username
-        # FIX 2: Persist only if serialize_token returns a non-empty value
         new_rt = CloudService.serialize_token(client)
         if new_rt:
             rs.set_refresh_token(new_rt)
@@ -117,7 +112,6 @@ def create_app(
                     session["username"] = username
                     if rs:
                         rt = CloudService.serialize_token(client)
-                        # FIX 2: Only store non-empty tokens
                         if rt:
                             rs.set_refresh_token(rt)
                     log.info("Auto-logged in headless mode for sid=%s", sid[:8])
@@ -202,7 +196,6 @@ def create_app(
         client, username = cloud.login(email, password)
         store.put(sid, client)
         session["username"] = username
-        # FIX 2: Persist only non-empty token
         if rs:
             rt = CloudService.serialize_token(client)
             if rt:
@@ -223,7 +216,6 @@ def create_app(
     @rate_limited(limiter, cost=1.0)
     def list_items(folder_id: str):
         folder = validate_positive_int(folder_id, name="folder_id", maximum=config.max_folder_id)
-        # FIX 4: Specific exception handler — catch only network/provider errors
         try:
             data = cloud.list_items(current_client(), folder)
         except (ConnectionError, TimeoutError) as e:
@@ -240,7 +232,6 @@ def create_app(
         data = require_json_body(config)
         item_type = validate_item_type(data.get("type"))
         item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
-        # FIX 4: Specific exception handler
         try:
             cloud.delete_item(current_client(), item_type, item_id)
         except (ConnectionError, TimeoutError) as e:
@@ -255,7 +246,6 @@ def create_app(
         data = require_json_body(config)
         item_type = validate_item_type(data.get("type"))
         item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
-        # FIX 4: Specific exception handler (get_zip_url uses http POST internally)
         try:
             url = cloud.get_zip_url(current_client(), item_type, item_id)
         except (ConnectionError, TimeoutError) as e:
@@ -278,7 +268,6 @@ def create_app(
         for item in items:
             if not isinstance(item, dict):
                 continue
-            # FIX 4: Specific exception handler per item
             try:
                 item_type = validate_item_type(item.get("type"))
                 item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
@@ -310,7 +299,6 @@ def create_app(
             validated.append({"type": item_type, "id": item_id})
         if not validated:
             return json_error(400, "bad_request", "No valid items")
-        # FIX 4: Specific exception handler
         try:
             url = cloud.get_zip_url_bulk(current_client(), validated)
         except (ConnectionError, TimeoutError) as e:
@@ -324,9 +312,6 @@ def create_app(
     def add_magnet():
         data = require_json_body(config)
         magnet = validate_magnet(data.get("magnet"), config)
-        # FIX 1: Storage check before add
-        # Optional `size` field in bytes (sent from JS when size is known from search results).
-        # If absent or not a positive int, skip the check and let add proceed.
         raw_size = data.get("size")
         if raw_size is not None:
             size_bytes = _safe_int(raw_size)
@@ -343,8 +328,6 @@ def create_app(
                         )
                 except (ConnectionError, TimeoutError) as e:
                     log.warning("Storage check failed before add, proceeding anyway: %s", e)
-                    # Network error on storage check — don't block the add, let it proceed
-        # FIX 4: Specific exception handler — catch only provider/network errors
         try:
             cloud.add_magnet(current_client(), magnet)
         except (ConnectionError, TimeoutError) as e:
@@ -352,12 +335,9 @@ def create_app(
             return json_error(502, "provider_error", "Provider rejected the request (e.g. storage full) or is unavailable")
         return jsonify({"success": True})
 
-    # --- History API Routes ---
-
     @app.get("/api/history")
     @rate_limited(limiter, cost=1.0)
     def get_history():
-        # FIX 4: Specific exception handler
         try:
             items = rs.get_history("global_history") if rs else []
             return jsonify({"success": True, "items": items})
@@ -410,7 +390,6 @@ def create_app(
     @rate_limited(limiter, cost=1.0)
     def get_url():
         file_id = validate_positive_int(request.args.get("file_id"), name="file_id", maximum=config.max_file_id)
-        # FIX 4: Specific exception handler
         try:
             url = cloud.get_stream_url(current_client(), file_id)
         except (ConnectionError, TimeoutError) as e:
@@ -460,9 +439,9 @@ def create_app(
                 {
                     "name": title,
                     "size": format_size(_safe_int(raw_size)),
-                    "size_bytes": max(0, _safe_int(raw_size)),  # FIX 1: expose bytes for JS storage check
+                    "size_bytes": max(0, _safe_int(raw_size)),
                     "seeds": int(item.get("seeders", 0) or 0),
-                    "leeches": int(item.get("leechers", item.get("leeches", 0)) or 0),
+                    "leeches": int(item.get("leecher", 0) or 0),
                     "date": str(item.get("createdAt", "")).split("T")[0][:32],
                     "category": category_labels.get(raw_category, raw_category or "Other"),
                     "magnet": f"magnet:?xt=urn:btih:{infohash}&dn={title}",

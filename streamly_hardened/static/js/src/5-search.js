@@ -2,27 +2,21 @@
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
 
-    // Close the suggestions dropdown + cancel any pending suggestion fetch
     clearTimeout(suggestTimer);
     $("suggestBox").classList.add("hidden");
     $("suggestBox").textContent = "";
 
-    // If user presses enter with a magnet link in search bar, handle it
     if (/^magnet:\?xt=urn:btih:/i.test(q)) {
-      // Extract name from magnet
       let magnetName = "Unknown Magnet";
       const dnMatch = q.match(/[?&]dn=([^&]+)/);
       if (dnMatch) {
         try { magnetName = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
       }
-      
-      // Save immediately to history before performing actions
       saveToHistory(q, magnetName);
-      
       status($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
         await postJson("/api/add", { magnet: q });
-        status($("searchStatus"), "✓ Added: " + magnetName, "ok");
+        status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
         $("searchQuery").value = "";
       } catch (err) {
         status($("searchStatus"), err.message || "Failed to add magnet", "error");
@@ -43,13 +37,10 @@
       params.set("page", String(currentPage));
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
       const results = Array.isArray(data.results) ? data.results : [];
-      
-      // Make the table and toolbar visible only after searching
       $("results").classList.remove("hidden");
-      
       renderSearchTable(results);
       renderPagination(data.pagination, data.took, data.results ? data.results.length : 0);
-      status($("searchStatus"), `Found ${results.length} result(s)`, "ok");
+      status($("searchStatus"), "Found " + results.length + " result(s)", "ok");
     } catch (err) {
       status($("searchStatus"), err.message || "Search failed", "error");
     }
@@ -80,7 +71,6 @@
     addButton("\u2039", Math.max(1, page - 1), page <= 1, false);
 
     if (isNarrow) {
-      // Slim: only show current page between Prev/Next
       addButton(String(page), page, false, true);
     } else {
       const pages = new Set([1, totalPages, page, page - 1, page + 1]);
@@ -104,9 +94,9 @@
 
     const info = document.createElement("div");
     info.className = "page-info";
-    const tookText = typeof took === "number" ? ` in ${took}ms` : "";
+    const tookText = typeof took === "number" ? " in " + took + "ms" : "";
     const perPage = Number(pagination.perPage || 50);
-    info.textContent = total ? `Page ${page} of ${totalPages} (${total} results, ${perPage}/page${tookText})` : `Page ${page} of ${totalPages}`;
+    info.textContent = total ? "Page " + page + " of " + totalPages + " (" + total + " results, " + perPage + "/page" + tookText + ")" : "Page " + page + " of " + totalPages;
     box.appendChild(info);
     box.classList.remove("hidden");
   }
@@ -141,8 +131,7 @@
       size.textContent = result.size || "-";
 
       const addTd = document.createElement("td");
-      const add = makeAddButton(result);
-      addTd.appendChild(add);
+      addTd.appendChild(makeAddButton(result));
       tr.append(name, seeds, date, size, addTd);
       body.appendChild(tr);
 
@@ -153,7 +142,7 @@
       cardTitle.textContent = result.name || "Untitled";
       const meta = document.createElement("div");
       meta.className = "mobile-meta";
-      for (const part of [`Seeds: ${result.seeds || 0}`, `Leeches: ${result.leeches || 0}`, `Size: ${result.size || "?"}`, `Date: ${result.date || "?"}`, result.category || "Other"]) {
+      for (const part of ["Seeds: " + (result.seeds || 0), "Leeches: " + (result.leeches || 0), "Size: " + (result.size || "?"), "Date: " + (result.date || "?"), result.category || "Other"]) {
         const span = document.createElement("span");
         span.textContent = part;
         meta.appendChild(span);
@@ -173,9 +162,7 @@
     add.dataset.state = "idle";
     add.textContent = "Add";
     add.addEventListener("click", async () => {
-      // Save to history immediately when the button is pressed
       saveToHistory(result.magnet, result.name);
-
       add.disabled = true;
       add.dataset.state = "adding";
       add.textContent = "Adding...";
@@ -183,7 +170,7 @@
         await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
         add.dataset.state = "done";
-        add.textContent = "✓ Added";
+        add.textContent = "\u2713 Added";
       } catch (err) {
         toast(err.message || "Failed to add");
         add.dataset.state = "idle";
@@ -193,4 +180,3 @@
     });
     return add;
   }
-

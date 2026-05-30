@@ -7,7 +7,7 @@ REM ============================================================
 setlocal EnableDelayedExpansion
 set "BRANCH=main"
 
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 
 where git >nul 2>nul
 if errorlevel 1 ( echo [X] git not found. & goto :end )

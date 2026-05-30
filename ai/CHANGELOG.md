@@ -79,3 +79,30 @@ Windows one-click (portable WinPython 3.12.4 — path hardcoded in the deploy/*.
 
 Loop: I edit src/ fragments → you double-click **deploy/deploy.bat** → done.
 App code + render.yaml + Dockerfile stay at repo root (that's what Render deploys).
+
+
+## 2026-05-31 — Security and reliability fixes
+
+### Backend
+- **Storage check on `/api/add`**: before adding a magnet, checks if torrent size > available storage. Blocks with user-friendly "Not enough space" message. Falls back gracefully if storage check fails (network error) — proceeds with add rather than blocking.
+- **Empty token guard**: `CloudService.serialize_token()` now returns `None` instead of `""` on failure. `RedisStore.set_refresh_token()` rejects `None`/empty values. Redis never gets corrupted with empty token strings.
+- **Redis health check on startup**: after RedisStore init, tests connectivity. If Upstash unreachable, logs a clear warning. Previously silent failure — now you see it in Render logs immediately.
+- **Specific exception handlers**: replaced 9 broad `except Exception as e` with `except (ConnectionError, TimeoutError)` in all provider-facing routes (add, delete, zip, bulk ops, list, history, get_url). Real bugs are no longer silently swallowed.
+- **Safe error messages**: all `json_error` responses use generic messages. No `str(exc)` leaking file paths or internal variable names.
+
+### Frontend
+- **`/api/add` now sends `size_bytes`**: `5-search.js` sends `result.size_bytes` with the add request so the server can do the storage check. Backend exposes `size_bytes` in search response.
+
+### Dev tooling
+- **`deploy/deploy_all.py`**: single-command deployment script. Writes all files, rebuilds app.js, runs check.py (JS + CSS + Flask + pre-flight summary), creates project.zip. Replaces per-file tool calls with one Python script.
+- **Extended `deploy/check.py`**: pre-flight summary now shows all fixes (done/pending/skipped) before commit.
+
+### Breaking changes
+- None. All changes are additive or defensive. No API contract changes.
+
+
+ ['streamly_hardened/app.py', 'streamly_hardened/services.py', 'streamly_hardened/redis_store.py', 'streamly_hardened/static/js/src/5-search.js', 'deploy/check.py']
+- Run by: deploy_all.py (automated)
+
+
+
