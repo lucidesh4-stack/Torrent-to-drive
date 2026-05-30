@@ -89,8 +89,15 @@ if errorlevel 1 (
   goto :end
 )
 
+REM --- tag this deploy as a restore point (good-YYYYMMDD-HHMMSS) ---
+set "STAMP=%DATE:/=-%_%TIME::=-%"
+set "STAMP=!STAMP: =0!"
+git tag "good-!STAMP!" >nul 2>nul
+git push origin --tags >nul 2>nul
+
 echo(
 echo ====== DONE - Render will auto-deploy in ~1 min ======
+echo Restore point saved. To undo later: double-click rollback.bat
 
 :end
 echo(

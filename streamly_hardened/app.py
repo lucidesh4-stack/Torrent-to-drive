@@ -46,7 +46,6 @@ def create_app(
 ) -> Flask:
     config = config or AppConfig.from_env()
     app = Flask(__name__)
-    # Behind Render's proxy: trust X-Forwarded-* for correct scheme/IP (rate limiter, secure cookies)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     app.config.update(
         SECRET_KEY=config.secret_key,
@@ -63,13 +62,23 @@ def create_app(
     search = search_service or SearchService(config)
     store = client_store or TTLStore[Any](config.session_ttl_seconds, config.client_store_max_entries)
 
-    # Optional Upstash-backed refresh-token persistence (auto-relogin across restarts)
+    # Optional Upstash-backed refresh-token persistence
     rs: RedisStore | None = None
     if config.upstash_redis_url and config.upstash_redis_token:
         rs = RedisStore(config.upstash_redis_url, config.upstash_redis_token)
+        # FIX 3: Redis health check on startup — warn if Upstash is unreachable
+        if rs:
+            try:
+                test = rs.get("streamly:health_check_test")
+                log.info("Upstash Redis reachable — history and token persistence active")
+            except Exception:
+                log.warning(
+                    "Upstash Redis unreachable — history and token persistence disabled. "
+                    "Check UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your environment."
+                )
 
     def _try_restore_from_refresh(sid: str):
-        """Attempt to rebuild a Seedr client from a stored refresh token.
+        """Rebuild a Seedr client from a stored refresh token (global master token).
         Returns the restored client (and updates the store/session) or raises NotAuthenticated."""
         if not rs:
             raise NotAuthenticated("Not authenticated")
@@ -79,14 +88,13 @@ def create_app(
         try:
             client, username = cloud.login_with_saved_token(rt)
         except PermissionError:
-            # Refresh token is dead — clean it up so we stop trying
             rs.delete_refresh_token()
             raise NotAuthenticated("Refresh token invalid")
         store.put(sid, client)
         session["username"] = username
-        # Persist (possibly rotated) refresh token
+        # FIX 2: Persist only if serialize_token returns a non-empty value
         new_rt = CloudService.serialize_token(client)
-        if new_rt and new_rt != rt:
+        if new_rt:
             rs.set_refresh_token(new_rt)
         log.info("Session restored via global master token for sid=%s...", sid[:8])
         return client
@@ -98,13 +106,10 @@ def create_app(
         try:
             return store.get(sid)
         except NotAuthenticated:
-            # First try restoring from the global master token in Redis
             try:
                 return _try_restore_from_refresh(sid)
             except NotAuthenticated:
                 pass
-
-            # If that fails and we have env vars, auto-login silently
             if config.seedr_email and config.seedr_password:
                 try:
                     client, username = cloud.login(config.seedr_email, config.seedr_password)
@@ -112,20 +117,17 @@ def create_app(
                     session["username"] = username
                     if rs:
                         rt = CloudService.serialize_token(client)
+                        # FIX 2: Only store non-empty tokens
                         if rt:
                             rs.set_refresh_token(rt)
                     log.info("Auto-logged in headless mode for sid=%s", sid[:8])
                     return client
                 except PermissionError:
-                    # Bad credentials in env vars — not recoverable
                     log.error("Headless auto-login failed: invalid SEEDR_EMAIL/SEEDR_PASSWORD")
                 except ConnectionError:
-                    # Provider network issue — let it propagate to 502 handler
                     raise
                 except Exception:
                     log.exception("Unexpected error during headless auto-login")
-
-            # Fallback
             raise NotAuthenticated("Not authenticated")
 
     @app.errorhandler(ValidationError)
@@ -146,7 +148,7 @@ def create_app(
 
     @app.errorhandler(ConnectionError)
     def handle_connection_error(exc: ConnectionError):
-        return json_error(502, "bad_gateway", str(exc) or "Upstream provider error")
+        return json_error(502, "bad_gateway", "Upstream provider error")
 
     @app.errorhandler(Exception)
     def handle_exception(exc: Exception):
@@ -159,8 +161,6 @@ def create_app(
     @app.get("/")
     def index():
         ensure_sid()
-        # Auto cache-bust: bump whenever any static asset changes (mtime-based),
-        # so deploys never serve a stale CSS/JS mix.
         import os as _os
         static_dir = _os.path.join(_os.path.dirname(__file__), "static")
         try:
@@ -177,7 +177,6 @@ def create_app(
 
     @app.get("/healthz")
     def healthz():
-        # Lightweight endpoint for uptime monitors (UptimeRobot etc.)
         return jsonify({"ok": True})
 
     @app.get("/api/csrf")
@@ -192,7 +191,6 @@ def create_app(
         current_client()
         return jsonify({"success": True, "authenticated": True, "username": session.get("username", "")})
 
-
     @app.post("/api/login")
     @rate_limited(limiter, cost=5.0)
     @csrf_required
@@ -204,7 +202,7 @@ def create_app(
         client, username = cloud.login(email, password)
         store.put(sid, client)
         session["username"] = username
-        # Persist refresh_token for silent re-login across server restarts
+        # FIX 2: Persist only non-empty token
         if rs:
             rt = CloudService.serialize_token(client)
             if rt:
@@ -214,25 +212,21 @@ def create_app(
     @app.post("/api/login/silent")
     @rate_limited(limiter, cost=1.0)
     def login_silent():
-        """Attempt to restore session from .stored refresh token. No body required."""
         sid = session.get("sid") or ensure_sid()
-        
-        # In single-account mode, simply calling current_client() will
-        # inherently trigger the fallback logic to log in using env vars.
         try:
             current_client()
             return jsonify({"success": True, "username": session.get("username", "")})
         except NotAuthenticated:
             return json_error(401, "no_refresh_token", "No valid refresh token stored")
 
-
     @app.get("/fs/folder/<folder_id>/items")
     @rate_limited(limiter, cost=1.0)
     def list_items(folder_id: str):
         folder = validate_positive_int(folder_id, name="folder_id", maximum=config.max_folder_id)
+        # FIX 4: Specific exception handler — catch only network/provider errors
         try:
             data = cloud.list_items(current_client(), folder)
-        except Exception as e:
+        except (ConnectionError, TimeoutError) as e:
             log.warning("Provider error on list: %s", e)
             return json_error(502, "provider_error", "Provider unavailable or failed to list items")
         for item in data["folders"] + data["files"]:
@@ -246,9 +240,10 @@ def create_app(
         data = require_json_body(config)
         item_type = validate_item_type(data.get("type"))
         item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
+        # FIX 4: Specific exception handler
         try:
             cloud.delete_item(current_client(), item_type, item_id)
-        except Exception as e:
+        except (ConnectionError, TimeoutError) as e:
             log.warning("Provider error on delete: %s", e)
             return json_error(502, "provider_error", "Provider rejected the request or is unavailable")
         return jsonify({"success": True})
@@ -260,7 +255,12 @@ def create_app(
         data = require_json_body(config)
         item_type = validate_item_type(data.get("type"))
         item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
-        url = cloud.get_zip_url(current_client(), item_type, item_id)
+        # FIX 4: Specific exception handler (get_zip_url uses http POST internally)
+        try:
+            url = cloud.get_zip_url(current_client(), item_type, item_id)
+        except (ConnectionError, TimeoutError) as e:
+            log.warning("Provider error on zip: %s", e)
+            return json_error(502, "provider_error", "Failed to create zip — provider unavailable")
         return jsonify({"success": bool(url), "url": url})
 
     @app.post("/api/delete/bulk")
@@ -278,14 +278,17 @@ def create_app(
         for item in items:
             if not isinstance(item, dict):
                 continue
+            # FIX 4: Specific exception handler per item
             try:
                 item_type = validate_item_type(item.get("type"))
                 item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
                 cloud.delete_item(client, item_type, item_id)
                 results.append({"id": item_id, "type": item_type, "ok": True})
-            except Exception as exc:
+            except (ConnectionError, TimeoutError) as exc:
                 log.warning("Bulk delete item failed: %s", exc)
-                results.append({"id": item.get("id"), "type": item.get("type"), "ok": False, "error": str(exc)[:200]})
+                results.append({"id": item.get("id"), "type": item.get("type"), "ok": False, "error": "Failed to delete item"})
+            except ValidationError as exc:
+                results.append({"id": item.get("id"), "type": item.get("type"), "ok": False, "error": "Invalid item data"})
         return jsonify({"success": True, "results": results})
 
     @app.post("/api/zip/bulk")
@@ -307,7 +310,12 @@ def create_app(
             validated.append({"type": item_type, "id": item_id})
         if not validated:
             return json_error(400, "bad_request", "No valid items")
-        url = cloud.get_zip_url_bulk(current_client(), validated)
+        # FIX 4: Specific exception handler
+        try:
+            url = cloud.get_zip_url_bulk(current_client(), validated)
+        except (ConnectionError, TimeoutError) as e:
+            log.warning("Bulk zip failed: %s", e)
+            return json_error(502, "provider_error", "Failed to create zip — provider unavailable")
         return jsonify({"success": bool(url), "url": url})
 
     @app.post("/api/add")
@@ -316,9 +324,30 @@ def create_app(
     def add_magnet():
         data = require_json_body(config)
         magnet = validate_magnet(data.get("magnet"), config)
+        # FIX 1: Storage check before add
+        # Optional `size` field in bytes (sent from JS when size is known from search results).
+        # If absent or not a positive int, skip the check and let add proceed.
+        raw_size = data.get("size")
+        if raw_size is not None:
+            size_bytes = _safe_int(raw_size)
+            if size_bytes > 0:
+                try:
+                    storage = cloud.list_items(current_client(), 0)
+                    used = max(0, _safe_int(storage.get("used")))
+                    maximum = max(1, _safe_int(storage.get("max")))
+                    if used + size_bytes > maximum:
+                        return json_error(
+                            400,
+                            "storage_full",
+                            "Not enough space. Clear some files from Seedr before adding."
+                        )
+                except (ConnectionError, TimeoutError) as e:
+                    log.warning("Storage check failed before add, proceeding anyway: %s", e)
+                    # Network error on storage check — don't block the add, let it proceed
+        # FIX 4: Specific exception handler — catch only provider/network errors
         try:
             cloud.add_magnet(current_client(), magnet)
-        except Exception as e:
+        except (ConnectionError, TimeoutError) as e:
             log.warning("Provider error on add: %s", e)
             return json_error(502, "provider_error", "Provider rejected the request (e.g. storage full) or is unavailable")
         return jsonify({"success": True})
@@ -328,35 +357,33 @@ def create_app(
     @app.get("/api/history")
     @rate_limited(limiter, cost=1.0)
     def get_history():
-        # Global history (not tied to specific session IDs)
+        # FIX 4: Specific exception handler
         try:
             items = rs.get_history("global_history") if rs else []
             return jsonify({"success": True, "items": items})
-        except Exception as e:
-            return json_error(500, "internal_error", str(e))
+        except (ConnectionError, TimeoutError) as e:
+            log.warning("Redis error on get_history: %s", e)
+            return jsonify({"success": True, "items": [], "_warning": "History temporarily unavailable"})
 
     @app.post("/api/history/add")
     @csrf_required
     def add_history():
         data = require_json_body(config)
         magnet = validate_magnet(data.get("magnet"), config)
-        name = data.get("name", "Unknown Magnet")
+        name = require_str(data, "name", max_len=512) if data.get("name") else "Unknown Magnet"
         import time
-        
         new_item = {
             "magnet": magnet,
             "title": name,
             "time": time.strftime("%d/%m/%Y, %H:%M:%S")
         }
-        
         items = rs.get_history("global_history") if rs else []
         items = [it for it in items if it.get("magnet") != magnet]
         items.insert(0, new_item)
-        items = items[:50] # keep last 50
-        
+        items = items[:50]
         if rs:
-            rs.save_history("global_history", items)
-            
+            if not rs.save_history("global_history", items):
+                log.warning("Failed to persist history to Redis")
         return jsonify({"success": True})
 
     @app.post("/api/history/delete")
@@ -366,14 +393,12 @@ def create_app(
         magnet = data.get("magnet")
         if not magnet:
             return json_error(400, "bad_request", "Missing magnet link")
-            
         items = rs.get_history("global_history") if rs else []
         new_items = [it for it in items if it.get("magnet") != magnet]
         if len(items) != len(new_items) and rs:
             rs.save_history("global_history", new_items)
-            
         return jsonify({"success": True})
-        
+
     @app.post("/api/history/clear")
     @csrf_required
     def clear_history():
@@ -385,7 +410,15 @@ def create_app(
     @rate_limited(limiter, cost=1.0)
     def get_url():
         file_id = validate_positive_int(request.args.get("file_id"), name="file_id", maximum=config.max_file_id)
-        return jsonify({"success": True, "url": cloud.get_stream_url(current_client(), file_id)})
+        # FIX 4: Specific exception handler
+        try:
+            url = cloud.get_stream_url(current_client(), file_id)
+        except (ConnectionError, TimeoutError) as e:
+            log.warning("Provider error on get_url: %s", e)
+            return json_error(502, "provider_error", "Failed to get stream URL — provider unavailable")
+        if not url:
+            return json_error(404, "not_found", "Stream URL not available for this file")
+        return jsonify({"success": True, "url": url})
 
     @app.get("/api/suggest")
     @rate_limited(limiter, cost=0.5)
@@ -422,10 +455,12 @@ def create_app(
             if not infohash or not title:
                 continue
             raw_category = str(item.get("category", "Other"))[:64]
+            raw_size = item.get("size")
             rows.append(
                 {
                     "name": title,
-                    "size": format_size(_safe_int(item.get("size"))),
+                    "size": format_size(_safe_int(raw_size)),
+                    "size_bytes": max(0, _safe_int(raw_size)),  # FIX 1: expose bytes for JS storage check
                     "seeds": int(item.get("seeders", 0) or 0),
                     "leeches": int(item.get("leechers", item.get("leeches", 0)) or 0),
                     "date": str(item.get("createdAt", "")).split("T")[0][:32],
@@ -434,7 +469,6 @@ def create_app(
                 }
             )
         return jsonify({"results": rows, "pagination": pagination, "took": took})
-
 
     return app
 

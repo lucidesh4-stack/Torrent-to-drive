@@ -20,6 +20,12 @@ ONE-TIME REQUIREMENTS:
       "D:\Downloads\Projects\Python Project\WPy64-31241\python-3.12.4.amd64\python.exe" -m pip install Flask
   - First push may ask you to sign in to GitHub once.
 
+ROLLBACK A BAD DEPLOY:
+  - Double-click  rollback.bat
+  - It lists recent versions; copy the short code of a GOOD one, confirm YES
+  - It redeploys that exact version (Render auto-deploys it)
+  - Every deploy.bat run also saves a "good-..." tag as a restore point
+
 OTHER TOOLS IN THIS FOLDER (optional):
   check.bat  -> rebuild + verify only (no push)
   build.bat  -> rebuild app.js only
