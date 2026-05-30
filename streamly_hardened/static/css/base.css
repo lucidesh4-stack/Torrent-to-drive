@@ -16,10 +16,14 @@
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
     * { box-sizing: border-box; }
+    html { background: #070a0f; max-width: 100%; overflow-x: hidden; }
     body {
       margin: 0;
+      width: 100%;
+      max-width: 100%;
       min-height: 100vh;
-      background: radial-gradient(circle at 20% 0%, #162033 0%, #0b0e14 42%, #070a0f 100%);
+      overflow-x: hidden;
+      background: linear-gradient(180deg, #0e1626 0%, #0b111c 38%, #080b11 70%, #070a0f 100%) #070a0f no-repeat;
       color: var(--text);
     }
     button, input, select { font: inherit; }
@@ -77,7 +81,10 @@
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); background: rgba(17,24,39,.72); }
     .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .grid { display: grid; gap: 16px; }
-    .cloud-layout { grid-template-columns: 1fr 330px; align-items: start; }
+    .cloud-layout { grid-template-columns: minmax(0, 1fr) 330px; align-items: start; }
+    .cloud-layout > .panel { min-width: 0; }
+    #cloudView .name-cell { min-width: 0; }
+    #cloudView .name-cell .truncate { min-width: 0; }
     .table { width: 100%; border-collapse: collapse; }
     .table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; text-align: left; background: #101722; border-bottom: 1px solid var(--line); padding: 12px 14px; }
     .table td { border-bottom: 1px solid var(--line-soft); padding: 12px 14px; vertical-align: middle; }
@@ -97,6 +104,18 @@
     .results { padding: 0 16px 16px; overflow-x: auto; overflow-y: visible; }
     .torrent-table-wrap { min-width: 980px; }
     .search-box-wrap { position: relative; min-width: 260px; }
+    /* icons embedded inside the search input */
+    .search-box-wrap > input { padding-left: 42px; padding-right: 40px; }
+    .sb-icon {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 30px; height: 30px; padding: 0; border-radius: 8px;
+      background: transparent; color: var(--muted); border: 0;
+      display: grid; place-items: center; font-size: 15px; font-weight: 700;
+      cursor: pointer; z-index: 2;
+    }
+    .sb-icon:hover { background: #1b2230; color: var(--text); transform: translateY(-50%); }
+    .sb-icon-left { left: 6px; }
+    .sb-icon-right { right: 6px; font-size: 13px; }
     .suggest-box { position: absolute; left: 0; right: 0; top: calc(100% + 8px); z-index: 25; background: #0b0e14; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.45); max-height: 430px; overflow-y: auto; }
     .suggest-item { display: grid; grid-template-columns: 42px 1fr; gap: 10px; align-items: center; padding: 10px; cursor: pointer; border-bottom: 1px solid var(--line-soft); }
     .suggest-item:hover { background: #111d2b; }
@@ -114,6 +133,11 @@
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .seed { color: #86efac; font-weight: 900; }
     .leech { color: #fca5a5; }
+    /* Search results: Name left-aligned, all other columns centered */
+    #searchView .table th:not(:first-child),
+    #searchView .table td:not(:first-child) { text-align: center; }
+    #searchView .table th:first-child,
+    #searchView .table td:first-child { text-align: left; }
     #mobileResults { display: none !important; }
     .mobile-result { display: none !important; border: 1px solid var(--line); border-radius: 15px; background: #0b0e14; padding: 13px; margin-bottom: 10px; }
     .result-title { font-weight: 900; overflow-wrap: anywhere; }
@@ -128,185 +152,5 @@
     video::-webkit-media-controls-enclosure { outline: none; }
     .toast { position: fixed; right: 18px; bottom: 18px; z-index: 50; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: 14px; padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
     
-    /* Bridge Choice Modal */
+    
 
-    /* Bridge status badges */
-    .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 900;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-    }
-    .badge-downloading { background: rgba(74,144,226,.18); color: var(--blue); }
-    .badge-completed  { background: rgba(34,197,94,.18);  color: var(--green); }
-    .badge-failed     { background: rgba(239,68,68,.18);  color: var(--red); }
-
-    @media (max-width: 980px) {
-      .cloud-layout { grid-template-columns: 1fr; }
-      .search-grid { grid-template-columns: 1fr; }
-      /* Keep tabs in a scrollable row instead of stacking */
-      .topbar-inner { padding: 10px 0; flex-wrap: nowrap; }
-      .topbar-inner .brand { flex-shrink: 0; }
-      .topbar-inner .logo { width: 34px; height: 34px; border-radius: 10px; font-size: 15px; }
-      .topbar-inner h2 { font-size: 16px; }
-      .tabs { flex-shrink: 0; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-      .tabs::-webkit-scrollbar { display: none; }
-      .user-pill { max-width: 120px; font-size: 11px; padding: 6px 10px; }
-      #cloudView .table th:nth-child(3), #cloudView .table td:nth-child(3),
-      #cloudView .table th:nth-child(4), #cloudView .table td:nth-child(4),
-      #cloudView .table th:nth-child(5), #cloudView .table td:nth-child(5) { display: none; }
-    }
-
-    /* --- Mobile: switch torrent table → card layout --- */
-    @media (max-width: 700px) {
-      .torrent-table-wrap { display: none !important; }
-      #mobileResults { display: block !important; }
-      .mobile-result { display: block !important; }
-      .side-card { padding: 12px; }
-      .actions { flex-direction: column; }
-      .actions button { width: 100%; }
-      .topbar-inner h2 { font-size: 14px; }
-      .topbar-inner .brand { gap: 8px; }
-      .main { margin: 14px auto 40px; }
-      .panel { border-radius: 14px; }
-      .table td { padding: 10px 10px; }
-      .table th { padding: 10px 10px; font-size: 11px; }
-      .page-btn { padding: 7px 10px; font-size: 13px; }
-    }
-
-    /* --- Small phones: compact pagination --- */
-    @media (max-width: 420px) {
-      .pagination { gap: 4px; }
-      .page-btn { padding: 6px 9px; font-size: 12px; border-radius: 8px; }
-      .page-info { font-size: 12px; }
-      .user-pill { display: none !important; }
-      .login-card { padding: 20px; }
-      h1 { font-size: 24px; }
-      .topbar-inner { min-height: 56px; }
-      .search-unified-row { gap: 6px; }
-      .search-box-wrap { min-width: 0; }
-      /* History modal: card layout */
-      #historyOverlay .table { display: block; }
-      #historyOverlay thead { display: none; }
-      #historyOverlay tbody { display: block; }
-      #historyOverlay tr { display: flex; flex-direction: column; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
-      #historyOverlay td { display: block; padding: 4px 0; border-bottom: none; text-align: left !important; }
-      #historyOverlay td:first-child { font-weight: 600; }
-    }
-
-/* --- Magnet paste section --- */
-.magnet-paste-section {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.05));
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  border-radius: 10px;
-  padding: 14px 16px;
-  margin-bottom: 16px;
-}
-.magnet-paste-label {
-  display: block;
-  font-weight: 600;
-  font-size: 0.95rem;
-  margin-bottom: 8px;
-  color: #c7d2fe;
-}
-.magnet-paste-row {
-  display: flex;
-  gap: 8px;
-}
-.magnet-paste-row input {
-  flex: 1;
-  font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
-  font-size: 0.85rem;
-}
-.magnet-paste-row button {
-  white-space: nowrap;
-}
-.magnet-divider {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  margin: 14px 0 16px;
-  color: rgba(203, 213, 225, 0.5);
-  font-size: 0.85rem;
-}
-.magnet-divider::before,
-.magnet-divider::after {
-  content: "";
-  flex: 1;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
-}
-.magnet-divider span {
-  padding: 0 12px;
-}
-
-/* --- Login overlay close button --- */
-.login-card {
-  position: relative;
-}
-.login-close {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(15, 23, 42, 0.6);
-  color: #cbd5e1;
-  border-radius: 8px;
-  font-size: 1.4rem;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.login-close:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: #fca5a5;
-  border-color: rgba(239, 68, 68, 0.4);
-}
-
-/* --- Multi-select cloud drive --- */
-.row-check {
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-  accent-color: var(--blue, #3b82f6);
-  min-width: 20px;
-  min-height: 20px;
-}
-#cloudBody tr.selected {
-  background: rgba(59, 130, 246, 0.12);
-}
-#cloudBody tr:hover {
-  background: rgba(59, 130, 246, 0.06);
-}
-.actions button {
-  flex: 1;
-}
-.actions button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-#selectAllCheck {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-  accent-color: var(--blue, #3b82f6);
-}
-
-/* Unified Search Bar */
-.search-unified-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-@media (max-width: 768px) {
-  .search-unified-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
