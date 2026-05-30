@@ -35,8 +35,11 @@
     setTimeout(() => box.classList.add("hidden"), 2600);
   }
 
-  // Track silent-relogin attempts so we don't loop forever
+  // Silent-relogin state: debounced so transient failures don't permanently disable.
   let silentReloginAttempted = false;
+  let silentReloginTimer = null;
+  const SILENT_RELOGIN_DEBOUNCE_MS = 8000;
+
   async function attemptSilentRelogin() {
     if (silentReloginAttempted) return false;
     silentReloginAttempted = true;
@@ -50,25 +53,24 @@
         const data = await r.json().catch(() => ({}));
         if (data && data.success) {
           showApp(data.username || "Logged in");
-          // Reset flag after a short delay so future genuine 401s can retry
-          setTimeout(() => { silentReloginAttempted = false; }, 5000);
+          // Reset flag after debounce window on success
+          clearTimeout(silentReloginTimer);
+          silentReloginTimer = setTimeout(() => { silentReloginAttempted = false; }, SILENT_RELOGIN_DEBOUNCE_MS);
           return true;
         }
       }
     } catch (_) {}
+    // On failure: allow retry after debounce window
+    clearTimeout(silentReloginTimer);
+    silentReloginTimer = setTimeout(() => { silentReloginAttempted = false; }, SILENT_RELOGIN_DEBOUNCE_MS);
     return false;
   }
 
   async function parseResponse(response) {
     if (response.status === 401 && !response.url.includes("/api/status") && !response.url.includes("/api/login")) {
-      // Try silent re-login FIRST. Only show login popup if that fails too.
-      const restored = await attemptSilentRelogin();
-      if (!restored) {
-        // If we are already on cloud view, show login. Otherwise stay in guest mode.
-        if (document.getElementById("cloudView") && !document.getElementById("cloudView").classList.contains("hidden")) {
-          showLogin();
-        }
-      }
+      // Try silent re-login but do NOT show login popup here.
+      // The caller (setTab or loadFolder) is responsible for that decision.
+      await attemptSilentRelogin();
     }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.success === false) {
@@ -782,10 +784,14 @@
     return add;
   }
 
-    function setTab(name) {
+  async function setTab(name) {
     if (name === "cloud" && !isAuthenticated) {
-      showLogin();
-      return;
+      // Trigger a silent re-login attempt first. If that works, proceed.
+      const restored = await attemptSilentRelogin();
+      if (!restored) {
+        showLogin();
+        return;
+      }
     }
     // Automatically dismiss login popup if we switch back to search
     if (name === "search") {
@@ -793,11 +799,16 @@
     }
     // Update the URL hash so refresh restores the correct tab
     window.history.replaceState(null, null, `#${name}`);
-    
+
     $("cloudView").classList.toggle("hidden", name !== "cloud");
     $("searchView").classList.toggle("hidden", name !== "search");
     $("cloudTab").classList.toggle("active", name === "cloud");
     $("searchTab").classList.toggle("active", name === "search");
+
+    // Auto-load root folder when switching to cloud view
+    if (name === "cloud" && isAuthenticated) {
+      await loadFolder(currentFolder || 0);
+    }
   }
 
   /* Event wiring */

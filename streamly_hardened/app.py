@@ -103,7 +103,7 @@ def create_app(
                 return _try_restore_from_refresh(sid)
             except NotAuthenticated:
                 pass
-                
+
             # If that fails and we have env vars, auto-login silently
             if config.seedr_email and config.seedr_password:
                 try:
@@ -116,9 +116,15 @@ def create_app(
                             rs.set_refresh_token(rt)
                     log.info("Auto-logged in headless mode for sid=%s", sid[:8])
                     return client
-                except Exception as e:
-                    log.error("Headless auto-login failed: %s", e)
-            
+                except PermissionError:
+                    # Bad credentials in env vars — not recoverable
+                    log.error("Headless auto-login failed: invalid SEEDR_EMAIL/SEEDR_PASSWORD")
+                except ConnectionError:
+                    # Provider network issue — let it propagate to 502 handler
+                    raise
+                except Exception:
+                    log.exception("Unexpected error during headless auto-login")
+
             # Fallback
             raise NotAuthenticated("Not authenticated")
 
