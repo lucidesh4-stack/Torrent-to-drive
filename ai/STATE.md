@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Mobile UI fix for series/quality sections
+- **Bug**: New section rows used a fixed 5-col grid (`1fr 80px 110px 100px 90px`); on phones the Name column collapsed and the Add button + full size were clipped (showed "2.18" with no GB, no name, no Add).
+- **Fix**: Added `@media (max-width:768px)` overrides in responsive.css — `.episode-row` becomes a wrapping flex card (Name full-width on top; seeds·size·time·Add below with Add right-aligned); section/uploader headers wrap; `#seriesResults` padding tightened; Quality/Encoder dropdown buttons sized to compact mobile controls with on-screen panels.
+- **Files**: static/css/responsive.css (CSS-only). app.js rebuilt.
+- **Verified**: CSS brace-balanced; node --check; gunicorn boots. Desktop layout unchanged (overrides are mobile-only).
+
 ### 2026-05-31 — Normal mode = quality-grouped + identical control row; meter removed
 - **Identical row**: Quality + Encoder dropdowns now always visible in BOTH modes. The Normal/Series toggle ONLY changes backend processing (no show/hide).
 - **Normal mode redesign**: one bitsearch per selected quality (default 1080p) → `<title> <q>` → dedup → grouped into **quality sections (4K → 1080p → 720p → Other)**, plain torrent rows, **size-descending** by default. Multi-quality = multi-query. Encoders ignored in Normal.
@@ -158,6 +164,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Mobile UI fix: series/quality section rows reflow to a 2-line card (Name on top; seeds·size·Add below) so nothing is clipped on phones; dropdowns sized for mobile. Changed: static/css/responsive.css, app.js.
 - **2026-05-31** — Normal mode now quality-grouped (4K/1080p/720p, size-desc, default 1080p, multi-query); control row identical in both modes; sorting is client-side (no re-fetch); removed daily meter entirely. Changed: search_service.py, routes/search.py, redis_store.py, config.py, app.py, 3b-series.js, 5-search.js, 3-search-sort.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Fixed 413 add_torrent → was 500, now clean 502 "too large"; made Series dropdown buttons match Category select so Series/Normal rows look identical. Changed: cloud_service.py, routes/cloud.py, base.css, app.js.
 - **2026-05-31** — UI: quality/encoder multi-select dropdowns in search row; removed dedup checkbox (dedup always ON); added Upstash daily bitsearch meter with green/yellow/red early-warning (X/200 today, configurable). Changed: redis_store.py, config.py, app.py, routes/search.py, 3b-series.js, 5-search.js, 6-main.js, index.html, base.css, app.js.
