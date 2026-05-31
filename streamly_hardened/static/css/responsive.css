@@ -340,6 +340,9 @@
 @media (max-width: 768px) {
   #seriesResults { padding: 0 10px 16px; }
 
+  /* Compact clickable header on mobile (Name | SE | Time | Size | Add) */
+  .sec-head { grid-template-columns: 1fr 42px 64px 64px 44px; gap: 6px; padding: 9px 10px; font-size: 10px; letter-spacing: .02em; }
+
   /* Section header wraps so the title + count + "Add all" never overflow */
   .encoder-header { flex-wrap: wrap; padding: 11px 12px; gap: 8px; }
   .encoder-title { gap: 8px; flex: 1 1 100%; min-width: 0; }

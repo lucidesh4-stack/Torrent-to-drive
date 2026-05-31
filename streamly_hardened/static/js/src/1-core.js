@@ -14,7 +14,7 @@
   let items = [];
   let suggestTimer = null;
   let currentSort = "size";
-  let currentOrder = "desc";
+  let currentOrder = "asc";
   let currentPage = 1;
   let isAuthenticated = false;
 

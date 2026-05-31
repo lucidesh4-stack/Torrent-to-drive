@@ -167,10 +167,12 @@ def search_route():
         qualities = ["1080p"]
 
     def run_normal(query_text):
+        # Normal mode fetches by seeders (most-seeded/relevant 50 per quality);
+        # the UI displays them grouped by quality, size-ascending by default.
         try:
-            payload = search.bitsearch(query_text, category, sort, order, 1, dedup=False)
+            payload = search.bitsearch(query_text, category, "seeders", "desc", 1, dedup=False)
         except TypeError:
-            payload = search.bitsearch(query_text, category, sort, order)
+            payload = search.bitsearch(query_text, category, "seeders", "desc")
         items, _, _ = _extract_items(payload, 1)
         return _normalize_rows(items)
 

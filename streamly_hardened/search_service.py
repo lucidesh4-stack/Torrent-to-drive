@@ -233,7 +233,8 @@ def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Group flat normalized rows into quality sections (4K/1080p/720p/Other).
 
     Sections are ordered 2160p -> 1080p -> 720p -> Other; rows within each
-    section are sorted size-descending. Used by Normal mode.
+    section are sorted size-ascending (smallest first) by default. The UI may
+    re-sort client-side. Used by Normal mode.
     """
     order = ["2160p", "1080p", "720p", "Other"]
     label = {"2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other"}
@@ -245,7 +246,7 @@ def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         items = buckets[key]
         if not items:
             continue
-        items.sort(key=lambda r: r.get("size_bytes", 0) or 0, reverse=True)
+        items.sort(key=lambda r: r.get("size_bytes", 0) or 0)
         sections.append({"quality": key, "label": label[key], "count": len(items), "rows": items})
     return sections
 

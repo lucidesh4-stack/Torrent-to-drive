@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Normal: fetch by seeders, display size-ASCENDING + clickable header
+- **Fetch vs display split**: Normal mode now fetches bitsearch by **seeders** (most-seeded/relevant 50 per quality) but **displays** each quality section **size-ascending** (low→high) by default.
+- **Header row**: added one clickable header (Name | SE | Time | Size | Add) at the top of the sectioned views (Normal + Series), wired to `cycleSort` (client-side re-sort).
+- **Series**: structure unchanged; gains the header row. Episodes stay in native S/E order until the user clicks a header (`userSorted` flag), then re-sort within each uploader/season group.
+- **Files**: routes/search.py (run_normal fetch=seeders), search_service.py (group_by_quality size-asc), 1-core.js (default size/asc), 3b-series.js (seriesHeaderRow, userSorted, series re-sort), 3-search-sort.js (cycleSort re-renders active view), base.css + responsive.css (.sec-head), app.js.
+- **Verified**: fetch sends sort=seeders; sections display 476MB→1.86GB→8.38GB (size-asc); header clicks re-sort; gunicorn boots; node --check + py_compile pass.
+
 ### 2026-05-31 — Fix: size-desc default sort wasn't applied
 - **Bug**: Backend `group_by_quality` pre-sorted size-desc, but the frontend `renderNormalGrouped` always re-sorted via `sortRows` using defaults `currentSort="seeders"`, so the first render showed seeds-order, not size-desc.
 - **Fix**: Changed JS defaults to `currentSort="size"`, `currentOrder="desc"` (1-core.js) so the initial view matches the spec. Clicking SE/Time/Size still re-sorts client-side.
@@ -170,6 +177,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Normal: fetch by seeders, display size-ascending; added clickable Name/SE/Time/Size/Add header row to sectioned views (both modes); Series episodes re-sort within groups on header click. Changed: routes/search.py, search_service.py, 1-core.js, 3b-series.js, 3-search-sort.js, base.css, responsive.css, app.js.
 - **2026-05-31** — Mobile UI fix: series/quality section rows reflow to a 2-line card (Name on top; seeds·size·Add below) so nothing is clipped on phones; dropdowns sized for mobile. Changed: static/css/responsive.css, app.js.
 - **2026-05-31** — Normal mode now quality-grouped (4K/1080p/720p, size-desc, default 1080p, multi-query); control row identical in both modes; sorting is client-side (no re-fetch); removed daily meter entirely. Changed: search_service.py, routes/search.py, redis_store.py, config.py, app.py, 3b-series.js, 5-search.js, 3-search-sort.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Fixed 413 add_torrent → was 500, now clean 502 "too large"; made Series dropdown buttons match Category select so Series/Normal rows look identical. Changed: cloud_service.py, routes/cloud.py, base.css, app.js.
