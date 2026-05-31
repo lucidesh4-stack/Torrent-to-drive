@@ -53,6 +53,16 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Multi-source search (concurrent merge + dedup) + category removed
+- **Why**: bitsearch.eu's /api/v1/search was returning 500/502 (recurring outages), taking down all search. Single-source = single point of failure.
+- **What**: Added `SearchService.multi_search(q)` — queries **bitsearch + apibay (The Pirate Bay JSON API) + torrents-csv CONCURRENTLY** (ThreadPoolExecutor), merges results, dedups by infohash (highest-seed kept). **Fault-tolerant**: a provider that 500s/times-out/throws contributes 0 rows and is logged; results still return from working providers. Latency ≈ slowest single provider, not the sum (proven: full merged search 1.12s while bitsearch alone hangs 6s to timeout).
+- **Providers**: each returns the canonical UI row shape via `_make_row` (name, infohash, seeds, leeches, size/size_bytes, date, magnet, source). New helpers `_fetch_apibay`, `_fetch_torrents_csv`, `_bitsearch_rows`, `_to_int`, `_unix_to_date`, `_format_bytes`. No new pip deps (stdlib concurrent.futures + existing requests).
+- **Category REMOVED**: providers use different/poor category schemes, so the category `<select>`, its param, validation, and `_CATEGORY_LABELS` mapping were dropped. Rows carry `category:"Other"` for UI compatibility. `routes/search.py` no longer imports/validates category/sort/order/page (page was already dead); fetches go through `multi_search`.
+- **Config**: `search_providers` tuple (env `SEARCH_PROVIDERS`, comma-separated; default all three) to enable/disable any source without code.
+- **Files**: search_service.py (providers + multi_search), routes/search.py (rewrite: multi_search, no category), config.py (search_providers), templates/index.html (category select removed), static/js/src/5-search.js + 6-main.js (category send/listener removed), app.js (rebuilt).
+- **Verified LIVE**: with bitsearch DOWN (500/timeout), multi_search returned 115 merged rows from apibay(94)+torrents-csv(21) in 1.12s; 0 cross-source duplicate infohashes; concurrency confirmed; route harness (normal grouped, multi-quality 3 rounds, series ELiTE, quota guard 400/0-calls, empty→400, stray category ignored, suggest); py_compile + node --check all pass; gunicorn boots; app.js in sync; SEARCH_PROVIDERS override works.
+
+
 ### 2026-05-31 — Accordion sections (collapsed default, one-open) both modes
 - **Why**: 50+ results all expanded = overwhelming scroll on mobile.
 - **What**: All sections start **collapsed** on every search. **One section open at a time** (opening one closes its siblings) via a shared `makeAccordion(section, header, container, groupSel)` helper. Applies to Normal quality sections, Series Season Packs + encoder sections, AND uploader sub-groups within an open encoder (uploader is now its own collapsible accordion — one uploader open at a time). Desktop + mobile.
@@ -183,6 +193,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Multi-source search: bitsearch + apibay + torrents-csv queried concurrently, merged & deduped; survives any provider outage (verified live with bitsearch down → 115 results in 1.12s). Category filter removed entirely. Changed: search_service.py, routes/search.py, config.py, templates/index.html, 5-search.js, 6-main.js, app.js.
 - **2026-05-31** — Accordion: all sections collapsed by default, one open at a time (both modes, both desktop+mobile); uploader sub-groups also collapsible. Changed: static/js/src/3b-series.js, static/css/base.css, app.js.
 - **2026-05-31** — Normal: fetch by seeders, display size-ascending; added clickable Name/SE/Time/Size/Add header row to sectioned views (both modes); Series episodes re-sort within groups on header click. Changed: routes/search.py, search_service.py, 1-core.js, 3b-series.js, 3-search-sort.js, base.css, responsive.css, app.js.
 - **2026-05-31** — Mobile UI fix: series/quality section rows reflow to a 2-line card (Name on top; seeds·size·Add below) so nothing is clipped on phones; dropdowns sized for mobile. Changed: static/css/responsive.css, app.js.
