@@ -182,6 +182,7 @@ def parse_release(title: str) -> dict[str, Any]:
 
 
 PACK_TOP_N = 20  # max season packs shown
+NORMAL_TOP_PER_QUALITY = 30  # Normal mode: most-seeded results kept per quality section
 
 
 def build_packs(rows: list[dict[str, Any]], top_n: int = PACK_TOP_N) -> list[dict[str, Any]]:
@@ -234,9 +235,11 @@ def _quality_bucket(title: str) -> str:
 def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Group flat normalized rows into quality sections (4K/1080p/720p/Other).
 
-    Sections are ordered 2160p -> 1080p -> 720p -> Other; rows within each
-    section are sorted size-ascending (smallest first) by default. The UI may
-    re-sort client-side. Used by Normal mode.
+    Sections are ordered 2160p -> 1080p -> 720p -> Other. Within each section we
+    keep only the NORMAL_TOP_PER_QUALITY most-seeded releases, then display those
+    size-ascending (smallest first). Applied per quality, so selecting multiple
+    qualities yields up to that many results in EACH section. The UI may re-sort
+    client-side. Used by Normal mode.
     """
     order = ["2160p", "1080p", "720p", "Other"]
     label = {"2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other"}
@@ -248,6 +251,9 @@ def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         items = buckets[key]
         if not items:
             continue
+        # 1) most-seeded first, 2) keep top N, 3) display size-ascending.
+        items.sort(key=lambda r: r.get("seeds", 0) or 0, reverse=True)
+        items = items[:NORMAL_TOP_PER_QUALITY]
         items.sort(key=lambda r: r.get("size_bytes", 0) or 0)
         sections.append({"quality": key, "label": label[key], "count": len(items), "rows": items})
     return sections
