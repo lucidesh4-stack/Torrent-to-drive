@@ -53,6 +53,21 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Fix: exact-match filter broke when query contained quality/noise
+- **Bug**: after switching to exact title match, typing "the boys 1080p" compared ['the','boys','1080p'] to series ['the','boys'] -> no match -> ZERO results. Any quality/codec/season word in the query nuked all results.
+- **Fix**: `matches_query` now strips release-metadata from the QUERY first (`_clean_query_tokens` + `_QUERY_META`): resolutions, codecs, sources, season/complete/pack, encoder tags, SxxExx, and years. Articles ("the") are kept. So "the boys 1080p", "the boys 1080p x265", "the boys s02" all reduce to ['the','boys'] and match "The.Boys". Spin-offs still dropped; all-noise query (e.g. just "1080p") disables filtering instead of returning nothing.
+- **Files**: search_service.py (matches_query + _clean_query_tokens + _QUERY_META).
+- **Verified**: unit (quality/codec/season noise in query still matches; spin-offs dropped; all-noise disables filter); route harness ("the boys 1080p" returns The Boys, not empty); py_compile; gunicorn boots; app.js untouched.
+
+
+### 2026-05-31 — Relevance filter tightened to EXACT title match
+- **Why**: the prior "all query tokens appear anywhere" rule let spin-offs / look-alikes through — searching "The Boys" returned "The Boys Presents Diabolical" and "My Life With the Walter Boys" (both contain the words "the"+"boys" scattered).
+- **What**: `matches_query` now keeps a result only if its parsed series tokens EQUAL the query tokens (separator/case-insensitive). "The Boys" -> only "The Boys".
+- **Trade-off (accepted by user)**: this also drops spin-offs like "Daredevil Born Again" / "Marvels Daredevil" for a plain "Daredevil" search. To find a spin-off, search its full title (IMDb autocomplete assists). Supersedes the earlier all-tokens choice.
+- **Files**: search_service.py (matches_query only). Route wiring unchanged.
+- **Verified**: unit (The Boys keeps only The Boys; Diabolical/Walter Boys dropped; spaced variant matches; Daredevil spin-offs dropped; empty query disables filter); route harness (series + normal return only exact match); py_compile; gunicorn boots; app.js untouched.
+
+
 ### 2026-05-31 — Search providers: FAILOVER instead of merge (single-source per search)
 - **Why**: merging 3 sources multiplied duplicates (different infohashes / naming variants slip past dedup) and added unrelated junk. Fix = use ONE good source per search.
 - **What**: `multi_search(q, prefer=None)` now tries providers in PRIORITY ORDER and returns the FIRST that yields results (failover), instead of querying all concurrently and merging. Returns `(rows, winning_provider)`. Same-source infohash dedup still applied.
@@ -235,6 +250,8 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Fixed exact-match filter eating all results when the query included quality/codec/season words (e.g. "the boys 1080p" returned nothing). Query is now stripped of release-metadata before matching. Changed: search_service.py.
+- **2026-05-31** — Relevance filter tightened to EXACT title match (was: all-tokens-present). Fixes spin-offs leaking in (e.g. "The Boys" no longer returns "The Boys Presents Diabolical" / "My Life With the Walter Boys"). Trade-off: spin-offs need their full title to appear. Changed: search_service.py.
 - **2026-05-31** — Search switched from merge-all to FAILOVER: first provider (priority apibay->torrents-csv->bitsearch) that returns results wins; provider locked per request so each search is single-source (kills cross-source duplicates). Set SEARCH_PROVIDERS=apibay for strict single-source. Changed: search_service.py, config.py, routes/search.py.
 - **2026-05-31** — Series fixes: separator-insensitive episode dedup (Daredevil.Born.Again == Daredevil Born Again), query-relevance filter dropping unrelated results (Bones/Red Green Show), pack dedup by (series,season,quality) keeping highest-seed. Changed: search_service.py, routes/search.py.
 - **2026-05-31** — Series Mode redesign: encoder→quality(4K/1080p/720p)→season→episode (uploader level removed); encoders merged case-insensitively; per-encoder dedup of <series>+SxxExx keeping highest seeder; episodes in sequence; season packs show original torrent name. Changed: search_service.py, 3b-series.js, app.js.

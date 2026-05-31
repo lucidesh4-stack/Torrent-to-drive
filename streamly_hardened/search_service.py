@@ -129,16 +129,49 @@ def series_key(series: str) -> str:
 
 
 def matches_query(query: str, series: str) -> bool:
-    """True if every token of the search query appears in the series tokens.
+    """True only if the result's series EXACTLY matches the search query
+    (separator-insensitive, case-insensitive).
 
-    Drops unrelated provider results (e.g. searching 'Daredevil' must not keep
-    'Bones' or 'The Red Green Show'). A title that merely *contains* all query
-    words (e.g. 'Daredevil Born Again', 'Marvels Daredevil') is kept.
+    Before comparing, release-metadata tokens are stripped from the QUERY so a
+    user can type quality/codec/season noise without breaking the match — e.g.
+    'the boys 1080p', 'the boys 1080p x265', 'the boys s02' all reduce to
+    ['the','boys'] and match the series 'The.Boys'. Spin-offs / look-alikes that
+    merely contain the words ('The Boys Presents Diabolical', 'My Life With the
+    Walter Boys') are still dropped. Empty/all-noise query disables filtering.
     """
-    q = set(_norm_tokens(query))
+    q = _clean_query_tokens(query)
     if not q:
         return True
-    return q.issubset(set(_norm_tokens(series)))
+    return _norm_tokens(series) == q
+
+
+# Release-metadata tokens stripped from the QUERY before exact title matching.
+# (Articles like "the"/"a" are deliberately KEPT — "The Boys" needs "the".)
+_QUERY_META = {
+    "2160p", "1080p", "720p", "480p", "4k", "uhd", "hd",
+    "x265", "x264", "h265", "h264", "hevc", "av1", "xvid", "divx",
+    "10bit", "8bit", "hdr", "hdr10", "dv",
+    "web", "webdl", "webrip", "bluray", "bdrip", "brrip", "hdtv", "dvdrip",
+    "dvd", "remux", "aac", "ac3", "dts", "atmos", "truehd", "eac3",
+    "season", "complete", "pack", "episode", "repack", "proper", "internal",
+    "elite", "psa", "megusta", "rarbg", "yts", "yify", "eztv", "tgx", "ettv",
+}
+
+
+def _clean_query_tokens(query: str) -> list[str]:
+    """Title tokens of the query with release-metadata / SxxExx / year removed."""
+    out: list[str] = []
+    for t in _norm_tokens(query):
+        if t in _QUERY_META:
+            continue
+        if re.fullmatch(r"s\d{1,2}(e\d{1,3})?", t):  # s01, s01e02
+            continue
+        if re.fullmatch(r"e\d{1,3}", t):             # e05
+            continue
+        if re.fullmatch(r"(19|20)\d{2}", t):         # 1999, 2026 (year)
+            continue
+        out.append(t)
+    return out
 
 
 def parse_release(title: str) -> dict[str, Any]:
