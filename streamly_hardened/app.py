@@ -48,6 +48,12 @@ def create_app(
         # Export env vars for easier access in blueprints
         SEEDR_EMAIL=config.seedr_email,
         SEEDR_PASSWORD=config.seedr_password,
+        # Validation limits
+        max_folder_id=config.max_folder_id,
+        max_file_id=config.max_file_id,
+        max_json_bytes=config.max_json_bytes,
+        max_query_length=config.max_query_length,
+        max_magnet_length=config.max_magnet_length,
     )
     install_security_headers(app)
 

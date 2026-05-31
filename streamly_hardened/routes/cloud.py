@@ -18,7 +18,7 @@ cloud_bp = Blueprint("cloud", __name__)
 @rate_limited(cost=1.0)
 def list_items(folder_id: str):
     config = current_app.config
-    folder = validate_positive_int(folder_id, name="folder_id", maximum=config.max_folder_id)
+    folder = validate_positive_int(folder_id, name="folder_id", maximum=config.get("max_folder_id", 1_000_000_000))
     cloud = getattr(current_app, "cloud", None)
     try:
         data = cloud.list_items(current_client(), folder)
@@ -37,7 +37,7 @@ def delete_item():
     config = current_app.config
     data = require_json_body(config)
     item_type = validate_item_type(data.get("type"))
-    item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
+    item_id = validate_positive_int(data.get("id"), name="id", maximum=config.get("max_file_id", 1_000_000_000))
     cloud = getattr(current_app, "cloud", None)
     try:
         cloud.delete_item(current_client(), item_type, item_id)
@@ -54,7 +54,7 @@ def zip_item():
     config = current_app.config
     data = require_json_body(config)
     item_type = validate_item_type(data.get("type"))
-    item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
+    item_id = validate_positive_int(data.get("id"), name="id", maximum=config.get("max_file_id", 1_000_000_000))
     cloud = getattr(current_app, "cloud", None)
     try:
         url = cloud.get_zip_url(current_client(), item_type, item_id)
@@ -86,7 +86,7 @@ def delete_bulk():
             continue
         try:
             item_type = validate_item_type(item.get("type"))
-            item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
+            item_id = validate_positive_int(item.get("id"), name="id", maximum=config.get("max_file_id", 1_000_000_000))
             cloud.delete_item(client, item_type, item_id)
             results.append({"id": item_id, "type": item_type, "ok": True})
         except (ConnectionError, TimeoutError) as exc:
@@ -118,7 +118,7 @@ def zip_bulk():
         if not isinstance(item, dict):
             continue
         item_type = validate_item_type(item.get("type"))
-        item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
+        item_id = validate_positive_int(item.get("id"), name="id", maximum=config.get("max_file_id", 1_000_000_000))
         validated.append({"type": item_type, "id": item_id})
     
     if not validated:
@@ -172,7 +172,7 @@ def add_magnet():
 @rate_limited(cost=1.0)
 def get_url():
     config = current_app.config
-    file_id = validate_positive_int(current_app.request.args.get("file_id"), name="file_id", maximum=config.max_file_id)
+    file_id = validate_positive_int(current_app.request.args.get("file_id"), name="file_id", maximum=config.get("max_file_id", 1_000_000_000))
     cloud = getattr(current_app, "cloud", None)
     try:
         url = cloud.get_stream_url(current_client(), file_id)
