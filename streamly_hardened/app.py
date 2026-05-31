@@ -54,6 +54,10 @@ def create_app(
         max_json_bytes=config.max_json_bytes,
         max_query_length=config.max_query_length,
         max_magnet_length=config.max_magnet_length,
+        # Allowed lists
+        allowed_categories=config.allowed_categories,
+        allowed_sorts=config.allowed_sorts,
+        allowed_orders=config.allowed_orders,
     )
     install_security_headers(app)
 
