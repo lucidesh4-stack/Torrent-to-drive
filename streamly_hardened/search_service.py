@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import ipaddress
 import logging
@@ -7,6 +8,7 @@ import re
 import socket
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
@@ -406,6 +408,129 @@ def _temporary_bitsearch_resolution(ip: str):
             socket.getaddrinfo = old_getaddrinfo
 
 
+def _to_int(*values: Any, default: int = 0) -> int:
+    """First value that parses as a non-negative int, else default."""
+    for value in values:
+        try:
+            if value is not None and value != "":
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return default
+
+
+def _unix_to_date(value: Any) -> str:
+    """Convert a unix timestamp (int/str) to 'YYYY-MM-DD', else ''."""
+    ts = _to_int(value, default=0)
+    if ts <= 0:
+        return ""
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+    except (ValueError, OverflowError, OSError):
+        return ""
+
+
+def _make_row(*, name: str, infohash: str, seeds: Any, leeches: Any,
+              size_bytes: Any, date: str, source: str) -> dict[str, Any] | None:
+    """Build one canonical UI row shared by every provider. Returns None if unusable.
+
+    Shape MUST match routes.search._normalize_rows so all downstream grouping,
+    dedup, packs and rendering work identically regardless of source.
+    """
+    infohash = str(infohash or "").strip()[:128]
+    name = str(name or "").strip()[:512]
+    if not infohash or not name:
+        return None
+    size_b = max(0, _to_int(size_bytes, default=0))
+    return {
+        "name": name,
+        "size": _format_bytes(size_b),
+        "size_bytes": size_b,
+        "seeds": _to_int(seeds, default=0),
+        "leeches": _to_int(leeches, default=0),
+        "date": str(date or "")[:32],
+        "category": "Other",  # category filtering removed (providers differ); kept for UI compatibility
+        "magnet": f"magnet:?xt=urn:btih:{infohash}&dn={name}",
+        "infohash": infohash,
+        "source": source,
+    }
+
+
+def _format_bytes(num: int) -> str:
+    """Human-readable size, mirroring cloud_service.format_size output style."""
+    n = float(max(0, num))
+    for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
+        if n < 1024 or unit == "PB":
+            return (f"{int(n)} {unit}" if unit == "B" else f"{n:.2f} {unit}")
+        n /= 1024
+    return f"{n:.2f} PB"
+
+
+# --- Provider fetchers: each returns a list of canonical rows (never raises to caller) ---
+
+def _fetch_apibay(http: requests.Session, q: str, timeout: float) -> list[dict[str, Any]]:
+    """The Pirate Bay JSON API (apibay.org). No key. Returns [] on any failure."""
+    resp = http.get(
+        "https://apibay.org/q.php",
+        params={"q": q, "cat": "0"},
+        headers={"User-Agent": "Streamly/1.0"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        ih = item.get("info_hash", "")
+        # apibay returns a single sentinel row when there are no results.
+        if str(ih).strip("0") == "" or str(item.get("name", "")) == "No results returned":
+            continue
+        row = _make_row(
+            name=item.get("name", ""),
+            infohash=ih,
+            seeds=item.get("seeders"),
+            leeches=item.get("leechers"),
+            size_bytes=item.get("size"),
+            date=_unix_to_date(item.get("added")),
+            source="apibay",
+        )
+        if row:
+            rows.append(row)
+    return rows
+
+
+def _fetch_torrents_csv(http: requests.Session, q: str, timeout: float) -> list[dict[str, Any]]:
+    """torrents-csv.com JSON API. No key. Returns [] on any failure."""
+    resp = http.get(
+        "https://torrents-csv.com/service/search",
+        params={"q": q, "size": 50},
+        headers={"User-Agent": "Streamly/1.0"},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    items = data.get("torrents", []) if isinstance(data, dict) else []
+    rows: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        row = _make_row(
+            name=item.get("name", ""),
+            infohash=item.get("infohash", ""),
+            seeds=item.get("seeders"),
+            leeches=item.get("leechers"),
+            size_bytes=item.get("size_bytes"),
+            date=_unix_to_date(item.get("created_unix")),
+            source="torrents-csv",
+        )
+        if row:
+            rows.append(row)
+    return rows
+
+
 class SearchService:
     def __init__(self, config: AppConfig):
         self.config = config
@@ -515,6 +640,72 @@ class SearchService:
             },
             "took": payload.get("took"),
         }
+
+    def _bitsearch_rows(self, q: str) -> list[dict[str, Any]]:
+        """Bitsearch results as canonical rows (reuses bitsearch() + its DoH fallback)."""
+        payload = self.bitsearch(q, "", "seeders", "desc", 1, dedup=False)
+        results = payload.get("results", []) if isinstance(payload, dict) else []
+        rows: list[dict[str, Any]] = []
+        for item in results if isinstance(results, list) else []:
+            if not isinstance(item, dict):
+                continue
+            row = _make_row(
+                name=item.get("title", ""),
+                infohash=item.get("infohash", ""),
+                seeds=item.get("seeders"),
+                leeches=item.get("leecher"),
+                size_bytes=item.get("size"),
+                date=str(item.get("createdAt", "")).split("T")[0],
+                source="bitsearch",
+            )
+            if row:
+                rows.append(row)
+        return rows
+
+    def multi_search(self, q: str) -> list[dict[str, Any]]:
+        """Query all enabled providers CONCURRENTLY, merge, and dedup by infohash.
+
+        Fault-tolerant: a provider that errors / times out contributes 0 rows and
+        is logged; results are returned from whichever providers succeed. Latency
+        ≈ the slowest single provider (calls run in parallel), so adding sources
+        does not slow down a normal search.
+        """
+        timeout = self.config.request_timeout_seconds
+        enabled = self.config.search_providers  # ordered tuple, e.g. ("bitsearch","apibay","torrents-csv")
+
+        tasks: dict[str, Any] = {}
+        if "bitsearch" in enabled:
+            tasks["bitsearch"] = lambda: self._bitsearch_rows(q)
+        if "apibay" in enabled:
+            tasks["apibay"] = lambda: _fetch_apibay(self.http, q, timeout)
+        if "torrents-csv" in enabled:
+            tasks["torrents-csv"] = lambda: _fetch_torrents_csv(self.http, q, timeout)
+
+        if not tasks:
+            return []
+
+        merged: list[dict[str, Any]] = []
+        # Overall guard so one stuck socket can't exceed the request timeout budget.
+        overall = max(timeout + 2.0, timeout * 1.5)
+        with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
+            futures = {ex.submit(fn): name for name, fn in tasks.items()}
+            try:
+                for fut in as_completed(futures, timeout=overall):
+                    name = futures[fut]
+                    try:
+                        rows = fut.result()
+                        merged += rows
+                        log.info("provider %s returned %d rows for %r", name, len(rows), q)
+                    except Exception as exc:  # noqa: BLE001 - one provider must never break search
+                        log.warning("provider %s failed: %s", name, exc)
+            except TimeoutError:
+                done = {futures[f] for f in futures if f.done()}
+                log.warning("multi_search overall timeout; slow providers skipped: %s",
+                            sorted(set(futures.values()) - done))
+
+        # Same-infohash duplicates across sources collapse to the highest-seeded copy.
+        return _dedup_by_infohash(merged)
+
 
 def _safe_name_local(value: Any) -> str:
     if not isinstance(value, str):

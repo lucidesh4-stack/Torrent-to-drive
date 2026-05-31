@@ -1081,7 +1081,6 @@
     try {
       const params = new URLSearchParams();
       params.set("q", q);
-      params.set("category", $("category").value || "");
       params.set("sort", currentSort);
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
@@ -1412,7 +1411,6 @@
 
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
   $("searchQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") search(false, 1); });
-  $("category").addEventListener("change", () => { if ($("searchQuery").value.trim()) search(false, 1); });
   document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
   document.addEventListener("click", (e) => { if (!e.target.closest(".search-box-wrap")) $("suggestBox").classList.add("hidden"); });
   syncSortControls();

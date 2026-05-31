@@ -31,7 +31,6 @@
     try {
       const params = new URLSearchParams();
       params.set("q", q);
-      params.set("category", $("category").value || "");
       params.set("sort", currentSort);
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
