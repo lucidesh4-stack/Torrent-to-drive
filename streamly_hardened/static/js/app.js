@@ -15,7 +15,7 @@
   }
   let items = [];
   let suggestTimer = null;
-  let currentSort = "seeders";
+  let currentSort = "size";
   let currentOrder = "desc";
   let currentPage = 1;
   let isAuthenticated = false;
