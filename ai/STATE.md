@@ -53,6 +53,14 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Normal mode = quality-grouped + identical control row; meter removed
+- **Identical row**: Quality + Encoder dropdowns now always visible in BOTH modes. The Normal/Series toggle ONLY changes backend processing (no show/hide).
+- **Normal mode redesign**: one bitsearch per selected quality (default 1080p) → `<title> <q>` → dedup → grouped into **quality sections (4K → 1080p → 720p → Other)**, plain torrent rows, **size-descending** by default. Multi-quality = multi-query. Encoders ignored in Normal.
+- **Client-side sort**: clicking SE/Time/Size now re-orders the already-loaded rows **within each section** (no re-fetch, no quota). Previously it re-ran the search.
+- **Removed the daily meter entirely** (UI strip + RedisStore incr/get_request_count + config bitsearch_daily_limit + app.config export + CSS). Series request badge text retained in resultCount line only.
+- **Files**: search_service.py (+`group_by_quality`,`_quality_bucket`), routes/search.py (Normal multi-query branch; meter code removed), redis_store.py (counter removed), config.py (limit removed), app.py (export removed), static/js/src/3b-series.js (rewrite: normal grouped render, sortRows, no meter), 5-search.js (normal_grouped handling, always send quality), 3-search-sort.js (cycleSort client-side), 6-main.js (dropdowns always visible), templates/index.html (meter removed, dropdowns un-hidden), static/css/base.css (meter CSS removed).
+- **Verified**: Normal → normal_grouped sections 4K→1080p→720p, size-desc; multi-quality multi-query; Series intact (no daily_used); no stale meter refs; py_compile + node --check; gunicorn boots.
+
 ### 2026-05-31 — 413 add fix + Series/Normal row parity
 - **413 fix**: `cloud_service.add_magnet` now catches `seedrcc.APIError` / HTTP 413 ("too large") and re-raises as `ConnectionError` with a clear message; route returns **502 "too large for your available space"** instead of an uncaught 500. Unrelated errors still propagate.
 - **UI parity**: `.ms-dd-btn` (Quality/Encoder dropdowns) now match the Category `<select>` metrics exactly (font 16px, padding 12px 13px) so the Series Mode control row is the same height/look as Normal.
@@ -150,6 +158,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Normal mode now quality-grouped (4K/1080p/720p, size-desc, default 1080p, multi-query); control row identical in both modes; sorting is client-side (no re-fetch); removed daily meter entirely. Changed: search_service.py, routes/search.py, redis_store.py, config.py, app.py, 3b-series.js, 5-search.js, 3-search-sort.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Fixed 413 add_torrent → was 500, now clean 502 "too large"; made Series dropdown buttons match Category select so Series/Normal rows look identical. Changed: cloud_service.py, routes/cloud.py, base.css, app.js.
 - **2026-05-31** — UI: quality/encoder multi-select dropdowns in search row; removed dedup checkbox (dedup always ON); added Upstash daily bitsearch meter with green/yellow/red early-warning (X/200 today, configurable). Changed: redis_store.py, config.py, app.py, routes/search.py, 3b-series.js, 5-search.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Feature ③ v2 Series Mode redesign: quality+encoder multiselect, targeted queries (packs x265/hevc + per encoder×quality), encoder→uploader→quality→season→episode, packs smallest-first top-20, quota guard (cap 12 + badge). Changed: search_service.py, routes/search.py, static/js/src/3b-series.js, 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.

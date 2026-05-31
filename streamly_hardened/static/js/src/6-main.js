@@ -85,7 +85,6 @@
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
     el.addEventListener("change", () => {
       if (typeof updateDropdownLabels === "function") updateDropdownLabels();
-      if (typeof updateQuotaBadge === "function") updateQuotaBadge();
     })
   );
 

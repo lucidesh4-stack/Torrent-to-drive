@@ -103,8 +103,6 @@ def create_app(
         allowed_categories=config.allowed_categories,
         allowed_sorts=config.allowed_sorts,
         allowed_orders=config.allowed_orders,
-        # Series Mode bitsearch daily request budget (meter / traffic-light)
-        bitsearch_daily_limit=config.bitsearch_daily_limit,
     )
     install_security_headers(app)
 
