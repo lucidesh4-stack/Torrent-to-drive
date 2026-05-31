@@ -156,10 +156,16 @@ def add_magnet():
                     return json_error(
                         400,
                         "storage_full",
-                        "Not enough space. Clear some files from Seedr before adding."
+                        "Insufficient storage: the torrent is too large for your available space."
                     )
-            except (ConnectionError, TimeoutError) as e:
-                current_app.logger.warning("Storage check failed before add, proceeding anyway: %s", e)
+            except Exception as e:
+                current_app.logger.error("Critical storage check failure: %s", e)
+                from ..security import json_error
+                return json_error(
+                    502,
+                    "storage_check_failed",
+                    "Unable to verify storage space. Please try again later."
+                )
     try:
         cloud.add_magnet(current_client(), magnet)
     except (ConnectionError, TimeoutError) as e:
