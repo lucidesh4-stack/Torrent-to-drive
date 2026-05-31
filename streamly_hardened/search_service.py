@@ -128,21 +128,33 @@ def series_key(series: str) -> str:
     return " ".join(_norm_tokens(series))
 
 
-def matches_query(query: str, series: str) -> bool:
-    """True only if the result's series EXACTLY matches the search query
-    (separator-insensitive, case-insensitive).
+def matches_query(query: str, series: str, *, is_episode: bool = False) -> bool:
+    """Decide whether a result belongs to the searched title.
 
-    Before comparing, release-metadata tokens are stripped from the QUERY so a
-    user can type quality/codec/season noise without breaking the match — e.g.
-    'the boys 1080p', 'the boys 1080p x265', 'the boys s02' all reduce to
-    ['the','boys'] and match the series 'The.Boys'. Spin-offs / look-alikes that
-    merely contain the words ('The Boys Presents Diabolical', 'My Life With the
-    Walter Boys') are still dropped. Empty/all-noise query disables filtering.
+    The query has release-metadata stripped first, so users can type quality /
+    codec / season noise without breaking the match ('the boys 1080p' ->
+    ['the','boys']). Empty/all-noise query disables filtering.
+
+    Matching differs by content type so BOTH problems are solved:
+
+    * Episodes (`is_episode=True`): `series` was parsed from the part BEFORE
+      'SxxExx', so it's a clean show title -> require EXACT equality. This drops
+      spin-offs/look-alikes ('The Boys Presents Diabolical', 'Daredevil Born
+      Again') that carry extra TITLE words.
+
+    * Movies / packs (`is_episode=False`): the parser can't tell where the title
+      ends, so `series` trails year/quality/codec/group junk we can't fully
+      enumerate. Use a PREFIX rule: the cleaned series must START WITH the query
+      tokens. 'avengers endgame' matches 'Avengers Endgame 2019 1080p x264 MP4';
+      a different movie ('Avengers Infinity War') still fails.
     """
     q = _clean_query_tokens(query)
     if not q:
         return True
-    return _norm_tokens(series) == q
+    s = _clean_query_tokens(series)
+    if is_episode:
+        return s == q
+    return s[:len(q)] == q
 
 
 # Release-metadata tokens stripped from the QUERY before exact title matching.
@@ -271,29 +283,48 @@ def _quality_bucket(title: str) -> str:
     return "Other"
 
 
-def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def group_by_quality(
+    rows: list[dict[str, Any]],
+    only_qualities: list[str] | None = None,
+    cap: int | None = None,
+) -> list[dict[str, Any]]:
     """Group flat normalized rows into quality sections (4K/1080p/720p/Other).
 
-    Sections are ordered 2160p -> 1080p -> 720p -> Other. Within each section we
-    keep only the NORMAL_TOP_PER_QUALITY most-seeded releases, then display those
-    size-ascending (smallest first). Applied per quality, so selecting multiple
-    qualities yields up to that many results in EACH section. The UI may re-sort
-    client-side. Used by Normal mode.
+    Sections are ordered 2160p -> 1080p -> 720p -> Other; rows within each section
+    are sorted size-ascending (smallest first).
+
+    - `only_qualities`: if given (e.g. ["1080p","720p"]), ONLY those quality
+      sections are emitted (the quality filter). None/empty => all sections.
+      "Other" is shown only when no specific qualities are requested.
+    - `cap`: if given, keep at most this many (most-seeded) rows per section,
+      still displayed size-ascending. None => keep ALL matching rows.
+
+    Used by Normal mode. The UI may re-sort client-side.
     """
     order = ["2160p", "1080p", "720p", "Other"]
     label = {"2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other"}
+
+    wanted = {x for x in (only_qualities or []) if x in order}
+    if wanted:
+        # Only the requested resolution sections; never include "Other" when the
+        # user has explicitly picked qualities.
+        emit = [k for k in order if k in wanted]
+    else:
+        emit = order  # no filter -> all sections incl. Other
+
     buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in order}
     for row in rows:
         buckets[_quality_bucket(str(row.get("name", "")))].append(row)
+
     sections = []
-    for key in order:
+    for key in emit:
         items = buckets[key]
         if not items:
             continue
-        # 1) most-seeded first, 2) keep top N, 3) display size-ascending.
-        items.sort(key=lambda r: r.get("seeds", 0) or 0, reverse=True)
-        items = items[:NORMAL_TOP_PER_QUALITY]
-        items.sort(key=lambda r: r.get("size_bytes", 0) or 0)
+        if cap is not None:
+            items.sort(key=lambda r: r.get("seeds", 0) or 0, reverse=True)
+            items = items[:cap]
+        items.sort(key=lambda r: r.get("size_bytes", 0) or 0)  # display size-ascending
         sections.append({"quality": key, "label": label[key], "count": len(items), "rows": items})
     return sections
 
@@ -508,6 +539,7 @@ def _make_row(*, name: str, infohash: str, seeds: Any, leeches: Any,
     if not infohash or not name:
         return None
     size_b = max(0, _to_int(size_bytes, default=0))
+    enc = _extract_encoder(name)
     return {
         "name": name,
         "size": _format_bytes(size_b),
@@ -516,6 +548,8 @@ def _make_row(*, name: str, infohash: str, seeds: Any, leeches: Any,
         "leeches": _to_int(leeches, default=0),
         "date": str(date or "")[:32],
         "category": "Other",  # category filtering removed (providers differ); kept for UI compatibility
+        "encoder": enc,                       # release group, e.g. "ELiTE" ("" if none)
+        "encoder_norm": _normalize_encoder(enc),  # for case-insensitive encoder filtering
         "magnet": f"magnet:?xt=urn:btih:{infohash}&dn={name}",
         "infohash": infohash,
         "source": source,

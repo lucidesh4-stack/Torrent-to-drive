@@ -1084,11 +1084,13 @@
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
       params.set("dedup", "1"); // dedup is always on (checkbox removed)
-      // Quality applies to both modes (Normal groups by quality; Series uses it per-query).
+      // Quality + Encoder are FILTERS in both modes:
+      //  - Normal: quality picks which sections show; encoder filters release groups.
+      //  - Series: used per-query as before.
       params.set("quality", getSelectedQualities().join(","));
+      params.set("encoders", getSelectedEncoders().join(","));
       if (typeof seriesMode !== "undefined" && seriesMode) {
         params.set("mode", "series");
-        params.set("encoders", getSelectedEncoders().join(","));
       }
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
 
