@@ -17,6 +17,8 @@ log = logging.getLogger(__name__)
 
 _SECRET_KEY = "streamly:secret_key"
 _REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
+_LOGS_KEY = "streamly:logs"
+_LOGS_MAX_LINES = 2000
 
 
 class RedisStore:
@@ -88,3 +90,21 @@ class RedisStore:
     def save_history(self, sid: str, items: list[dict[str, Any]]) -> bool:
         """Save history to Redis. Returns True on success, False on failure."""
         return self.set(f"streamly:history:{sid}", _json.dumps(items))
+
+    def push_log(self, line: str, max_lines: int = _LOGS_MAX_LINES) -> None:
+        """Append a single formatted log line to a capped Redis list.
+
+        Newest entries are at index 0 (LPUSH). The list is trimmed to the most
+        recent `max_lines` entries. Failures are silently ignored so that
+        logging can never crash the application.
+        """
+        self._execute("LPUSH", _LOGS_KEY, line)
+        self._execute("LTRIM", _LOGS_KEY, "0", str(max_lines - 1))
+
+    def get_logs(self, limit: int = _LOGS_MAX_LINES) -> list[str]:
+        """Return the most recent log lines in chronological (oldest-first) order."""
+        result = self._execute("LRANGE", _LOGS_KEY, "0", str(limit - 1))
+        if not isinstance(result, list):
+            return []
+        # LRANGE returns newest-first (because we LPUSH); reverse for reading.
+        return [str(x) for x in reversed(result)]

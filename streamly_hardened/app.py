@@ -4,10 +4,9 @@ import logging
 import secrets
 import os
 import uuid
-from logging.handlers import RotatingFileHandler
 from typing import Any
 
-from flask import Flask, jsonify, render_template, request, session, g, render_template_string, send_file
+from flask import Flask, Response, jsonify, render_template, request, session, g, render_template_string
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import AppConfig
@@ -39,6 +38,39 @@ class RequestIDFilter(logging.Filter):
             # No application/request context (e.g. worker boot, background logging).
             record.request_id = "system"
         return True
+
+
+class RedisLogHandler(logging.Handler):
+    """Persists formatted log lines to Upstash Redis (capped list).
+
+    Designed to be crash-proof and non-recursive:
+      * never raises out of emit() — logging must not break the app;
+      * skips records originating from the redis_store module to avoid an
+        infinite logging loop (a failed Redis write logs a warning, which
+        would otherwise trigger another Redis write);
+      * uses a re-entrancy guard as a second line of defense.
+    """
+
+    _SKIP_PREFIX = "streamly_hardened.redis_store"
+
+    def __init__(self, redis_store):
+        super().__init__()
+        self._rs = redis_store
+        self._in_emit = False
+
+    def emit(self, record):
+        if self._in_emit:
+            return
+        if record.name.startswith(self._SKIP_PREFIX):
+            return
+        self._in_emit = True
+        try:
+            self._rs.push_log(self.format(record))
+        except Exception:
+            # A logging handler must never propagate exceptions.
+            pass
+        finally:
+            self._in_emit = False
 
 
 def create_app(
@@ -74,6 +106,12 @@ def create_app(
     )
     install_security_headers(app)
 
+    # Initialize Redis first — the logging system persists to it (see below).
+    rs: RedisStore | None = None
+    if config.upstash_redis_url and config.upstash_redis_token:
+        rs = RedisStore(config.upstash_redis_url, config.upstash_redis_token)
+    app.rs = rs
+
     # --- Logging Configuration ---
     # Root logger setup
     root_log = logging.getLogger()
@@ -84,20 +122,32 @@ def create_app(
         "%(asctime)s | %(levelname)s | [%(request_id)s] | %(name)s:%(lineno)d | %(message)s"
     )
 
-    # File Handler (10MB per file, keep 5 backups)
-    file_handler = RotatingFileHandler(
-        "streamly.log", maxBytes=10*1024*1024, backupCount=5
-    )
-    file_handler.setFormatter(formatter)
-    file_handler.addFilter(RequestIDFilter())
-    root_log.addHandler(file_handler)
-
-    # Console Handler
+    # Console Handler — captured by Render's dashboard log viewer.
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.addFilter(RequestIDFilter())
     root_log.addHandler(console_handler)
+
+    # Redis Handler — persists the most recent log lines to Upstash so they
+    # survive restarts and can be downloaded via /api/logs. Disk is ephemeral
+    # on Render, so we deliberately do NOT use a file handler.
+    if rs is not None:
+        redis_handler = RedisLogHandler(rs)
+        redis_handler.setFormatter(formatter)
+        redis_handler.addFilter(RequestIDFilter())
+        root_log.addHandler(redis_handler)
     # ----------------------------
+
+    # Redis health check (logged after handlers are attached so it is captured).
+    if rs is not None:
+        try:
+            rs.get("streamly:health_check_test")
+            log.info("Upstash Redis reachable — history, token & log persistence active")
+        except Exception:
+            log.warning(
+                "Upstash Redis unreachable — history, token & log persistence disabled. "
+                "Check UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your environment."
+            )
 
     # Initialize Rate Limiter
     limiter = TokenBucketRateLimiter(config.rate_limit_capacity, config.rate_limit_refill_per_second)
@@ -112,21 +162,6 @@ def create_app(
     app.cloud = cloud
     app.search = search
     app.store = store
-
-    # Initialize Redis
-    rs: RedisStore | None = None
-    if config.upstash_redis_url and config.upstash_redis_token:
-        rs = RedisStore(config.upstash_redis_url, config.upstash_redis_token)
-        if rs:
-            try:
-                rs.get("streamly:health_check_test")
-                log.info("Upstash Redis reachable — history and token persistence active")
-            except Exception:
-                log.warning(
-                    "Upstash Redis unreachable — history and token persistence disabled. "
-                    "Check UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your environment."
-                )
-    app.rs = rs
 
     # Register Blueprints
     register_routes(app)
@@ -223,17 +258,25 @@ def create_app(
 
     @app.post("/api/logs")
     def logs_download():
-        """Verifies credentials and serves the log file."""
+        """Verifies credentials and serves recent logs from Upstash Redis."""
         email = request.form.get("email")
         password = request.form.get("password")
-        
+
         if email == app.config.get("SEEDR_EMAIL") and password == app.config.get("SEEDR_PASSWORD"):
-            log_path = "streamly.log"
-            if os.path.exists(log_path):
-                return send_file(log_path, as_attachment=True, download_name="streamly.log")
-            log.warning("Log download requested but streamly.log does not exist")
-            return json_error(404, "not_found", "Log file not yet created")
-        
+            rs = getattr(app, "rs", None)
+            if rs is None:
+                log.warning("Log download requested but Redis log persistence is unavailable")
+                return json_error(503, "unavailable", "Log persistence is not configured")
+            lines = rs.get_logs()
+            if not lines:
+                return json_error(404, "not_found", "No logs recorded yet")
+            body = "\n".join(lines) + "\n"
+            return Response(
+                body,
+                mimetype="text/plain",
+                headers={"Content-Disposition": 'attachment; filename="streamly.log"'},
+            )
+
         log.warning("Unauthorized log access attempt from %s", request.remote_addr)
         return json_error(403, "forbidden", "Invalid credentials")
 

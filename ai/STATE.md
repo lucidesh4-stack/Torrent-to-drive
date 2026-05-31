@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Logs to Upstash Redis (reliable /api/logs)
+- **Why**: Render disk is ephemeral — the old `RotatingFileHandler` + `/api/logs` file download was unreliable (404 / partial after restarts).
+- **What**: Added `RedisLogHandler` (capped Redis list `streamly:logs`, last 2000 lines via LPUSH+LTRIM). `/api/logs` POST now serves logs from Redis. Removed disk file handler.
+- **Safety**: Handler never raises; skips `redis_store` records + re-entrancy guard (no infinite logging loop). Redis init moved before logging setup. No-Redis → 503.
+- **Files**: streamly_hardened/redis_store.py, streamly_hardened/app.py
+- **Verified**: gunicorn boot OK (Dockerfile module path); write→download flow returns recent lines chronologically; loop-guard confirmed; wrong creds 403, no-redis 503.
+
 ### 2026-05-31 — Deploy Crash Fix: RequestIDFilter app-context safety
 - **Bug**: `RuntimeError: Working outside of application context` at boot → gunicorn "Worker failed to boot" → Render deploy exit 1.
 - **Cause**: `RequestIDFilter.filter` read `g` (request-only); boot-time Redis health-check log fired with no app context.
@@ -106,5 +113,6 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Logging now persists to Upstash Redis (capped 2000 lines); `/api/logs` serves logs from Redis; disk file handler removed. Changed: streamly_hardened/redis_store.py, streamly_hardened/app.py.
 - **2026-05-31** — Deploy crash fix: made `RequestIDFilter` context-safe (no more boot-time `RuntimeError: working outside of application context`). Changed: streamly_hardened/app.py.
 - **2026-05-31** — 2026-05-31 — Secure Logging System Implementation. Changed: streamly_hardened/app.py, ai/deploy/check.py.
