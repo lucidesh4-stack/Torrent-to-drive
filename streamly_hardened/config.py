@@ -31,9 +31,12 @@ class AppConfig:
     allowed_orders: frozenset[str] = frozenset({"asc", "desc"})
     bitsearch_url: str = "https://bitsearch.eu/api/v1/search"
     bitsearch_api_key: str = ""
-    # Torrent search providers queried concurrently and merged (see search_service.multi_search).
-    # Configurable via SEARCH_PROVIDERS env (comma-separated). Default: all three.
-    search_providers: tuple[str, ...] = ("bitsearch", "apibay", "torrents-csv")
+    # Torrent search providers tried in PRIORITY ORDER (failover, not merge):
+    # multi_search uses the FIRST provider that returns results, so normal
+    # operation draws from a single source (no cross-source duplicates).
+    # apibay first (freshest/cleanest), bitsearch last (flaky). Configurable via
+    # SEARCH_PROVIDERS env (comma-separated, in priority order).
+    search_providers: tuple[str, ...] = ("apibay", "torrents-csv", "bitsearch")
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
     seedr_archive_url: str = "https://www.seedr.cc/api/v2/download/archive"
     upstash_redis_url: str = ""
@@ -71,8 +74,8 @@ class AppConfig:
             bitsearch_api_key=os.getenv("BITSEARCH_API_KEY", ""),
             search_providers=tuple(
                 p.strip() for p in os.getenv(
-                    "SEARCH_PROVIDERS", "bitsearch,apibay,torrents-csv"
+                    "SEARCH_PROVIDERS", "apibay,torrents-csv,bitsearch"
                 ).split(",") if p.strip()
-            ) or ("bitsearch", "apibay", "torrents-csv"),
+            ) or ("apibay", "torrents-csv", "bitsearch"),
             max_bulk_items=int(os.getenv("MAX_BULK_ITEMS", "100")),
         )

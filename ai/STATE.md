@@ -53,6 +53,17 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Search providers: FAILOVER instead of merge (single-source per search)
+- **Why**: merging 3 sources multiplied duplicates (different infohashes / naming variants slip past dedup) and added unrelated junk. Fix = use ONE good source per search.
+- **What**: `multi_search(q, prefer=None)` now tries providers in PRIORITY ORDER and returns the FIRST that yields results (failover), instead of querying all concurrently and merging. Returns `(rows, winning_provider)`. Same-source infohash dedup still applied.
+- **Provider lock**: `routes.search.round_search` pins the winning provider for the whole request via `prefer=`, so multi-round Series searches stay on ONE source (consistent, no cross-source dups).
+- **Priority order**: `apibay -> torrents-csv -> bitsearch` (apibay freshest/cleanest; bitsearch last, currently flaky). Override via `SEARCH_PROVIDERS` env (comma-separated, priority order). Set `SEARCH_PROVIDERS=apibay` for strict single-source.
+- **Removed**: ThreadPoolExecutor merge path (no longer needed). Relevance filter (matches_query) + series-key episode dedup + pack dedup all retained.
+- **Files**: search_service.py (multi_search failover + _run_provider; dropped concurrent import), config.py (priority-order default + comment), routes/search.py (provider lock in round_search).
+- **Verified**: unit (first-non-empty wins, others not called; empty->fallback; all-empty->[]/None; prefer locks); route harness (series locked to apibay across rounds, junk filtered, Normal intact, quota guard 400); py_compile; gunicorn boots; app.js untouched & in sync.
+- **WatchSoMuch note**: investigated — no public JSON API (probes: /api/torrents 404, search 302 to login), Cloudflare + shifting domains + VIP gating; not a viable programmatic backend (HTML scrape only). Documented, not integrated.
+
+
 ### 2026-05-31 — Series fixes: relevance filter + separator-insensitive dedup + pack dedup
 - **#1 Duplicate episodes**: the episode dedup key now uses `series_key()` (token-normalized series, separators collapsed) so `Daredevil.Born.Again` and `Daredevil Born Again` count as the SAME series → the dup `S01E09 ELiTE 1080p` rows now collapse to the highest-seeded one. (Was: raw `series.lower()`, so dots vs spaces produced different keys.)
 - **#2 / #3 Unrelated results**: added `matches_query(query, series)` — keep a result only if EVERY query word appears in the parsed series tokens. Applied centrally in `routes.search.round_search` (both Normal + Series). Drops provider junk like "Bones" / "The Red Green Show" when searching "Daredevil". Per user choice (all-tokens match): "Daredevil Born Again" and "Marvels Daredevil" are kept (they contain "daredevil").
@@ -224,6 +235,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Search switched from merge-all to FAILOVER: first provider (priority apibay->torrents-csv->bitsearch) that returns results wins; provider locked per request so each search is single-source (kills cross-source duplicates). Set SEARCH_PROVIDERS=apibay for strict single-source. Changed: search_service.py, config.py, routes/search.py.
 - **2026-05-31** — Series fixes: separator-insensitive episode dedup (Daredevil.Born.Again == Daredevil Born Again), query-relevance filter dropping unrelated results (Bones/Red Green Show), pack dedup by (series,season,quality) keeping highest-seed. Changed: search_service.py, routes/search.py.
 - **2026-05-31** — Series Mode redesign: encoder→quality(4K/1080p/720p)→season→episode (uploader level removed); encoders merged case-insensitively; per-encoder dedup of <series>+SxxExx keeping highest seeder; episodes in sequence; season packs show original torrent name. Changed: search_service.py, 3b-series.js, app.js.
 - **2026-05-31** — Normal mode now keeps the 30 most-seeded per quality section and displays them size-ascending (quality sections retained, per-quality cap). Changed: search_service.py (group_by_quality + NORMAL_TOP_PER_QUALITY).
