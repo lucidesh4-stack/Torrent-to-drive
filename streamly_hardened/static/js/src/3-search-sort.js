@@ -68,9 +68,11 @@
       currentOrder = "desc";
     }
     syncSortControls();
+    if (typeof userSorted !== "undefined") userSorted = true;
     // Client-side only: re-order the already-loaded results (no new bitsearch call).
-    // Normal mode = quality sections; Series mode keeps its own structural order.
-    if (typeof lastNormalGroups !== "undefined" && lastNormalGroups) {
+    if (typeof seriesMode !== "undefined" && seriesMode) {
+      if (typeof lastSeriesData !== "undefined" && lastSeriesData) renderSeriesGrouped(lastSeriesData);
+    } else if (typeof lastNormalGroups !== "undefined" && lastNormalGroups) {
       renderNormalGrouped(lastNormalGroups);
     }
   }

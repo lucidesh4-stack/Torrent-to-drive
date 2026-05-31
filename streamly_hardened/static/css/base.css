@@ -162,6 +162,13 @@
     .mode-toggle button:hover { transform: none; background: #1b2230; color: var(--text); }
     .mode-toggle button.active { background: var(--blue); color: #fff; }
     #seriesResults { padding: 0 16px 16px; }
+    /* Clickable header row for sectioned views (Normal + Series) */
+    .sec-head { display: grid; grid-template-columns: 1fr 80px 110px 100px 90px; gap: 8px; align-items: center; padding: 10px 14px 10px 30px; margin-bottom: 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .sec-head .sec-h { white-space: nowrap; }
+    .sec-head .h-se, .sec-head .h-time, .sec-head .h-size { text-align: right; }
+    .sec-head .h-add { text-align: right; }
+    .sec-head .sortable { cursor: pointer; user-select: none; }
+    .sec-head .sortable:hover { color: var(--text); }
     .encoder-section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; overflow: hidden; }
     .encoder-header { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; cursor: pointer; background: var(--panel-2); gap: 12px; }
     .encoder-header:hover { background: #1f2a40; }

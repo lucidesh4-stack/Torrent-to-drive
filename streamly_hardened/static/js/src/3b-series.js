@@ -3,6 +3,9 @@
   // Holds the last rendered dataset so client-side sorting can re-order without re-fetching.
   let lastNormalGroups = null;   // [{quality,label,count,rows}]
   let lastSeriesData = null;     // {packs, encoders, ...}
+  // True once the user clicks a column header; until then Series keeps its native
+  // S/E order (Normal always uses size-asc default regardless).
+  let userSorted = false;
 
   function getSelectedQualities() {
     return Array.from(document.querySelectorAll(".qualityOpt:checked")).map(c => c.value);
@@ -47,6 +50,29 @@
     return rows.slice().sort((a, b) => (val(a) - val(b)) * dir);
   }
 
+  // Clickable header row for the sectioned views (Normal + Series).
+  // Mirrors the desktop table columns: Name | SE(seeds) | Time | Size | Add.
+  function seriesHeaderRow() {
+    const head = document.createElement("div");
+    head.className = "sec-head";
+    const cols = [
+      { label: "Name", key: null, cls: "h-name" },
+      { label: "SE", key: "seeders", cls: "h-se" },
+      { label: "Time", key: "date", cls: "h-time" },
+      { label: "Size", key: "size", cls: "h-size" },
+      { label: "Add", key: null, cls: "h-add" },
+    ];
+    for (const c of cols) {
+      const el = document.createElement("span");
+      el.className = "sec-h " + c.cls + (c.key ? " sortable" : "");
+      const mark = c.key && currentSort === c.key ? (currentOrder === "desc" ? " \u25BC" : " \u25B2") : "";
+      el.textContent = c.label + mark;
+      if (c.key) el.addEventListener("click", () => cycleSort(c.key));
+      head.appendChild(el);
+    }
+    return head;
+  }
+
   function plainRow(row) {
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
@@ -75,6 +101,7 @@
       return;
     }
     syncSortControls();
+    container.appendChild(seriesHeaderRow());
     for (const g of lastNormalGroups) {
       const section = document.createElement("div");
       section.className = "encoder-section";
@@ -194,6 +221,9 @@
       return;
     }
 
+    syncSortControls();
+    container.appendChild(seriesHeaderRow());
+
     // --- Season Packs on top (smallest-first) ---
     if (packs.length) {
       const section = document.createElement("div");
@@ -247,7 +277,9 @@
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
           body.appendChild(slabel);
-          for (const ep of s.episodes) {
+          // Episodes default to S/E order, but header clicks re-sort within the group.
+          const eps = userSorted ? sortRows(s.episodes) : s.episodes;
+          for (const ep of eps) {
             body.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, up.quality]));
           }
         }
