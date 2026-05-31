@@ -53,6 +53,14 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Feature ③: Series Mode (grouped view)
+- **What**: Toggle [Normal][Series Mode] above results. Series Mode fetches 3 pages (~150), dedups, parses each title, groups Encoder→Quality→Season→Episode. Season Packs + Other in separate sections (never drop unparseable). Films/Normal unchanged.
+- **Add semantics**: per-episode Add = normal single add. "+ Add all N" = ONE Seedr add (episode 1) + ALL N saved to History individually (avoids 413 quota storm). Packs/Other = per-row Add only.
+- **Parsing**: loose encoder normalize (uppercase + strip non-alphanumeric, no fuzzy); site tags (EZTV/TGx/etc.) excluded as encoders; quality = resolution + codec/source. Non-standard (1x01, Ep01, anime) → Other.
+- **Backend**: pure `parse_release`, `_normalize_encoder`, `group_series_results` in search_service; `/api/search?mode=series` branch in routes/search (3-page loop → dedup → group). Reuses Feature ① dedup (fixed seeders/seeds key mismatch).
+- **Files**: search_service.py, routes/search.py, static/js/src/3b-series.js (new), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js (rebuilt, 7 fragments).
+- **Verified**: parse/group unit tests (S/E, packs, encoders, quality, Loki cases); route tests (3 pages fetched, dedup applied, Normal regression intact); JS `node --check` passes; gunicorn boots.
+
 ### 2026-05-31 — Feature ①: Search dedup (infohash, highest-seeds)
 - **What**: Collapse same-infohash duplicates in search results, keeping the highest-seeded copy. ON by default with a "Remove duplicates" checkbox; toggling re-runs search only if results already shown (no wasted quota).
 - **Design**: Pure `_dedup_by_infohash()` in search_service; `bitsearch(dedup=True)` applies to results only — pagination totals (upstream dataset) left untouched. `/api/search?dedup=0` disables; absent ⇒ ON.
@@ -120,6 +128,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Feature ③ Series Mode: [Normal][Series Mode] toggle; grouped Encoder→Quality→Season→Episode (3-page fetch); "Add all"=1 Seedr add+N history; Packs/Other sections. Changed: search_service.py, routes/search.py, static/js/src/3b-series.js (new), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ① Search dedup (same-infohash → keep highest-seeded); default-on + "Remove duplicates" checkbox. Changed: search_service.py, routes/search.py, static/js/src/5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Logging now persists to Upstash Redis (capped 2000 lines); `/api/logs` serves logs from Redis; disk file handler removed. Changed: streamly_hardened/redis_store.py, streamly_hardened/app.py.
 - **2026-05-31** — Deploy crash fix: made `RequestIDFilter` context-safe (no more boot-time `RuntimeError: working outside of application context`). Changed: streamly_hardened/app.py.

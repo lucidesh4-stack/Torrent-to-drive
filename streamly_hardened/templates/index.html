@@ -166,7 +166,15 @@
           </div>
           <label class="search-opt"><input type="checkbox" id="dedupToggle" checked> Remove duplicates</label>
           <div id="searchStatus" class="status"></div>
+          <div class="mode-row">
+            <div id="resultCount" class="muted"></div>
+            <div class="mode-toggle">
+              <button id="modeNormal" type="button" class="active">Normal</button>
+              <button id="modeSeries" type="button">Series Mode</button>
+            </div>
+          </div>
         </div>
+        <div id="seriesResults" class="results hidden"></div>
         <div id="results" class="results hidden">
           <div class="torrent-table-wrap">
             <table class="table">
