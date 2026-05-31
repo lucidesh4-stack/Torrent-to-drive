@@ -13,6 +13,7 @@ from ..search_service import (
     group_by_quality,
     parse_release,
     matches_query,
+    _normalize_encoder,
 )
 
 search_bp = Blueprint("search", __name__)
@@ -67,11 +68,16 @@ def search_route():
     # (e.g. searching "Daredevil" must not surface "Bones" / "The Red Green Show").
     locked = {"provider": None}
 
+    def _relevant(r):
+        info = parse_release(str(r.get("name", "")))
+        # Episode => exact title match (drops spin-offs); movie/pack => prefix match.
+        return matches_query(q, info["series"], is_episode=info["episode"] is not None)
+
     def round_search(query_text):
         rows, winner = search.multi_search(query_text, prefer=locked["provider"])
         if winner and locked["provider"] is None:
             locked["provider"] = winner
-        return [r for r in rows if matches_query(q, parse_release(str(r.get("name", "")))["series"])]
+        return [r for r in rows if _relevant(r)]
 
     # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
     if mode == "series":
@@ -129,14 +135,21 @@ def search_route():
             "encoders_selected": encoders,
         })
 
-    # --- Normal Mode: one search round per selected quality, grouped by quality ---
-    qualities = [x for x in _csv(request.args.get("quality", "1080p")) if x in ALLOWED_QUALITIES]
-    if not qualities:
-        qualities = ["1080p"]
+    # --- Normal Mode: ONE broad query -> filter (quality + encoder) -> quality sections ---
+    # 1) Single broad search for the title (gets the provider's full result set,
+    #    relevance-filtered + deduped inside round_search). No per-quality queries.
+    all_rows = _dedup_by_infohash(round_search(q))
 
-    all_rows = []
-    for ql in qualities:
-        all_rows += round_search(f"{q} {ql}")
-    all_rows = _dedup_by_infohash(all_rows)
-    quality_groups = group_by_quality(all_rows)
+    # 2) Encoder filter: keep only the ticked release groups (none ticked => all).
+    selected_encoders = {
+        e for e in (_normalize_encoder(x) for x in _csv(request.args.get("encoders", "")))
+        if e
+    }
+    if selected_encoders:
+        all_rows = [r for r in all_rows if r.get("encoder_norm", "") in selected_encoders]
+
+    # 3) Quality filter = which sections to show (none ticked => all sections,
+    #    incl. Other). Within each section: size-ascending, no cap (keep all).
+    qualities = [x for x in _csv(request.args.get("quality", "")) if x in ALLOWED_QUALITIES]
+    quality_groups = group_by_quality(all_rows, only_qualities=qualities or None, cap=None)
     return jsonify({"mode": "normal_grouped", "quality_groups": quality_groups})

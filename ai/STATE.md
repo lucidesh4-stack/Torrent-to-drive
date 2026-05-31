@@ -53,6 +53,21 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Normal mode = one broad query -> quality+encoder FILTER -> quality sections
+- **What**: simplified Normal mode per user. ONE broad apibay query for the title (was: one query per ticked quality). Then filter the result set:
+  - **Quality** = which sections appear (ticked => only those; none ticked => all incl. Other).
+  - **Encoder** = filter release groups (ticked => only those, case-insensitive; none => all).
+  - Each section sorted **size-ascending**, **no cap** (keep all matching).
+- **Rows now carry `encoder`/`encoder_norm`** (added to `_make_row`) so encoder filtering needs no re-parse.
+- **`group_by_quality(rows, only_qualities, cap)`** gained filter params (default-compatible).
+- **Frontend**: Normal mode now also sends `encoders=`; renderer unchanged.
+- **BONUS BUGFIX (important)**: the exact-match relevance filter was rejecting ALL movies — for a movie (no SxxExx) the parser returns the whole filename as "series" (title+year+quality+codec+group), so exact match never hit -> Normal mode would show nothing for movies. Fixed `matches_query(query, series, is_episode=...)`:
+  - episodes -> EXACT match (still drops spin-offs: The Boys Presents Diabolical, Daredevil Born Again),
+  - movies/packs -> PREFIX match (tolerant of trailing year/quality/group junk).
+- **Files**: search_service.py (_make_row encoder fields, group_by_quality params, matches_query is_episode), routes/search.py (Normal branch rewrite: single query + encoder filter + quality-section filter; round_search passes is_episode), static/js/src/5-search.js (send encoders in normal), app.js rebuilt.
+- **Verified**: unit (movie prefix vs episode exact, 10 cases; encoder field; quality-filter sections; size-asc; no cap); route harness (one call; all/filtered sections; encoder filter; different-movie dropped); py_compile; node --check; gunicorn boots; app.js in sync.
+
+
 ### 2026-05-31 — Fix: exact-match filter broke when query contained quality/noise
 - **Bug**: after switching to exact title match, typing "the boys 1080p" compared ['the','boys','1080p'] to series ['the','boys'] -> no match -> ZERO results. Any quality/codec/season word in the query nuked all results.
 - **Fix**: `matches_query` now strips release-metadata from the QUERY first (`_clean_query_tokens` + `_QUERY_META`): resolutions, codecs, sources, season/complete/pack, encoder tags, SxxExx, and years. Articles ("the") are kept. So "the boys 1080p", "the boys 1080p x265", "the boys s02" all reduce to ['the','boys'] and match "The.Boys". Spin-offs still dropped; all-noise query (e.g. just "1080p") disables filtering instead of returning nothing.
@@ -250,6 +265,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Normal mode simplified: one broad query -> filter by quality (sections) + encoder -> size-asc quality sections (no cap). Also fixed relevance filter silently dropping ALL movies (episodes=exact match, movies=prefix match). Changed: search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-05-31** — Fixed exact-match filter eating all results when the query included quality/codec/season words (e.g. "the boys 1080p" returned nothing). Query is now stripped of release-metadata before matching. Changed: search_service.py.
 - **2026-05-31** — Relevance filter tightened to EXACT title match (was: all-tokens-present). Fixes spin-offs leaking in (e.g. "The Boys" no longer returns "The Boys Presents Diabolical" / "My Life With the Walter Boys"). Trade-off: spin-offs need their full title to appear. Changed: search_service.py.
 - **2026-05-31** — Search switched from merge-all to FAILOVER: first provider (priority apibay->torrents-csv->bitsearch) that returns results wins; provider locked per request so each search is single-source (kills cross-source duplicates). Set SEARCH_PROVIDERS=apibay for strict single-source. Changed: search_service.py, config.py, routes/search.py.
