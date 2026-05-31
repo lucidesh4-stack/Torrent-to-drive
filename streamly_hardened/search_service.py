@@ -54,16 +54,11 @@ def _dedup_by_infohash(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # SxxExx / sNeM (allows 1-2 digit season, 1-3 digit episode)
 _SE_RE = re.compile(r"\bS(\d{1,2})E(\d{1,3})\b", re.IGNORECASE)
-# Explicit season-pack markers: "S01.COMPLETE", "S01 COMPLETE", "Season 2",
-# "COMPLETE SEASON". (Separator before COMPLETE may be dot/space/underscore/dash.)
+# Season pack markers: "S01.COMPLETE", "Season 2", "S02" with no episode token
 _PACK_RE = re.compile(
-    r"\b(?:S(\d{1,2})[\s._-]?COMPLETE|SEASON[\s._-]?(\d{1,2})|COMPLETE[\s._-]?SEASON)\b",
+    r"\b(?:S(\d{1,2})\.?COMPLETE|SEASON[\s._-]?(\d{1,2})|COMPLETE[\s._-]?SEASON)\b",
     re.IGNORECASE,
 )
-# Bare season token (no episode): "S02" or "Season 2". Used to detect packs that
-# omit the word COMPLETE (the dominant real-world form, e.g. "Show.S02.1080p...").
-# Only treated as a pack when NO SxxExx episode token is present in the title.
-_SEASON_TOKEN_RE = re.compile(r"\bS(\d{1,2})\b|\bSEASON[\s._-]?(\d{1,2})\b", re.IGNORECASE)
 # Encoder: trailing "-GROUP" (optionally before a file ext / site tag) or "[GROUP]"
 _ENCODER_DASH_RE = re.compile(r"-([A-Za-z0-9]{2,})(?:\[[^\]]*\])?(?:\.[a-z0-9]{2,4})?\s*$")
 _ENCODER_BRACKET_RE = re.compile(r"\[([A-Za-z0-9][A-Za-z0-9 ._-]{1,})\]")
@@ -102,34 +97,17 @@ def _extract_quality(title: str) -> str:
     return " ".join(parts) if parts else "Unknown"
 
 
-# Quality/format tokens that are never a release group (guards the bracket
-# fallback from mistaking "[1080p]" / "[HEVC]" for an encoder name).
-_NON_ENCODER_TOKENS = {
-    "2160P", "1080P", "720P", "480P", "X265", "X264", "H264", "H265",
-    "HEVC", "AV1", "WEBDL", "WEB", "BLURAY", "BDRIP", "BRRIP", "HDTV",
-    "DVDRIP", "AAC", "DD5", "DDP5", "10BIT", "8BIT",
-}
-
-
-def _is_encoder_candidate(norm: str, original: str) -> bool:
-    """True if a normalized token can plausibly be a release group."""
-    if not norm or norm.isdigit():
-        return False
-    if norm in _SITE_TAGS or norm in _NON_ENCODER_TOKENS:
-        return False
-    return True
-
-
 def _extract_encoder(title: str) -> str:
     """Best-effort release-group extraction. Returns '' if none found/usable."""
     base = re.sub(r"\.(mkv|mp4|avi|srt)\s*$", "", title, flags=re.IGNORECASE)
     m = _ENCODER_DASH_RE.search(base)
     if m:
         cand = m.group(1)
-        if _is_encoder_candidate(_normalize_encoder(cand), cand):
+        if _normalize_encoder(cand) not in _SITE_TAGS and not cand.isdigit():
             return cand
     for b in _ENCODER_BRACKET_RE.findall(title):
-        if _is_encoder_candidate(_normalize_encoder(b), b):
+        norm = _normalize_encoder(b)
+        if norm and norm not in _SITE_TAGS and not norm.isdigit():
             return b.strip()
     return ""
 
@@ -174,16 +152,6 @@ def parse_release(title: str) -> dict[str, Any]:
                 if g:
                     season = int(g)
                     break
-        else:
-            # No explicit "COMPLETE"/"SEASON N" marker, but a bare season token
-            # (S02 / "Season 2") with no episode token is still a season pack.
-            st = _SEASON_TOKEN_RE.search(title)
-            if st:
-                is_pack = True
-                for g in st.groups():
-                    if g:
-                        season = int(g)
-                        break
 
     encoder = _extract_encoder(title)
     encoder_norm = _normalize_encoder(encoder)
@@ -193,8 +161,7 @@ def parse_release(title: str) -> dict[str, Any]:
     if se:
         series = title[: se.start()].strip(" .-_")
     elif is_pack:
-        # Use whichever season marker matched first to slice off the title prefix.
-        pm = _PACK_RE.search(title) or _SEASON_TOKEN_RE.search(title)
+        pm = _PACK_RE.search(title)
         if pm:
             series = title[: pm.start()].strip(" .-_")
     series = re.sub(r"^www\.[^ ]+\s*-\s*", "", series).strip(" .-_") or "Unknown"
