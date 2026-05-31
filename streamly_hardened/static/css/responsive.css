@@ -218,6 +218,10 @@
   .search-unified-row #searchBtn,
   .search-unified-row #addMagnetBtn,
   .search-unified-row #clearSearchBtn { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
+  /* Quality / Encoder dropdowns: match the compact mobile control sizing */
+  .search-unified-row .ms-dd { flex: 1 1 auto; min-width: 0; }
+  .search-unified-row .ms-dd-btn { width: 100%; font-size: 13px; padding: 9px 10px; overflow: hidden; text-overflow: ellipsis; }
+  .search-unified-row .ms-dd-panel { left: 0; right: auto; min-width: 150px; }
   #searchView .panel-head { padding: 12px; }
   #searchView .panel-head h2 { font-size: 16px; }
   #searchView > div[style*="padding:16px"] { padding: 12px !important; }
@@ -330,4 +334,45 @@
   .cm-bottom .stor .nums { font-size: 12px; color: #cbd5e1; font-weight: 700; }
   .cm-bottom .stor .mini-meter { height: 5px; background: #263241; border-radius: 99px; overflow: hidden; margin-top: 4px; }
   .cm-bottom .stor .mini-meter > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--orange), var(--red)); transition: width .2s; }
+}
+
+/* ===== Mobile: Series Mode + Normal quality sections ===== */
+@media (max-width: 768px) {
+  #seriesResults { padding: 0 10px 16px; }
+
+  /* Section header wraps so the title + count + "Add all" never overflow */
+  .encoder-header { flex-wrap: wrap; padding: 11px 12px; gap: 8px; }
+  .encoder-title { gap: 8px; flex: 1 1 100%; min-width: 0; }
+  .encoder-name { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+  .encoder-quality { font-size: 12px; white-space: normal; }
+  .encoder-count { font-size: 11px; }
+  .encoder-header .section-add { flex: 0 0 auto; margin-left: auto; }
+
+  /* Episode/result row becomes a 2-line card: Name on top, meta+Add below */
+  .episode-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 11px 12px;
+  }
+  .episode-row .name {
+    flex: 1 1 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .episode-row .se   { order: 1; flex: 0 0 auto; text-align: left; }
+  .episode-row .se::before  { content: "▲ "; color: var(--muted); font-weight: 600; }
+  .episode-row .size { order: 2; flex: 0 0 auto; text-align: left; }
+  .episode-row .time { order: 3; flex: 1 1 auto; text-align: left; }
+  .episode-row .add  { order: 4; flex: 0 0 auto; margin-left: auto; text-align: right; }
+  .episode-row .add .add-btn { padding: 7px 14px; font-size: 13px; }
+
+  /* Uploader sub-row wraps too */
+  .uploader-label { flex-wrap: wrap; padding: 8px 12px 8px 14px; }
+  .uploader-label .section-add.sm { margin-left: auto; }
+
+  .season-label { padding-left: 14px; }
 }
