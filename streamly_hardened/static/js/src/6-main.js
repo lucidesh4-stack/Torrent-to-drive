@@ -75,6 +75,9 @@
   }
   if ($("modeNormal")) $("modeNormal").addEventListener("click", () => setSeriesMode(false));
   if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
+  document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
+    el.addEventListener("change", () => { if (typeof updateQuotaBadge === "function") updateQuotaBadge(); })
+  );
 
   // ----- Mobile cloud wiring -----
   if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
