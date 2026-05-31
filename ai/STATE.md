@@ -53,6 +53,15 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Series mode: add broad <title> query, merge into packs + episodes
+- **What**: Series search now runs a single broad `<title>`-only query FIRST, then the existing packs (`<title> <q> x265|hevc`) and encoder (`<title> <q> <ENCODER>`) queries. Broad results are MERGED into both the packs set and the episode set, then deduped and grouped as before. Helps catch episodes/packs the narrow queries miss.
+- **Quota**: broad query is counted -> planned = 1 + 2*Q + N*Q (cap 12). (e.g. 3q×3enc = 16 -> blocked.)
+- **Encoder filter**: the broad query returns ALL release groups; if the user ticked encoders, the merged episode set is filtered to those `encoder_norm` (none ticked => keep all encoders found).
+- **Unchanged**: grouping (packs + encoder->quality->season->episode), relevance filter (episodes exact -> spin-offs dropped), dedup, original pack names, response shape, frontend.
+- **Files**: routes/search.py (series branch only).
+- **Verified**: route harness (broad fires first + counted; requests_used=4 for 1080p×ELiTE; broad-only episode E05 appears; broad pack merged; encoder filter drops PSA; quota 16>12 -> 400; spin-offs filtered); py_compile; gunicorn boots; app.js untouched.
+
+
 ### 2026-05-31 — Normal mode = one broad query -> quality+encoder FILTER -> quality sections
 - **What**: simplified Normal mode per user. ONE broad apibay query for the title (was: one query per ticked quality). Then filter the result set:
   - **Quality** = which sections appear (ticked => only those; none ticked => all incl. Other).
@@ -265,6 +274,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Series mode now also runs a broad <title> query first and merges it into packs + episodes (catches releases the narrow queries miss); broad query counts toward the 12-query quota; episodes filtered to ticked encoders. Changed: routes/search.py.
 - **2026-05-31** — Normal mode simplified: one broad query -> filter by quality (sections) + encoder -> size-asc quality sections (no cap). Also fixed relevance filter silently dropping ALL movies (episodes=exact match, movies=prefix match). Changed: search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-05-31** — Fixed exact-match filter eating all results when the query included quality/codec/season words (e.g. "the boys 1080p" returned nothing). Query is now stripped of release-metadata before matching. Changed: search_service.py.
 - **2026-05-31** — Relevance filter tightened to EXACT title match (was: all-tokens-present). Fixes spin-offs leaking in (e.g. "The Boys" no longer returns "The Boys Presents Diabolical" / "My Life With the Walter Boys"). Trade-off: spin-offs need their full title to appear. Changed: search_service.py.
