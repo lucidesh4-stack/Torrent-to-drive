@@ -86,8 +86,9 @@ def search_route():
             qualities = ["1080p"]
         encoders = [e for e in _csv(request.args.get("encoders", "")) if e in PRESET_ENCODERS]
 
-        # Quota guard: count planned rounds = packs(2 per quality) + encoders(N*Q).
-        planned = (2 * len(qualities)) + (len(encoders) * len(qualities))
+        # Quota guard: planned rounds = 1 broad <title> + packs(2 per quality)
+        # + encoders(N*Q). The broad query is counted.
+        planned = 1 + (2 * len(qualities)) + (len(encoders) * len(qualities))
         if planned > SERIES_MAX_REQUESTS:
             return json_error(
                 400, "too_many_requests",
@@ -97,20 +98,32 @@ def search_route():
 
         used = 0
 
+        # --- Broad: a single <title>-only query first (catches releases the
+        #     narrow per-quality/encoder queries miss). Merged into both packs
+        #     and episodes below. ---
+        broad_rows = round_search(q); used += 1
+
         # --- Season Packs: <title> <q> x265 + <title> <q> hevc ---
-        pack_rows = []
+        pack_rows = list(broad_rows)
         for ql in qualities:
             pack_rows += round_search(f"{q} {ql} x265"); used += 1
             pack_rows += round_search(f"{q} {ql} hevc"); used += 1
         pack_rows = _dedup_by_infohash(pack_rows)
         packs = build_packs(pack_rows)
 
-        # --- Encoders: <title> <q> <ENCODER> per combination ---
-        enc_rows = []
+        # --- Encoders: <title> <q> <ENCODER> per combination, merged w/ broad ---
+        enc_rows = list(broad_rows)
         for enc in encoders:
             for ql in qualities:
                 enc_rows += round_search(f"{q} {ql} {enc}"); used += 1
         enc_rows = _dedup_by_infohash(enc_rows)
+
+        # Encoder filter: the broad query returns ALL release groups; if the user
+        # ticked specific encoders, keep only those (case-insensitive). None
+        # ticked => keep every encoder found.
+        selected_enc = {_normalize_encoder(e) for e in encoders}
+        if selected_enc:
+            enc_rows = [r for r in enc_rows if r.get("encoder_norm", "") in selected_enc]
 
         # Any qualifying packs found in encoder results, not already listed,
         # replace the largest in the top-N (list is smallest-first).
