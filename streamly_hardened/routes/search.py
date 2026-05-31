@@ -9,11 +9,13 @@ from ..security import (
     validate_order,
 )
 from ..cloud_service import format_size, _safe_int
-from ..search_service import group_series_results
+from ..search_service import group_series_results, build_packs, _dedup_by_infohash
 
 search_bp = Blueprint("search", __name__)
 
-SERIES_PAGES = 3  # pages fetched in Series Mode (quota-friendly)
+ALLOWED_QUALITIES = ["2160p", "1080p", "720p"]   # 4K / 1080p / 720p
+PRESET_ENCODERS = ["ELiTE", "PSA", "MeGusta"]
+SERIES_MAX_REQUESTS = 12   # quota guard: hard ceiling on bitsearch calls per series search
 
 _CATEGORY_LABELS = {
     "1": "Other", "2": "Movies", "3": "TV Shows", "4": "Anime", "5": "Software",
@@ -45,6 +47,16 @@ def _normalize_rows(raw_items):
             }
         )
     return rows
+
+
+def _csv(value):
+    """Split a comma-separated query param into a clean, de-duplicated list."""
+    out = []
+    for part in str(value or "").split(","):
+        part = part.strip()
+        if part and part not in out:
+            out.append(part)
+    return out
 
 
 def _extract_items(raw_payload, page):
@@ -83,22 +95,71 @@ def search_route():
 
     search = getattr(current_app, "search", None)
 
-    # --- Series Mode: fetch a few pages, dedup, group encoder→quality→season→ep ---
+    # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
     if mode == "series":
-        all_items = []
-        for p in range(1, SERIES_PAGES + 1):
+        # Parse & sanitize quality (multi) and encoder (multi) selections.
+        qualities = [x for x in _csv(request.args.get("quality", "1080p")) if x in ALLOWED_QUALITIES]
+        if not qualities:
+            qualities = ["1080p"]
+        encoders = [e for e in _csv(request.args.get("encoders", "")) if e in PRESET_ENCODERS]
+
+        # Quota guard: count planned requests = packs(2 per quality) + encoders(N*Q).
+        planned = (2 * len(qualities)) + (len(encoders) * len(qualities))
+        if planned > SERIES_MAX_REQUESTS:
+            from ..security import json_error
+            return json_error(
+                400, "too_many_requests",
+                f"This selection needs {planned} searches (limit {SERIES_MAX_REQUESTS}). "
+                "Reduce the number of qualities or encoders.",
+            )
+
+        def run(query_text, srt="seeders", ordr="desc"):
             try:
-                payload = search.bitsearch(q, category, sort, order, p, dedup=False)
+                payload = search.bitsearch(query_text, category, srt, ordr, 1, dedup=False)
             except TypeError:
-                payload = search.bitsearch(q, category, sort, order)
-            items, _, _ = _extract_items(payload, p)
-            all_items.extend(items)
-        rows = _normalize_rows(all_items)
-        if dedup:
-            from ..search_service import _dedup_by_infohash
-            rows = _dedup_by_infohash(rows)
-        groups = group_series_results(rows)
-        return jsonify({"mode": "series", "groups": groups, "pages_fetched": SERIES_PAGES})
+                payload = search.bitsearch(query_text, category, srt, ordr)
+            items, _, _ = _extract_items(payload, 1)
+            return _normalize_rows(items)
+
+        used = 0
+
+        # --- Season Packs: <title> <q> x265 + <title> <q> hevc, sort size desc ---
+        pack_rows = []
+        for ql in qualities:
+            pack_rows += run(f"{q} {ql} x265", "size", "desc"); used += 1
+            pack_rows += run(f"{q} {ql} hevc", "size", "desc"); used += 1
+        pack_rows = _dedup_by_infohash(pack_rows)
+        packs = build_packs(pack_rows)
+
+        # --- Encoders: <title> <q> <ENCODER> per combination ---
+        enc_rows = []
+        for enc in encoders:
+            for ql in qualities:
+                enc_rows += run(f"{q} {ql} {enc}"); used += 1
+        enc_rows = _dedup_by_infohash(enc_rows)
+
+        # Any qualifying packs found in encoder results, not already listed,
+        # replace the largest in the top-N (list is smallest-first).
+        existing = {p.get("infohash") for p in packs}
+        extra_packs = [p for p in build_packs(enc_rows, top_n=10_000) if p.get("infohash") not in existing]
+        for ep in extra_packs:
+            if len(packs) < 20:
+                packs.append(ep)
+            elif (ep.get("size_bytes", 0) or 0) < (packs[-1].get("size_bytes", 0) or 0):
+                packs[-1] = ep
+            packs.sort(key=lambda r: r.get("size_bytes", 0) or 0)
+        packs = packs[:20]
+
+        groups = group_series_results(enc_rows)
+        return jsonify({
+            "mode": "series",
+            "packs": packs,
+            "encoders": groups["encoders"],
+            "stats": groups["stats"],
+            "requests_used": used,
+            "qualities": qualities,
+            "encoders_selected": encoders,
+        })
 
     # --- Normal Mode (unchanged behavior) ---
     try:

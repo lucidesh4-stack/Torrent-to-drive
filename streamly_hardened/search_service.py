@@ -112,6 +112,24 @@ def _extract_encoder(title: str) -> str:
     return ""
 
 
+def _extract_uploader(title: str) -> str:
+    """Identify the uploader/site tag (e.g. 'eztv.re', 'TGx', 'RARBG').
+
+    Looks at bracket tags first, then known site suffixes. Returns 'Unknown'
+    when no recognizable uploader tag is present.
+    """
+    for b in _ENCODER_BRACKET_RE.findall(title):
+        norm = _normalize_encoder(b)
+        if norm in _SITE_TAGS or "." in b or norm in {"TGX", "RARBG", "ETTV"}:
+            return b.strip()
+    # trailing bare site tokens like "...-MeGusta[eztv.re]" already covered above;
+    # also catch "EZTVx.to" / "rartv" style trailing tokens
+    m = re.search(r"\[([A-Za-z0-9][A-Za-z0-9 ._-]*)\]\s*$", title)
+    if m:
+        return m.group(1).strip()
+    return "Unknown"
+
+
 def parse_release(title: str) -> dict[str, Any]:
     """Extract structured info from a release name.
 
@@ -161,27 +179,73 @@ def parse_release(title: str) -> dict[str, Any]:
     }
 
 
+PACK_TOP_N = 20  # max season packs shown
+
+
+def build_packs(rows: list[dict[str, Any]], top_n: int = PACK_TOP_N) -> list[dict[str, Any]]:
+    """From a set of normalized rows, keep only season packs, smallest-first, top N.
+
+    Non-packs are discarded. Each pack row is augmented with `se`/`series` and a
+    cleaner display label.
+    """
+    packs: list[dict[str, Any]] = []
+    for row in rows:
+        info = parse_release(str(row.get("name", "")))
+        if not info["is_pack"]:
+            continue
+        enriched = dict(row)
+        enriched["se"] = f"S{info['season']:02d}" if info["season"] is not None else "Season Pack"
+        enriched["series"] = info["series"]
+        enriched["pack_label"] = _pack_label(info)
+        enriched["uploader"] = _extract_uploader(str(row.get("name", "")))
+        packs.append(enriched)
+    # smallest-first; keep top N (the N smallest)
+    packs.sort(key=lambda r: r.get("size_bytes", 0) or 0)
+    return packs[:top_n]
+
+
+def _pack_label(info: dict[str, Any]) -> str:
+    """Build a fuller, readable pack name e.g. 'Loki (2021) · Season 2 · 1080p x265'."""
+    bits = [info.get("series") or "Unknown"]
+    if info.get("season") is not None:
+        bits.append(f"Season {info['season']}")
+    else:
+        bits.append("Complete")
+    q = info.get("quality")
+    if q and q != "Unknown":
+        bits.append(q)
+    if info.get("encoder"):
+        bits.append(info["encoder"])
+    return " · ".join(bits)
+
+
 def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Group normalized search rows into the Series Mode structure.
+    """Group normalized search rows: encoder → uploader → quality → season → episode.
 
     Output:
       {
-        "encoders": [ {name, encoder_norm, quality, episode_count,
-                       seasons:[{season, episodes:[row,...]}, ...]}, ... ],
-        "packs": [row, ...],
-        "other": [row, ...],
-        "stats": {raw, parsed, packs, other},
+        "encoders": [
+          {name, encoder_norm, episode_count,
+           uploaders: [
+             {name, quality, episode_count,
+              seasons: [{season, episodes:[row,...]}, ...]}, ...]
+          }, ...],
+        "stats": {raw, parsed, other_discarded},
       }
-    Each `row` is the original normalized row augmented with `se` (e.g. "S02E05").
+    Season packs and unparseable rows are NOT included here (handled separately
+    by build_packs / discarded per the Series Mode v2 spec).
     """
     raw = len(rows)
-    buckets: dict[tuple[str, str], dict[str, Any]] = {}
-    packs: list[dict[str, Any]] = []
-    other: list[dict[str, Any]] = []
+    # encoder_norm -> {name, uploaders: {(uploader, quality) -> {seasons{season->[(ep,row)]}}}}
+    encs: dict[str, dict[str, Any]] = {}
     parsed_count = 0
+    other_discarded = 0
 
     for row in rows:
         info = parse_release(str(row.get("name", "")))
+        if info["is_pack"] or not info["parsed"]:
+            other_discarded += 1
+            continue
         enriched = dict(row)
         if info["season"] is not None and info["episode"] is not None:
             enriched["se"] = f"S{info['season']:02d}E{info['episode']:02d}"
@@ -190,58 +254,61 @@ def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             enriched["se"] = ""
         enriched["series"] = info["series"]
-
-        if info["is_pack"]:
-            packs.append(enriched)
-            continue
-        if not info["parsed"]:
-            other.append(enriched)
-            continue
+        uploader = _extract_uploader(str(row.get("name", "")))
+        enriched["uploader"] = uploader
 
         parsed_count += 1
-        key = (info["encoder_norm"], info["quality"])
-        bucket = buckets.get(key)
-        if bucket is None:
-            bucket = {
-                "name": info["encoder"] or info["encoder_norm"],
-                "encoder_norm": info["encoder_norm"],
-                "quality": info["quality"],
-                "_seasons": {},
-            }
-            buckets[key] = bucket
+        enc = encs.setdefault(info["encoder_norm"], {
+            "name": info["encoder"] or info["encoder_norm"],
+            "encoder_norm": info["encoder_norm"],
+            "_uploaders": {},
+        })
+        ukey = (uploader, info["quality"])
+        up = enc["_uploaders"].setdefault(ukey, {
+            "name": uploader,
+            "quality": info["quality"],
+            "_seasons": {},
+        })
         season = info["season"] if info["season"] is not None else 0
-        bucket["_seasons"].setdefault(season, []).append((info["episode"], enriched))
+        up["_seasons"].setdefault(season, []).append((info["episode"], enriched))
 
     encoders: list[dict[str, Any]] = []
-    for bucket in buckets.values():
-        seasons = []
-        count = 0
-        for season in sorted(bucket["_seasons"].keys()):
-            eps = bucket["_seasons"][season]
-            eps.sort(key=lambda t: (t[0] if t[0] is not None else 0))
-            episodes = [r for _, r in eps]
-            count += len(episodes)
-            seasons.append({"season": season, "episodes": episodes})
+    for enc in encs.values():
+        uploaders = []
+        enc_count = 0
+        for up in enc["_uploaders"].values():
+            seasons = []
+            up_count = 0
+            for season in sorted(up["_seasons"].keys()):
+                eps = up["_seasons"][season]
+                eps.sort(key=lambda t: (t[0] if t[0] is not None else 0))
+                episodes = [r for _, r in eps]
+                up_count += len(episodes)
+                seasons.append({"season": season, "episodes": episodes})
+            uploaders.append({
+                "name": up["name"],
+                "quality": up["quality"],
+                "episode_count": up_count,
+                "seasons": seasons,
+            })
+            enc_count += up_count
+        # uploader order: name A->Z, then quality desc
+        uploaders.sort(key=lambda u: (u["name"].upper(), _quality_sort_key(u["quality"])))
         encoders.append({
-            "name": bucket["name"],
-            "encoder_norm": bucket["encoder_norm"],
-            "quality": bucket["quality"],
-            "episode_count": count,
-            "seasons": seasons,
+            "name": enc["name"],
+            "encoder_norm": enc["encoder_norm"],
+            "episode_count": enc_count,
+            "uploaders": uploaders,
         })
 
-    # Sort sections: encoder name A->Z, then quality desc (2160p before 1080p).
-    encoders.sort(key=lambda e: (e["encoder_norm"], _quality_sort_key(e["quality"])))
+    encoders.sort(key=lambda e: e["encoder_norm"])
 
     return {
         "encoders": encoders,
-        "packs": packs,
-        "other": other,
         "stats": {
             "raw": raw,
             "parsed": parsed_count,
-            "packs": len(packs),
-            "other": len(other),
+            "other_discarded": other_discarded,
         },
     }
 

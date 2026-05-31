@@ -37,17 +37,22 @@
       params.set("page", String(currentPage));
       const dedupEl = $("dedupToggle");
       params.set("dedup", dedupEl && !dedupEl.checked ? "0" : "1");
-      if (typeof seriesMode !== "undefined" && seriesMode) params.set("mode", "series");
+      if (typeof seriesMode !== "undefined" && seriesMode) {
+        params.set("mode", "series");
+        params.set("quality", getSelectedQualities().join(","));
+        params.set("encoders", getSelectedEncoders().join(","));
+      }
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
 
       if (data && data.mode === "series") {
         $("results").classList.add("hidden");
         $("seriesResults").classList.remove("hidden");
-        renderSeriesGrouped(data.groups);
-        const st = (data.groups && data.groups.stats) || {};
-        const shown = (st.parsed || 0) + (st.packs || 0) + (st.other || 0);
-        if ($("resultCount")) $("resultCount").textContent = shown + " grouped from " + (st.raw || 0) + " fetched";
-        status($("searchStatus"), "Found " + shown + " result(s)", "ok");
+        renderSeriesGrouped(data);
+        const packs = (data.packs || []).length;
+        const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
+        if ($("resultCount")) $("resultCount").textContent =
+          packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
+        status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
         return;
       }
 

@@ -53,6 +53,15 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Feature ③ v2: Series Mode redesign (targeted queries)
+- **What**: Backend-driven, quota-bounded. Quality multi-select (4K/1080p/720p, 1080p default) + encoder multi-select (presets: ELiTE, PSA, MeGusta).
+- **Packs**: per quality → `<title> <q> x265` + `<title> <q> hevc` (sort size desc, 1 page) → dedup → packs-only → smallest-first → top 20. Non-packs discarded. Qualifying packs found in encoder results replace the largest in top-20.
+- **Encoders**: per encoder×quality → `<title> <q> <ENCODER>` (1 page) → dedup → group **encoder→uploader→quality→season→episode**. Unparseable discarded.
+- **Quota guard**: requests = (2×Q) + (N×Q); hard cap 12 (route returns 400 before any call); UI badge "uses N request(s)".
+- **Uploader**: bracket/site tag (eztv.re/TGx/…), else "Unknown".
+- **Files**: search_service.py (added `_extract_uploader`, `build_packs`, `_pack_label`; restructured `group_series_results` with uploader level), routes/search.py (mode=series multi-query orchestration + guard), static/js/src/3b-series.js (rewrite), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
+- **Verified**: route tests (correct queries, requests_used=4 for 1080p×2enc, packs smallest-first + migration, uploader split eztv.re/TGx, guard 400 with 0 calls); Normal regression intact; py_compile + node --check pass; gunicorn boots.
+
 ### 2026-05-31 — Feature ③: Series Mode (grouped view)
 - **What**: Toggle [Normal][Series Mode] above results. Series Mode fetches 3 pages (~150), dedups, parses each title, groups Encoder→Quality→Season→Episode. Season Packs + Other in separate sections (never drop unparseable). Films/Normal unchanged.
 - **Add semantics**: per-episode Add = normal single add. "+ Add all N" = ONE Seedr add (episode 1) + ALL N saved to History individually (avoids 413 quota storm). Packs/Other = per-row Add only.
@@ -128,6 +137,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Feature ③ v2 Series Mode redesign: quality+encoder multiselect, targeted queries (packs x265/hevc + per encoder×quality), encoder→uploader→quality→season→episode, packs smallest-first top-20, quota guard (cap 12 + badge). Changed: search_service.py, routes/search.py, static/js/src/3b-series.js, 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ③ Series Mode: [Normal][Series Mode] toggle; grouped Encoder→Quality→Season→Episode (3-page fetch); "Add all"=1 Seedr add+N history; Packs/Other sections. Changed: search_service.py, routes/search.py, static/js/src/3b-series.js (new), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ① Search dedup (same-infohash → keep highest-seeded); default-on + "Remove duplicates" checkbox. Changed: search_service.py, routes/search.py, static/js/src/5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Logging now persists to Upstash Redis (capped 2000 lines); `/api/logs` serves logs from Redis; disk file handler removed. Changed: streamly_hardened/redis_store.py, streamly_hardened/app.py.
