@@ -16,6 +16,36 @@ from .config import AppConfig
 log = logging.getLogger(__name__)
 
 
+def _dedup_by_infohash(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate torrents that share the same infohash.
+
+    Keeps the representative with the highest seeder count. Order of first
+    appearance is preserved. Items with a missing/blank infohash are never
+    merged (each is kept as-is) so nothing is silently dropped.
+    """
+    def seeders_of(item: dict[str, Any]) -> int:
+        try:
+            return int(item.get("seeders", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    best: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    passthrough: list[dict[str, Any]] = []
+    for item in items:
+        h = str(item.get("infohash", "")).strip().lower()
+        if not h:
+            passthrough.append(item)
+            continue
+        if h not in best:
+            best[h] = item
+            order.append(h)
+        elif seeders_of(item) > seeders_of(best[h]):
+            best[h] = item
+    return [best[h] for h in order] + passthrough
+
+
+
 _BITSEARCH_DNS_LOCK = threading.RLock()
 _BITSEARCH_IP_CACHE: tuple[str, float] | None = None
 
@@ -102,7 +132,7 @@ class SearchService:
                 break
         return suggestions
 
-    def bitsearch(self, q: str, category: str, sort: str, order: str, page: int = 1) -> dict[str, Any]:
+    def bitsearch(self, q: str, category: str, sort: str, order: str, page: int = 1, dedup: bool = True) -> dict[str, Any]:
         page = max(1, int(page or 1))
         params = {"q": q, "sort": sort, "order": order, "page": page, "limit": 50}
         if category:
@@ -139,6 +169,11 @@ class SearchService:
 
         raw_results = payload.get("results", []) if isinstance(payload, dict) else []
         raw_results = raw_results[:50] if isinstance(raw_results, list) else []
+        # Collapse same-infohash duplicates (keep highest-seeded). Applied to the
+        # page's results only — pagination totals describe the upstream dataset
+        # and are deliberately left untouched.
+        if dedup:
+            raw_results = _dedup_by_infohash(raw_results)
         pagination = payload.get("pagination", {}) if isinstance(payload.get("pagination", {}), dict) else {}
 
         def as_int(*values: Any, default: int = 0) -> int:

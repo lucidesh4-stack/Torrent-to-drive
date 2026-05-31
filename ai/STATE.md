@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Feature ①: Search dedup (infohash, highest-seeds)
+- **What**: Collapse same-infohash duplicates in search results, keeping the highest-seeded copy. ON by default with a "Remove duplicates" checkbox; toggling re-runs search only if results already shown (no wasted quota).
+- **Design**: Pure `_dedup_by_infohash()` in search_service; `bitsearch(dedup=True)` applies to results only — pagination totals (upstream dataset) left untouched. `/api/search?dedup=0` disables; absent ⇒ ON.
+- **Files**: search_service.py, routes/search.py, static/js/src/5-search.js, static/js/src/6-main.js, templates/index.html, static/css/base.css, static/js/app.js (rebuilt).
+- **Verified**: unit tests (highest-seed rep, case-insensitive hash, blank/missing-hash passthrough, order preserved); route tests (dedup 1/0/absent, pagination intact); gunicorn boots.
+- **Part of**: Dedup + Series Mode + Size filter (3-change rollout). Next: ② size filter, ③ series mode.
+
 ### 2026-05-31 — Logs to Upstash Redis (reliable /api/logs)
 - **Why**: Render disk is ephemeral — the old `RotatingFileHandler` + `/api/logs` file download was unreliable (404 / partial after restarts).
 - **What**: Added `RedisLogHandler` (capped Redis list `streamly:logs`, last 2000 lines via LPUSH+LTRIM). `/api/logs` POST now serves logs from Redis. Removed disk file handler.
@@ -113,6 +120,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Feature ① Search dedup (same-infohash → keep highest-seeded); default-on + "Remove duplicates" checkbox. Changed: search_service.py, routes/search.py, static/js/src/5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Logging now persists to Upstash Redis (capped 2000 lines); `/api/logs` serves logs from Redis; disk file handler removed. Changed: streamly_hardened/redis_store.py, streamly_hardened/app.py.
 - **2026-05-31** — Deploy crash fix: made `RequestIDFilter` context-safe (no more boot-time `RuntimeError: working outside of application context`). Changed: streamly_hardened/app.py.
 - **2026-05-31** — 2026-05-31 — Secure Logging System Implementation. Changed: streamly_hardened/app.py, ai/deploy/check.py.
