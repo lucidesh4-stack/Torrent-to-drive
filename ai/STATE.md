@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Fix: size-desc default sort wasn't applied
+- **Bug**: Backend `group_by_quality` pre-sorted size-desc, but the frontend `renderNormalGrouped` always re-sorted via `sortRows` using defaults `currentSort="seeders"`, so the first render showed seeds-order, not size-desc.
+- **Fix**: Changed JS defaults to `currentSort="size"`, `currentOrder="desc"` (1-core.js) so the initial view matches the spec. Clicking SE/Time/Size still re-sorts client-side.
+- **Files**: static/js/src/1-core.js, app.js (rebuilt).
+- **Verified**: default render now 9 GB→2 GB→500 MB; gunicorn boots.
+
 ### 2026-05-31 — Mobile UI fix for series/quality sections
 - **Bug**: New section rows used a fixed 5-col grid (`1fr 80px 110px 100px 90px`); on phones the Name column collapsed and the Add button + full size were clipped (showed "2.18" with no GB, no name, no Add).
 - **Fix**: Added `@media (max-width:768px)` overrides in responsive.css — `.episode-row` becomes a wrapping flex card (Name full-width on top; seeds·size·time·Add below with Add right-aligned); section/uploader headers wrap; `#seriesResults` padding tightened; Quality/Encoder dropdown buttons sized to compact mobile controls with on-screen panels.
