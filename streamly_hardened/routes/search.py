@@ -30,10 +30,12 @@ def search_route():
     order = validate_order(request.args.get("order"), config)
     page = validate_positive_int_local(request.args.get("page", 1), maximum=10_000)
     page = max(1, page)
-    
+    # Dedup defaults ON; client sends dedup=0 to disable. Absent param ⇒ True.
+    dedup = request.args.get("dedup", "1").strip().lower() not in ("0", "false", "no", "off")
+
     search = getattr(current_app, "search", None)
     try:
-        raw_payload = search.bitsearch(q, category, sort, order, page)
+        raw_payload = search.bitsearch(q, category, sort, order, page, dedup=dedup)
     except TypeError:
         raw_payload = search.bitsearch(q, category, sort, order)
         

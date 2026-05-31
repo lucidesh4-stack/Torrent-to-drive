@@ -35,6 +35,8 @@
       params.set("sort", currentSort);
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
+      const dedupEl = $("dedupToggle");
+      params.set("dedup", dedupEl && !dedupEl.checked ? "0" : "1");
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
       const results = Array.isArray(data.results) ? data.results : [];
       $("results").classList.remove("hidden");
