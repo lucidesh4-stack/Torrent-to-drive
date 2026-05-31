@@ -53,6 +53,30 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Series fixes: relevance filter + separator-insensitive dedup + pack dedup
+- **#1 Duplicate episodes**: the episode dedup key now uses `series_key()` (token-normalized series, separators collapsed) so `Daredevil.Born.Again` and `Daredevil Born Again` count as the SAME series → the dup `S01E09 ELiTE 1080p` rows now collapse to the highest-seeded one. (Was: raw `series.lower()`, so dots vs spaces produced different keys.)
+- **#2 / #3 Unrelated results**: added `matches_query(query, series)` — keep a result only if EVERY query word appears in the parsed series tokens. Applied centrally in `routes.search.round_search` (both Normal + Series). Drops provider junk like "Bones" / "The Red Green Show" when searching "Daredevil". Per user choice (all-tokens match): "Daredevil Born Again" and "Marvels Daredevil" are kept (they contain "daredevil").
+- **#5 Season packs**: `build_packs` now dedups by (normalized series, season, quality bucket) keeping highest-seeded, and still shows the ORIGINAL torrent name (already removed pack_label previously). Fixes the duplicate "Marvels Daredevil · Season 2" entries.
+- **#4 "Unknown" quality groups**: already fixed by the prior encoder→quality redesign (no uploader level). Was only visible because the running server had the OLD build deployed.
+- **New helpers**: `_norm_tokens`, `series_key`, `matches_query` in search_service.py.
+- **Files**: search_service.py (helpers, group_series_results dedup key, build_packs dedup), routes/search.py (relevance filter in round_search).
+- **Verified**: unit (dotted/spaced dup collapse keep-47-drop-0; Bones/RedGreen dropped, Daredevil/BornAgain/Marvels kept; pack dedup + original name); route harness (series junk dropped + dup collapsed, normal junk dropped); py_compile; gunicorn boots; app.js unchanged & in sync.
+- **NOTE TO USER**: the screenshots showed the OLD deployed build (uploader sub-groups, "Unknown · 1080p x265", synthesized pack labels). Deploy the rebuilt project.zip to get #4/#5 + these fixes live.
+
+
+### 2026-05-31 — Series Mode redesign: encoder→quality→season→episode, per-encoder dedup, original pack names
+- **Structure**: removed the **uploader** level. Series is now **encoder → quality → season → episode**. (`group_series_results` returns `encoders[].qualities[]` instead of `encoders[].uploaders[]`.)
+- **Encoder merge**: case variants collapse via `encoder_norm` (ELiTE/elite/ELITE → one encoder); display uses the first nicely-cased original name.
+- **Quality**: coarse buckets only — **4K / 1080p / 720p / Other** (via `_quality_bucket`), not fine "1080p x265" labels. Ordered 4K→1080p→720p→Other.
+- **Dedup**: within each (encoder, quality) the same `<series>+SxxExx` collapses to the **highest-seeded** copy (one row per episode per encoder).
+- **Episode order**: season ascending, then episode ascending (true sequence).
+- **Season packs**: now display the **original torrent name** (`row.name`); dropped the synthesized `pack_label` and pack uploader tag.
+- **Dead code removed**: `_extract_uploader`, `_pack_label`, `_quality_sort_key` (no remaining callers).
+- **Frontend**: `renderSeriesGrouped` rewritten — packs show original name; encoder body iterates quality groups (reusing the existing collapsible group CSS) → season label → episodes; "Add all" at encoder and quality-group level. app.js rebuilt.
+- **Files**: search_service.py (group_series_results rewrite, build_packs, dead-code removal), static/js/src/3b-series.js, app.js. Route/template/CSS unchanged. Normal mode unaffected.
+- **Verified**: unit (encoder case-merge, per-encoder highest-seed dedup, 4K/1080p/720p buckets, episode sequence, packs original name, PSA stays separate, no `uploaders` key); route harness (series new shape, Normal intact, quota guard 400); py_compile + node --check; gunicorn boots; app.js in sync.
+
+
 ### 2026-05-31 — Normal mode: top-30 by seeders per quality, shown size-ascending
 - **What**: `group_by_quality` now keeps only the **30 most-seeded** releases **per quality section** (4K/1080p/720p/Other), then displays each section **size-ascending**. Quality sections retained; per-quality cap (selecting multiple qualities yields up to 30 in EACH section). Cap = `NORMAL_TOP_PER_QUALITY = 30` (module constant). Applied after cross-source dedup.
 - **Scope**: single function in search_service.py; response shape (`normal_grouped`) and all frontend unchanged. Series mode unaffected (does not use group_by_quality).
@@ -200,6 +224,8 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Series fixes: separator-insensitive episode dedup (Daredevil.Born.Again == Daredevil Born Again), query-relevance filter dropping unrelated results (Bones/Red Green Show), pack dedup by (series,season,quality) keeping highest-seed. Changed: search_service.py, routes/search.py.
+- **2026-05-31** — Series Mode redesign: encoder→quality(4K/1080p/720p)→season→episode (uploader level removed); encoders merged case-insensitively; per-encoder dedup of <series>+SxxExx keeping highest seeder; episodes in sequence; season packs show original torrent name. Changed: search_service.py, 3b-series.js, app.js.
 - **2026-05-31** — Normal mode now keeps the 30 most-seeded per quality section and displays them size-ascending (quality sections retained, per-quality cap). Changed: search_service.py (group_by_quality + NORMAL_TOP_PER_QUALITY).
 - **2026-05-31** — Multi-source search: bitsearch + apibay + torrents-csv queried concurrently, merged & deduped; survives any provider outage (verified live with bitsearch down → 115 results in 1.12s). Category filter removed entirely. Changed: search_service.py, routes/search.py, config.py, templates/index.html, 5-search.js, 6-main.js, app.js.
 - **2026-05-31** — Accordion: all sections collapsed by default, one open at a time (both modes, both desktop+mobile); uploader sub-groups also collapsible. Changed: static/js/src/3b-series.js, static/css/base.css, app.js.

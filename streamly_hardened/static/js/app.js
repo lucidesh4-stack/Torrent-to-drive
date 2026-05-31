@@ -855,7 +855,7 @@
     syncSortControls();
     container.appendChild(seriesHeaderRow());
 
-    // --- Season Packs on top (smallest-first) ---
+    // --- Season Packs on top (smallest-first); shown with ORIGINAL torrent name ---
     if (packs.length) {
       const section = document.createElement("div");
       section.className = "encoder-section packs collapsed"; // accordion: closed by default
@@ -866,67 +866,66 @@
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
-      for (const p of packs) body.appendChild(seriesEpisodeRow(p, [p.pack_label || p.name, p.uploader]));
+      for (const p of packs) body.appendChild(seriesEpisodeRow(p, [p.name]));
       section.append(header, body);
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
     }
 
-    // --- Encoder → Uploader → Quality → Season → Episode ---
+    // --- Encoder → Quality → Season → Episode (uploader level removed) ---
     for (const enc of encoders) {
       const section = document.createElement("div");
       section.className = "encoder-section collapsed"; // accordion: closed by default
-      const allEps = (enc.uploaders || []).flatMap(u => u.seasons.flatMap(s => s.episodes));
+      const allEps = (enc.qualities || []).flatMap(qg => qg.seasons.flatMap(s => s.episodes));
       const header = sectionHeader({
         title: enc.name,
-        sub: (enc.uploaders || []).length + " uploader(s)",
+        sub: (enc.qualities || []).length + " quality group(s)",
         count: enc.episode_count + (enc.episode_count === 1 ? " episode" : " episodes"),
         episodes: allEps,
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
 
-      for (const up of enc.uploaders || []) {
-        // Each uploader is its own collapsible accordion group within this encoder.
-        const upGroup = document.createElement("div");
-        upGroup.className = "uploader-group collapsed";
-        const ulabel = document.createElement("div");
-        ulabel.className = "uploader-label";
-        const upEps = up.seasons.flatMap(s => s.episodes);
-        ulabel.innerHTML = "";
+      for (const qg of enc.qualities || []) {
+        // Each quality is its own collapsible accordion group within this encoder.
+        const qGroup = document.createElement("div");
+        qGroup.className = "uploader-group collapsed";
+        const qlabel = document.createElement("div");
+        qlabel.className = "uploader-label";
+        const qEps = qg.seasons.flatMap(s => s.episodes);
         const chev = document.createElement("span");
         chev.className = "u-chevron";
         chev.textContent = "\u25BC";
         const txt = document.createElement("span");
         txt.style.flex = "1";
         txt.style.minWidth = "0";
-        txt.textContent = up.name + " \u00b7 " + up.quality + " (" + up.episode_count + ")";
-        ulabel.append(chev, txt);
-        const addAllUp = document.createElement("button");
-        addAllUp.type = "button";
-        addAllUp.className = "section-add sm";
-        addAllUp.textContent = "+ Add all " + upEps.length;
-        addAllUp.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(upEps, addAllUp); });
-        ulabel.appendChild(addAllUp);
-        upGroup.appendChild(ulabel);
-        const upBody = document.createElement("div");
-        upBody.className = "uploader-body";
+        txt.textContent = (qg.label || qg.quality) + " (" + qg.episode_count + ")";
+        qlabel.append(chev, txt);
+        const addAllQ = document.createElement("button");
+        addAllQ.type = "button";
+        addAllQ.className = "section-add sm";
+        addAllQ.textContent = "+ Add all " + qEps.length;
+        addAllQ.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(qEps, addAllQ); });
+        qlabel.appendChild(addAllQ);
+        qGroup.appendChild(qlabel);
+        const qBody = document.createElement("div");
+        qBody.className = "uploader-body";
 
-        for (const s of up.seasons) {
+        for (const s of qg.seasons) {
           const slabel = document.createElement("div");
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
-          upBody.appendChild(slabel);
-          // Episodes default to S/E order, but header clicks re-sort within the group.
+          qBody.appendChild(slabel);
+          // Episodes come pre-sorted in sequence; header clicks re-sort on demand.
           const eps = userSorted ? sortRows(s.episodes) : s.episodes;
           for (const ep of eps) {
-            upBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, up.quality]));
+            qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, qg.label || qg.quality]));
           }
         }
-        upGroup.appendChild(upBody);
-        body.appendChild(upGroup);
-        // Uploader-level accordion: one uploader open at a time within this encoder.
-        makeAccordion(upGroup, ulabel, body, ".uploader-group");
+        qGroup.appendChild(qBody);
+        body.appendChild(qGroup);
+        // Quality-level accordion: one quality group open at a time within this encoder.
+        makeAccordion(qGroup, qlabel, body, ".uploader-group");
       }
       section.append(header, body);
       container.appendChild(section);

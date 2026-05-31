@@ -6,7 +6,14 @@ from ..security import (
     validate_query,
     json_error,
 )
-from ..search_service import group_series_results, build_packs, _dedup_by_infohash, group_by_quality
+from ..search_service import (
+    group_series_results,
+    build_packs,
+    _dedup_by_infohash,
+    group_by_quality,
+    parse_release,
+    matches_query,
+)
 
 search_bp = Blueprint("search", __name__)
 
@@ -52,8 +59,13 @@ def search_route():
     # Each "round" fans out to all enabled providers CONCURRENTLY (bitsearch +
     # apibay + torrents-csv), merges and dedups by infohash. If a provider is
     # down it contributes nothing — results still come from the working ones.
+    # Results are then filtered for relevance: a row is kept only if every word
+    # of the user's query `q` appears in the parsed series name. This drops the
+    # unrelated junk that providers return for loose substring matches
+    # (e.g. searching "Daredevil" must not surface "Bones" / "The Red Green Show").
     def round_search(query_text):
-        return search.multi_search(query_text)
+        rows = search.multi_search(query_text)
+        return [r for r in rows if matches_query(q, parse_release(str(r.get("name", "")))["series"])]
 
     # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
     if mode == "series":

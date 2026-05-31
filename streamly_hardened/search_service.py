@@ -114,22 +114,32 @@ def _extract_encoder(title: str) -> str:
     return ""
 
 
-def _extract_uploader(title: str) -> str:
-    """Identify the uploader/site tag (e.g. 'eztv.re', 'TGx', 'RARBG').
+def _norm_tokens(s: str) -> list[str]:
+    """Lower-case alphanumeric tokens of a string (separators collapse).
 
-    Looks at bracket tags first, then known site suffixes. Returns 'Unknown'
-    when no recognizable uploader tag is present.
+    'Daredevil.Born.Again' and 'Daredevil Born Again' both -> ['daredevil','born','again'].
+    Used to make series comparison/dedup robust to dots vs spaces, and for
+    query-relevance matching.
     """
-    for b in _ENCODER_BRACKET_RE.findall(title):
-        norm = _normalize_encoder(b)
-        if norm in _SITE_TAGS or "." in b or norm in {"TGX", "RARBG", "ETTV"}:
-            return b.strip()
-    # trailing bare site tokens like "...-MeGusta[eztv.re]" already covered above;
-    # also catch "EZTVx.to" / "rartv" style trailing tokens
-    m = re.search(r"\[([A-Za-z0-9][A-Za-z0-9 ._-]*)\]\s*$", title)
-    if m:
-        return m.group(1).strip()
-    return "Unknown"
+    return [t for t in re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split() if t]
+
+
+def series_key(series: str) -> str:
+    """Stable, separator-insensitive series key for dedup (e.g. 'daredevil born again')."""
+    return " ".join(_norm_tokens(series))
+
+
+def matches_query(query: str, series: str) -> bool:
+    """True if every token of the search query appears in the series tokens.
+
+    Drops unrelated provider results (e.g. searching 'Daredevil' must not keep
+    'Bones' or 'The Red Green Show'). A title that merely *contains* all query
+    words (e.g. 'Daredevil Born Again', 'Marvels Daredevil') is kept.
+    """
+    q = set(_norm_tokens(query))
+    if not q:
+        return True
+    return q.issubset(set(_norm_tokens(series)))
 
 
 def parse_release(title: str) -> dict[str, Any]:
@@ -191,35 +201,32 @@ def build_packs(rows: list[dict[str, Any]], top_n: int = PACK_TOP_N) -> list[dic
     Non-packs are discarded. Each pack row is augmented with `se`/`series` and a
     cleaner display label.
     """
-    packs: list[dict[str, Any]] = []
+    def seeds_of(r: dict[str, Any]) -> int:
+        try:
+            return int(r.get("seeds", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    # Dedup packs by (normalized series, season, quality bucket): keep highest-seeded.
+    best: dict[tuple[str, Any, str], dict[str, Any]] = {}
     for row in rows:
-        info = parse_release(str(row.get("name", "")))
+        name = str(row.get("name", ""))
+        info = parse_release(name)
         if not info["is_pack"]:
             continue
         enriched = dict(row)
         enriched["se"] = f"S{info['season']:02d}" if info["season"] is not None else "Season Pack"
         enriched["series"] = info["series"]
-        enriched["pack_label"] = _pack_label(info)
-        enriched["uploader"] = _extract_uploader(str(row.get("name", "")))
-        packs.append(enriched)
+        # Packs are displayed with their ORIGINAL torrent name (row["name"]); we
+        # intentionally do not synthesize a pack_label here.
+        dkey = (series_key(info["series"]), info["season"], _quality_bucket(name))
+        prev = best.get(dkey)
+        if prev is None or seeds_of(enriched) > seeds_of(prev):
+            best[dkey] = enriched
+    packs = list(best.values())
     # smallest-first; keep top N (the N smallest)
     packs.sort(key=lambda r: r.get("size_bytes", 0) or 0)
     return packs[:top_n]
-
-
-def _pack_label(info: dict[str, Any]) -> str:
-    """Build a fuller, readable pack name e.g. 'Loki (2021) · Season 2 · 1080p x265'."""
-    bits = [info.get("series") or "Unknown"]
-    if info.get("season") is not None:
-        bits.append(f"Season {info['season']}")
-    else:
-        bits.append("Complete")
-    q = info.get("quality")
-    if q and q != "Unknown":
-        bits.append(q)
-    if info.get("encoder"):
-        bits.append(info["encoder"])
-    return " · ".join(bits)
 
 
 def _quality_bucket(title: str) -> str:
@@ -260,14 +267,21 @@ def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Group normalized search rows: encoder → uploader → quality → season → episode.
+    """Group normalized search rows: encoder -> quality -> season -> episode.
+
+    - Encoders are merged case-insensitively by `encoder_norm` (ELiTE/elite/ELITE
+      collapse to one; the first nicely-cased original name is displayed).
+    - Quality is the coarse bucket 4K / 1080p / 720p / Other (same as Normal).
+    - Within each encoder, duplicate episodes (same series + SxxExx) are collapsed
+      to the single HIGHEST-SEEDED copy.
+    - Episodes are returned in sequence: season ascending, then episode ascending.
 
     Output:
       {
         "encoders": [
           {name, encoder_norm, episode_count,
-           uploaders: [
-             {name, quality, episode_count,
+           qualities: [
+             {quality, label, episode_count,
               seasons: [{season, episodes:[row,...]}, ...]}, ...]
           }, ...],
         "stats": {raw, parsed, other_discarded},
@@ -275,17 +289,27 @@ def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
     Season packs and unparseable rows are NOT included here (handled separately
     by build_packs / discarded per the Series Mode v2 spec).
     """
+    _Q_ORDER = ["2160p", "1080p", "720p", "Other"]
+    _Q_LABEL = {"2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other"}
+
     raw = len(rows)
-    # encoder_norm -> {name, uploaders: {(uploader, quality) -> {seasons{season->[(ep,row)]}}}}
+    # encoder_norm -> {name, quality -> {(series_lower, se_key) -> (ep, row)}}
     encs: dict[str, dict[str, Any]] = {}
     parsed_count = 0
     other_discarded = 0
+
+    def seeds_of(r: dict[str, Any]) -> int:
+        try:
+            return int(r.get("seeds", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
 
     for row in rows:
         info = parse_release(str(row.get("name", "")))
         if info["is_pack"] or not info["parsed"]:
             other_discarded += 1
             continue
+
         enriched = dict(row)
         if info["season"] is not None and info["episode"] is not None:
             enriched["se"] = f"S{info['season']:02d}E{info['episode']:02d}"
@@ -294,51 +318,62 @@ def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             enriched["se"] = ""
         enriched["series"] = info["series"]
-        uploader = _extract_uploader(str(row.get("name", "")))
-        enriched["uploader"] = uploader
 
-        parsed_count += 1
+        qbucket = _quality_bucket(str(row.get("name", "")))
+        season = info["season"] if info["season"] is not None else 0
+        episode = info["episode"]
+
         enc = encs.setdefault(info["encoder_norm"], {
             "name": info["encoder"] or info["encoder_norm"],
             "encoder_norm": info["encoder_norm"],
-            "_uploaders": {},
+            "_qualities": {},
         })
-        ukey = (uploader, info["quality"])
-        up = enc["_uploaders"].setdefault(ukey, {
-            "name": uploader,
-            "quality": info["quality"],
-            "_seasons": {},
-        })
-        season = info["season"] if info["season"] is not None else 0
-        up["_seasons"].setdefault(season, []).append((info["episode"], enriched))
+        # Prefer a nicely-cased display name if a later row provides one.
+        if info["encoder"] and enc["name"] == enc["encoder_norm"]:
+            enc["name"] = info["encoder"]
+
+        quality = enc["_qualities"].setdefault(qbucket, {})
+        # Dedup within (encoder, quality, series, SxxExx): keep highest-seeded.
+        # series_key normalizes separators so 'Daredevil.Born.Again' and
+        # 'Daredevil Born Again' collapse to the same episode.
+        dkey = (series_key(info["series"]), enriched["se"] or str(id(enriched)))
+        prev = quality.get(dkey)              # prev = (season, episode, row) or None
+        if prev is None or seeds_of(enriched) > seeds_of(prev[2]):
+            quality[dkey] = (season, episode, enriched)
+        parsed_count += 1
 
     encoders: list[dict[str, Any]] = []
     for enc in encs.values():
-        uploaders = []
+        qualities = []
         enc_count = 0
-        for up in enc["_uploaders"].values():
+        for qkey in _Q_ORDER:
+            qmap = enc["_qualities"].get(qkey)
+            if not qmap:
+                continue
+            # Group this quality's deduped rows by season, episodes in sequence.
+            seasons_map: dict[int, list[tuple[Any, dict[str, Any]]]] = {}
+            for (season, episode, r) in qmap.values():
+                seasons_map.setdefault(season, []).append((episode, r))
             seasons = []
-            up_count = 0
-            for season in sorted(up["_seasons"].keys()):
-                eps = up["_seasons"][season]
+            q_count = 0
+            for season in sorted(seasons_map.keys()):
+                eps = seasons_map[season]
                 eps.sort(key=lambda t: (t[0] if t[0] is not None else 0))
                 episodes = [r for _, r in eps]
-                up_count += len(episodes)
+                q_count += len(episodes)
                 seasons.append({"season": season, "episodes": episodes})
-            uploaders.append({
-                "name": up["name"],
-                "quality": up["quality"],
-                "episode_count": up_count,
+            qualities.append({
+                "quality": qkey,
+                "label": _Q_LABEL[qkey],
+                "episode_count": q_count,
                 "seasons": seasons,
             })
-            enc_count += up_count
-        # uploader order: name A->Z, then quality desc
-        uploaders.sort(key=lambda u: (u["name"].upper(), _quality_sort_key(u["quality"])))
+            enc_count += q_count
         encoders.append({
             "name": enc["name"],
             "encoder_norm": enc["encoder_norm"],
             "episode_count": enc_count,
-            "uploaders": uploaders,
+            "qualities": qualities,
         })
 
     encoders.sort(key=lambda e: e["encoder_norm"])
@@ -351,13 +386,6 @@ def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "other_discarded": other_discarded,
         },
     }
-
-
-def _quality_sort_key(quality: str) -> tuple[int, str]:
-    """Higher resolution first (descending)."""
-    order = {"2160p": 0, "1080p": 1, "720p": 2, "480p": 3}
-    res = next((r for r in order if r in quality.lower()), None)
-    return (order.get(res, 9), quality)
 
 
 _BITSEARCH_DNS_LOCK = threading.RLock()
