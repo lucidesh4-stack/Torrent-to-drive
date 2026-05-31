@@ -171,7 +171,8 @@ def add_magnet():
     except (ConnectionError, TimeoutError) as e:
         current_app.logger.warning("Provider error on add: %s", e)
         from ..security import json_error
-        return json_error(502, "provider_error", "Provider rejected the request (e.g. storage full) or is unavailable")
+        msg = str(e) or "Provider rejected the request (e.g. storage full) or is unavailable"
+        return json_error(502, "provider_error", msg)
     return jsonify({"success": True})
 
 @cloud_bp.get("/api/url")

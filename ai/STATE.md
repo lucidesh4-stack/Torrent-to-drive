@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — 413 add fix + Series/Normal row parity
+- **413 fix**: `cloud_service.add_magnet` now catches `seedrcc.APIError` / HTTP 413 ("too large") and re-raises as `ConnectionError` with a clear message; route returns **502 "too large for your available space"** instead of an uncaught 500. Unrelated errors still propagate.
+- **UI parity**: `.ms-dd-btn` (Quality/Encoder dropdowns) now match the Category `<select>` metrics exactly (font 16px, padding 12px 13px) so the Series Mode control row is the same height/look as Normal.
+- **Files**: cloud_service.py, routes/cloud.py, static/css/base.css, app.js (rebuilt).
+- **Verified**: APIError/413 → ConnectionError (clear msg); unrelated error re-raised; py_compile + node --check; gunicorn boots.
+
 ### 2026-05-31 — UI tweaks + Bitsearch daily meter
 - **UI**: Quality & Encoder moved into the search row as custom multi-select dropdowns (button + checkbox panel). Removed the "Remove duplicates" checkbox → dedup is now **hard-wired ON** (Normal + Series).
 - **Daily meter**: every bitsearch call increments an Upstash daily key `streamly:bitsearch_count:<UTC-date>` (48h TTL). Series response returns `daily_used` + `daily_limit`. UI shows a traffic-light "Bitsearch: X / 200 today" (green <70%, yellow ≥70%, red ≥90%) as an early-warning before the limit. Limit configurable via `BITSEARCH_DAILY_LIMIT` (default 200).
@@ -144,6 +150,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Fixed 413 add_torrent → was 500, now clean 502 "too large"; made Series dropdown buttons match Category select so Series/Normal rows look identical. Changed: cloud_service.py, routes/cloud.py, base.css, app.js.
 - **2026-05-31** — UI: quality/encoder multi-select dropdowns in search row; removed dedup checkbox (dedup always ON); added Upstash daily bitsearch meter with green/yellow/red early-warning (X/200 today, configurable). Changed: redis_store.py, config.py, app.py, routes/search.py, 3b-series.js, 5-search.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Feature ③ v2 Series Mode redesign: quality+encoder multiselect, targeted queries (packs x265/hevc + per encoder×quality), encoder→uploader→quality→season→episode, packs smallest-first top-20, quota guard (cap 12 + badge). Changed: search_service.py, routes/search.py, static/js/src/3b-series.js, 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ③ Series Mode: [Normal][Series Mode] toggle; grouped Encoder→Quality→Season→Episode (3-page fetch); "Add all"=1 Seedr add+N history; Packs/Other sections. Changed: search_service.py, routes/search.py, static/js/src/3b-series.js (new), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
