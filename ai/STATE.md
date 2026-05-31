@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — UI tweaks + Bitsearch daily meter
+- **UI**: Quality & Encoder moved into the search row as custom multi-select dropdowns (button + checkbox panel). Removed the "Remove duplicates" checkbox → dedup is now **hard-wired ON** (Normal + Series).
+- **Daily meter**: every bitsearch call increments an Upstash daily key `streamly:bitsearch_count:<UTC-date>` (48h TTL). Series response returns `daily_used` + `daily_limit`. UI shows a traffic-light "Bitsearch: X / 200 today" (green <70%, yellow ≥70%, red ≥90%) as an early-warning before the limit. Limit configurable via `BITSEARCH_DAILY_LIMIT` (default 200).
+- **Files**: redis_store.py (incr/get_request_count), config.py (bitsearch_daily_limit), app.py (export to app.config), routes/search.py (count per call + return meter), static/js/src/3b-series.js, 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
+- **Verified**: meter increments across searches (3→6), limit exposed; dropdowns build clean; dedup hard-wired ON (regression); no stale dedup/seriesControls refs; py_compile + node --check pass; gunicorn boots.
+- **Note**: 413→500 add bug explained (not fixed); size filter dropped per request.
+
 ### 2026-05-31 — Feature ③ v2: Series Mode redesign (targeted queries)
 - **What**: Backend-driven, quota-bounded. Quality multi-select (4K/1080p/720p, 1080p default) + encoder multi-select (presets: ELiTE, PSA, MeGusta).
 - **Packs**: per quality → `<title> <q> x265` + `<title> <q> hevc` (sort size desc, 1 page) → dedup → packs-only → smallest-first → top 20. Non-packs discarded. Qualifying packs found in encoder results replace the largest in top-20.
@@ -137,6 +144,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — UI: quality/encoder multi-select dropdowns in search row; removed dedup checkbox (dedup always ON); added Upstash daily bitsearch meter with green/yellow/red early-warning (X/200 today, configurable). Changed: redis_store.py, config.py, app.py, routes/search.py, 3b-series.js, 5-search.js, 6-main.js, index.html, base.css, app.js.
 - **2026-05-31** — Feature ③ v2 Series Mode redesign: quality+encoder multiselect, targeted queries (packs x265/hevc + per encoder×quality), encoder→uploader→quality→season→episode, packs smallest-first top-20, quota guard (cap 12 + badge). Changed: search_service.py, routes/search.py, static/js/src/3b-series.js, 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ③ Series Mode: [Normal][Series Mode] toggle; grouped Encoder→Quality→Season→Episode (3-page fetch); "Add all"=1 Seedr add+N history; Packs/Other sections. Changed: search_service.py, routes/search.py, static/js/src/3b-series.js (new), 5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.
 - **2026-05-31** — Feature ① Search dedup (same-infohash → keep highest-seeded); default-on + "Remove duplicates" checkbox. Changed: search_service.py, routes/search.py, static/js/src/5-search.js, 6-main.js, templates/index.html, static/css/base.css, app.js.

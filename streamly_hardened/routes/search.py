@@ -113,11 +113,19 @@ def search_route():
                 "Reduce the number of qualities or encoders.",
             )
 
+        rs = getattr(current_app, "rs", None)
+
         def run(query_text, srt="seeders", ordr="desc"):
             try:
                 payload = search.bitsearch(query_text, category, srt, ordr, 1, dedup=False)
             except TypeError:
                 payload = search.bitsearch(query_text, category, srt, ordr)
+            # Count this bitsearch call toward today's daily meter (best-effort).
+            if rs is not None:
+                try:
+                    rs.incr_request_count(1)
+                except Exception:
+                    pass
             items, _, _ = _extract_items(payload, 1)
             return _normalize_rows(items)
 
@@ -151,12 +159,18 @@ def search_route():
         packs = packs[:20]
 
         groups = group_series_results(enc_rows)
+
+        # Daily request meter (traffic-light): today's total vs configured limit.
+        daily_limit = int(config.get("bitsearch_daily_limit", 200) or 200)
+        daily_used = rs.get_request_count() if rs is not None else -1
         return jsonify({
             "mode": "series",
             "packs": packs,
             "encoders": groups["encoders"],
             "stats": groups["stats"],
             "requests_used": used,
+            "daily_used": daily_used,
+            "daily_limit": daily_limit,
             "qualities": qualities,
             "encoders_selected": encoders,
         })

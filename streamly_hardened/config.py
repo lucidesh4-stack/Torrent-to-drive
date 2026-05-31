@@ -31,6 +31,7 @@ class AppConfig:
     allowed_orders: frozenset[str] = frozenset({"asc", "desc"})
     bitsearch_url: str = "https://bitsearch.eu/api/v1/search"
     bitsearch_api_key: str = ""
+    bitsearch_daily_limit: int = 200
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
     seedr_archive_url: str = "https://www.seedr.cc/api/v2/download/archive"
     upstash_redis_url: str = ""
@@ -66,5 +67,6 @@ class AppConfig:
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             bitsearch_api_key=os.getenv("BITSEARCH_API_KEY", ""),
+            bitsearch_daily_limit=int(os.getenv("BITSEARCH_DAILY_LIMIT", "200")),
             max_bulk_items=int(os.getenv("MAX_BULK_ITEMS", "100")),
         )

@@ -64,19 +64,29 @@
     updateSelection();
   });
   $("searchBtn").addEventListener("click", () => search(false, 1));
-  if ($("dedupToggle")) {
-    $("dedupToggle").addEventListener("change", () => {
-      // Re-run only if results are already shown, to avoid spending a quota hit.
-      const visible = !$("results").classList.contains("hidden") || !$("seriesResults").classList.contains("hidden");
-      if (visible && $("searchQuery").value.trim()) {
-        search(true, currentPage);
-      }
-    });
-  }
   if ($("modeNormal")) $("modeNormal").addEventListener("click", () => setSeriesMode(false));
   if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
+
+  // Multi-select dropdowns (Quality / Encoders)
+  function toggleDd(ddId) {
+    const dd = $(ddId);
+    if (!dd) return;
+    const panel = dd.querySelector(".ms-dd-panel");
+    const isOpen = !panel.classList.contains("hidden");
+    // close all panels first
+    document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
+    if (!isOpen) panel.classList.remove("hidden");
+  }
+  if ($("qualityDdBtn")) $("qualityDdBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleDd("qualityDd"); });
+  if ($("encoderDdBtn")) $("encoderDdBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleDd("encoderDd"); });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".ms-dd")) document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
+  });
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
-    el.addEventListener("change", () => { if (typeof updateQuotaBadge === "function") updateQuotaBadge(); })
+    el.addEventListener("change", () => {
+      if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+      if (typeof updateQuotaBadge === "function") updateQuotaBadge();
+    })
   );
 
   // ----- Mobile cloud wiring -----
