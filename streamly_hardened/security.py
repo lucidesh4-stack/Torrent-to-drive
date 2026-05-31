@@ -23,8 +23,18 @@ EMAIL_RE = re.compile(r"^[^@\s]{1,254}@[^@\s]{1,253}\.[^@\s]{2,63}$")
 BTIH_RE = re.compile(r"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})(?:&|$)")
 
 
-def require_json_body(config: AppConfig) -> dict[str, Any]:
-    if request.content_length is not None and request.content_length > config.max_json_bytes:
+def _get_cfg(config: Any, key: str, default: Any = None) -> Any:
+    """Safely get config value from either a dataclass or a dictionary."""
+    if hasattr(config, key):
+        return getattr(config, key)
+    if isinstance(config, Mapping):
+        return config.get(key, default)
+    return default
+
+
+def require_json_body(config: Any) -> dict[str, Any]:
+    max_bytes = _get_cfg(config, "max_json_bytes", 16 * 1024)
+    if request.content_length is not None and request.content_length > max_bytes:
         raise ValidationError("JSON body too large")
     if not request.is_json:
         raise ValidationError("Expected application/json")
@@ -69,34 +79,39 @@ def validate_positive_int(value: Any, *, name: str, maximum: int) -> int:
     return parsed
 
 
-def validate_query(q: Any, config: AppConfig) -> str:
+def validate_query(q: Any, config: Any) -> str:
     if not isinstance(q, str):
         raise ValidationError("q must be a string")
     q = " ".join(q.strip().split())
     if not q:
         raise ValidationError("q is required")
-    if len(q) > config.max_query_length:
+    
+    max_len = _get_cfg(config, "max_query_length", 128)
+    if len(q) > max_len:
         raise ValidationError("q too long")
     return q
 
 
-def validate_category(category: Any, config: AppConfig) -> str:
+def validate_category(category: Any, config: Any) -> str:
     category = "" if category is None else str(category)
-    if category not in config.allowed_categories:
+    allowed = _get_cfg(config, "allowed_categories", [])
+    if category not in allowed:
         raise ValidationError("Invalid category")
     return category
 
 
-def validate_sort(sort: Any, config: AppConfig) -> str:
+def validate_sort(sort: Any, config: Any) -> str:
     sort = "relevance" if sort in (None, "") else str(sort)
-    if sort not in config.allowed_sorts:
+    allowed = _get_cfg(config, "allowed_sorts", [])
+    if sort not in allowed:
         raise ValidationError("Invalid sort")
     return sort
 
 
-def validate_order(order: Any, config: AppConfig) -> str:
+def validate_order(order: Any, config: Any) -> str:
     order = "desc" if order in (None, "") else str(order)
-    if order not in config.allowed_orders:
+    allowed = _get_cfg(config, "allowed_orders", [])
+    if order not in allowed:
         raise ValidationError("Invalid order")
     return order
 
@@ -107,11 +122,13 @@ def validate_item_type(value: Any) -> str:
     return str(value)
 
 
-def validate_magnet(value: Any, config: AppConfig) -> str:
+def validate_magnet(value: Any, config: Any) -> str:
     if not isinstance(value, str):
         raise ValidationError("magnet must be a string")
     value = value.strip()
-    if len(value) > config.max_magnet_length:
+    
+    max_len = _get_cfg(config, "max_magnet_length", 8192)
+    if len(value) > max_len:
         raise ValidationError("magnet too long")
     if not value.startswith("magnet:?") or not BTIH_RE.search(value):
         raise ValidationError("Invalid magnet link")
