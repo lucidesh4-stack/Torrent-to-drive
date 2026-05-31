@@ -161,7 +161,7 @@
               <option value="9">Ebooks</option>
               <option value="10">Adult</option>
             </select>
-            <!-- Series-only multi-select dropdowns (hidden in Normal mode) -->
+            <!-- Quality / Encoder multi-select dropdowns (visible in BOTH Normal and Series modes) -->
             <div id="qualityDd" class="ms-dd">
               <button type="button" class="ms-dd-btn" id="qualityDdBtn">Quality: 1080p</button>
               <div class="ms-dd-panel hidden">
@@ -191,24 +191,6 @@
           </div>
         </div>
         <div id="seriesResults" class="results hidden"></div>
-        <div id="results" class="results hidden">
-          <div class="torrent-table-wrap">
-            <table class="table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th class="sortable num" data-sort="seeders">SE <span id="sortMark-seeders" class="sort-mark"></span></th>
-                  <th class="sortable" data-sort="date">Time <span id="sortMark-date" class="sort-mark"></span></th>
-                  <th class="sortable num" data-sort="size">Size <span id="sortMark-size" class="sort-mark"></span></th>
-                  <th style="width:90px;">Add</th>
-                </tr>
-              </thead>
-              <tbody id="torrentBody"></tbody>
-            </table>
-          </div>
-          <div id="mobileResults"></div>
-        </div>
-        <div id="pagination" class="pagination hidden"></div>
       </section>
 
     </main>
