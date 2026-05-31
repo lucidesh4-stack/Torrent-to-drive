@@ -195,10 +195,13 @@ class TokenBucketRateLimiter:
                     del self._buckets[key]
 
 
-def rate_limited(limiter: TokenBucketRateLimiter, *, cost: float = 1.0):
+def rate_limited(cost: float = 1.0):
     def decorator(fn: Callable):
         @wraps(fn)
         def wrapper(*args, **kwargs):
+            from .extensions import limiter
+            if limiter is None:
+                return fn(*args, **kwargs)
             sid = session.get("sid") or request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
             key = f"{sid}:{request.endpoint}"
             if not limiter.allow(key, cost=cost):
