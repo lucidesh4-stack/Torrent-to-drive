@@ -67,11 +67,14 @@
   if ($("dedupToggle")) {
     $("dedupToggle").addEventListener("change", () => {
       // Re-run only if results are already shown, to avoid spending a quota hit.
-      if (!$("results").classList.contains("hidden") && $("searchQuery").value.trim()) {
+      const visible = !$("results").classList.contains("hidden") || !$("seriesResults").classList.contains("hidden");
+      if (visible && $("searchQuery").value.trim()) {
         search(true, currentPage);
       }
     });
   }
+  if ($("modeNormal")) $("modeNormal").addEventListener("click", () => setSeriesMode(false));
+  if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
 
   // ----- Mobile cloud wiring -----
   if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });

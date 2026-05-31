@@ -37,11 +37,26 @@
       params.set("page", String(currentPage));
       const dedupEl = $("dedupToggle");
       params.set("dedup", dedupEl && !dedupEl.checked ? "0" : "1");
+      if (typeof seriesMode !== "undefined" && seriesMode) params.set("mode", "series");
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
+
+      if (data && data.mode === "series") {
+        $("results").classList.add("hidden");
+        $("seriesResults").classList.remove("hidden");
+        renderSeriesGrouped(data.groups);
+        const st = (data.groups && data.groups.stats) || {};
+        const shown = (st.parsed || 0) + (st.packs || 0) + (st.other || 0);
+        if ($("resultCount")) $("resultCount").textContent = shown + " grouped from " + (st.raw || 0) + " fetched";
+        status($("searchStatus"), "Found " + shown + " result(s)", "ok");
+        return;
+      }
+
       const results = Array.isArray(data.results) ? data.results : [];
+      $("seriesResults").classList.add("hidden");
       $("results").classList.remove("hidden");
       renderSearchTable(results);
       renderPagination(data.pagination, data.took, data.results ? data.results.length : 0);
+      if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), "Found " + results.length + " result(s)", "ok");
     } catch (err) {
       status($("searchStatus"), err.message || "Search failed", "error");
