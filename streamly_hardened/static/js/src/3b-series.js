@@ -1,23 +1,14 @@
-  /* ===== Series Mode v2 ===== */
+  /* ===== Series Mode v2 + Normal grouped ===== */
   let seriesMode = false;
+  // Holds the last rendered dataset so client-side sorting can re-order without re-fetching.
+  let lastNormalGroups = null;   // [{quality,label,count,rows}]
+  let lastSeriesData = null;     // {packs, encoders, ...}
 
   function getSelectedQualities() {
     return Array.from(document.querySelectorAll(".qualityOpt:checked")).map(c => c.value);
   }
   function getSelectedEncoders() {
     return Array.from(document.querySelectorAll(".encoderOpt:checked")).map(c => c.value);
-  }
-
-  // Quota guard mirror (must match backend: packs=2/quality, encoders=N*Q, cap 12).
-  const SERIES_MAX_REQUESTS = 12;
-  function updateQuotaBadge() {
-    const badge = $("quotaBadge");
-    if (!badge) return;
-    const q = getSelectedQualities().length || 1;
-    const n = getSelectedEncoders().length;
-    const planned = (2 * q) + (n * q);
-    badge.textContent = "This search uses " + planned + " request(s)";
-    badge.classList.toggle("over", planned > SERIES_MAX_REQUESTS);
   }
 
   function updateDropdownLabels() {
@@ -30,32 +21,75 @@
     if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
   }
 
-  function renderDailyMeter(used, limit) {
-    const el = $("dailyMeter");
-    if (!el) return;
-    if (used == null || used < 0 || !limit) { el.textContent = ""; el.className = "daily-meter"; return; }
-    const pct = limit > 0 ? (used / limit) : 0;
-    let cls = "ok";
-    if (pct >= 0.9) cls = "danger"; else if (pct >= 0.7) cls = "warn";
-    el.className = "daily-meter " + cls;
-    el.textContent = "Bitsearch: " + used + " / " + limit + " today";
-  }
-
   function setSeriesMode(on) {
     seriesMode = !!on;
     const nBtn = $("modeNormal"), sBtn = $("modeSeries");
     if (nBtn) nBtn.classList.toggle("active", !seriesMode);
     if (sBtn) sBtn.classList.toggle("active", seriesMode);
-    // Show/hide the series-only dropdowns + meter strip.
-    if ($("qualityDd")) $("qualityDd").classList.toggle("hidden", !seriesMode);
-    if ($("encoderDd")) $("encoderDd").classList.toggle("hidden", !seriesMode);
-    if ($("seriesMeter")) $("seriesMeter").classList.toggle("hidden", !seriesMode);
+    // The control row (Quality/Encoder dropdowns) stays visible in BOTH modes.
+    // Toggling only changes how the backend processes the next search.
     updateDropdownLabels();
-    updateQuotaBadge();
-    // Just swap visible container; do NOT auto-fetch (series fetch costs quota).
-    $("results").classList.toggle("hidden", seriesMode);
-    $("seriesResults").classList.toggle("hidden", !seriesMode);
+    $("seriesResults").classList.add("hidden");
+    $("results").classList.add("hidden");
     $("pagination").classList.add("hidden");
+  }
+
+  // ---- Client-side sort state (re-orders loaded rows; no re-fetch) ----
+  function sortRows(rows) {
+    const dir = currentOrder === "asc" ? 1 : -1;
+    const key = currentSort;
+    const val = (r) => {
+      if (key === "seeders") return Number(r.seeds || 0);
+      if (key === "size") return Number(r.size_bytes || 0);
+      if (key === "date") return Date.parse(r.date || "") || 0;
+      return 0;
+    };
+    return rows.slice().sort((a, b) => (val(a) - val(b)) * dir);
+  }
+
+  function plainRow(row) {
+    const wrap = document.createElement("div");
+    wrap.className = "episode-row";
+    const name = document.createElement("span");
+    name.className = "name truncate";
+    name.textContent = row.name || "Untitled";
+    name.title = row.name || "";
+    const se = document.createElement("span"); se.className = "se"; se.textContent = row.seeds || 0;
+    const time = document.createElement("span"); time.className = "time"; time.textContent = row.date || "-";
+    const size = document.createElement("span"); size.className = "size"; size.textContent = row.size || "-";
+    const add = document.createElement("span"); add.className = "add"; add.appendChild(makeAddButton(row));
+    wrap.append(name, se, time, size, add);
+    return wrap;
+  }
+
+  // Normal mode: render quality sections (4K/1080p/720p/Other), rows sorted by current sort.
+  function renderNormalGrouped(groups) {
+    lastNormalGroups = groups || [];
+    const container = $("seriesResults");
+    container.textContent = "";
+    if (!lastNormalGroups.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No results.";
+      container.appendChild(empty);
+      return;
+    }
+    syncSortControls();
+    for (const g of lastNormalGroups) {
+      const section = document.createElement("div");
+      section.className = "encoder-section";
+      const header = sectionHeader({
+        title: g.label,
+        sub: null,
+        count: g.count + (g.count === 1 ? " result" : " results"),
+      });
+      header.addEventListener("click", () => section.classList.toggle("collapsed"));
+      const body = document.createElement("div");
+      body.className = "encoder-body";
+      for (const r of sortRows(g.rows)) body.appendChild(plainRow(r));
+      section.append(header, body);
+      container.appendChild(section);
+    }
   }
 
   function seriesEpisodeRow(row, labelParts) {
@@ -107,7 +141,7 @@
   }
 
   function sectionHeader(opts) {
-    // opts: {title, sub, count, episodes?, extraClass}
+    // opts: {title, sub, count, episodes?}
     const header = document.createElement("div");
     header.className = "encoder-header";
     const titleWrap = document.createElement("div");
@@ -144,6 +178,7 @@
   }
 
   function renderSeriesGrouped(data) {
+    lastSeriesData = data || null;
     const container = $("seriesResults");
     container.textContent = "";
     if (!data) return;

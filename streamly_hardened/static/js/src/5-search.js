@@ -36,9 +36,10 @@
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
       params.set("dedup", "1"); // dedup is always on (checkbox removed)
+      // Quality applies to both modes (Normal groups by quality; Series uses it per-query).
+      params.set("quality", getSelectedQualities().join(","));
       if (typeof seriesMode !== "undefined" && seriesMode) {
         params.set("mode", "series");
-        params.set("quality", getSelectedQualities().join(","));
         params.set("encoders", getSelectedEncoders().join(","));
       }
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
@@ -51,18 +52,18 @@
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
         if ($("resultCount")) $("resultCount").textContent =
           packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
-        if (typeof renderDailyMeter === "function") renderDailyMeter(data.daily_used, data.daily_limit);
         status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
         return;
       }
 
-      const results = Array.isArray(data.results) ? data.results : [];
-      $("seriesResults").classList.add("hidden");
-      $("results").classList.remove("hidden");
-      renderSearchTable(results);
-      renderPagination(data.pagination, data.took, data.results ? data.results.length : 0);
-      if ($("resultCount")) $("resultCount").textContent = "";
-      status($("searchStatus"), "Found " + results.length + " result(s)", "ok");
+      // Normal mode = quality-grouped sections
+      const groups = Array.isArray(data.quality_groups) ? data.quality_groups : [];
+      $("results").classList.add("hidden");
+      $("seriesResults").classList.remove("hidden");
+      renderNormalGrouped(groups);
+      const total = groups.reduce((a, g) => a + (g.count || 0), 0);
+      if ($("resultCount")) $("resultCount").textContent = total + " result(s) in " + groups.length + " quality group(s)";
+      status($("searchStatus"), "Found " + total + " result(s)", "ok");
     } catch (err) {
       status($("searchStatus"), err.message || "Search failed", "error");
     }

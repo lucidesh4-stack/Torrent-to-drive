@@ -219,6 +219,37 @@ def _pack_label(info: dict[str, Any]) -> str:
     return " · ".join(bits)
 
 
+def _quality_bucket(title: str) -> str:
+    """Classify a release into a coarse quality bucket: 2160p / 1080p / 720p / Other."""
+    m = _RES_RE.search(title or "")
+    if m:
+        res = m.group(1).lower()
+        if res in ("2160p", "1080p", "720p"):
+            return res
+    return "Other"
+
+
+def group_by_quality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group flat normalized rows into quality sections (4K/1080p/720p/Other).
+
+    Sections are ordered 2160p -> 1080p -> 720p -> Other; rows within each
+    section are sorted size-descending. Used by Normal mode.
+    """
+    order = ["2160p", "1080p", "720p", "Other"]
+    label = {"2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other"}
+    buckets: dict[str, list[dict[str, Any]]] = {k: [] for k in order}
+    for row in rows:
+        buckets[_quality_bucket(str(row.get("name", "")))].append(row)
+    sections = []
+    for key in order:
+        items = buckets[key]
+        if not items:
+            continue
+        items.sort(key=lambda r: r.get("size_bytes", 0) or 0, reverse=True)
+        sections.append({"quality": key, "label": label[key], "count": len(items), "rows": items})
+    return sections
+
+
 def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Group normalized search rows: encoder → uploader → quality → season → episode.
 

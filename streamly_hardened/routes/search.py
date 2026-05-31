@@ -9,7 +9,7 @@ from ..security import (
     validate_order,
 )
 from ..cloud_service import format_size, _safe_int
-from ..search_service import group_series_results, build_packs, _dedup_by_infohash
+from ..search_service import group_series_results, build_packs, _dedup_by_infohash, group_by_quality
 
 search_bp = Blueprint("search", __name__)
 
@@ -113,19 +113,11 @@ def search_route():
                 "Reduce the number of qualities or encoders.",
             )
 
-        rs = getattr(current_app, "rs", None)
-
         def run(query_text, srt="seeders", ordr="desc"):
             try:
                 payload = search.bitsearch(query_text, category, srt, ordr, 1, dedup=False)
             except TypeError:
                 payload = search.bitsearch(query_text, category, srt, ordr)
-            # Count this bitsearch call toward today's daily meter (best-effort).
-            if rs is not None:
-                try:
-                    rs.incr_request_count(1)
-                except Exception:
-                    pass
             items, _, _ = _extract_items(payload, 1)
             return _normalize_rows(items)
 
@@ -159,31 +151,35 @@ def search_route():
         packs = packs[:20]
 
         groups = group_series_results(enc_rows)
-
-        # Daily request meter (traffic-light): today's total vs configured limit.
-        daily_limit = int(config.get("bitsearch_daily_limit", 200) or 200)
-        daily_used = rs.get_request_count() if rs is not None else -1
         return jsonify({
             "mode": "series",
             "packs": packs,
             "encoders": groups["encoders"],
             "stats": groups["stats"],
             "requests_used": used,
-            "daily_used": daily_used,
-            "daily_limit": daily_limit,
             "qualities": qualities,
             "encoders_selected": encoders,
         })
 
-    # --- Normal Mode (unchanged behavior) ---
-    try:
-        raw_payload = search.bitsearch(q, category, sort, order, page, dedup=dedup)
-    except TypeError:
-        raw_payload = search.bitsearch(q, category, sort, order)
+    # --- Normal Mode: one bitsearch per selected quality, grouped by quality ---
+    qualities = [x for x in _csv(request.args.get("quality", "1080p")) if x in ALLOWED_QUALITIES]
+    if not qualities:
+        qualities = ["1080p"]
 
-    raw_items, pagination, took = _extract_items(raw_payload, page)
-    rows = _normalize_rows(raw_items)
-    return jsonify({"results": rows, "pagination": pagination, "took": took})
+    def run_normal(query_text):
+        try:
+            payload = search.bitsearch(query_text, category, sort, order, 1, dedup=False)
+        except TypeError:
+            payload = search.bitsearch(query_text, category, sort, order)
+        items, _, _ = _extract_items(payload, 1)
+        return _normalize_rows(items)
+
+    all_rows = []
+    for ql in qualities:
+        all_rows += run_normal(f"{q} {ql}")
+    all_rows = _dedup_by_infohash(all_rows)
+    quality_groups = group_by_quality(all_rows)
+    return jsonify({"mode": "normal_grouped", "quality_groups": quality_groups})
 
 def validate_positive_int_local(value: Any, *, name: str = "value", maximum: int = 10_000) -> int:
     try:

@@ -68,7 +68,11 @@
       currentOrder = "desc";
     }
     syncSortControls();
-    search(false, 1);
+    // Client-side only: re-order the already-loaded results (no new bitsearch call).
+    // Normal mode = quality sections; Series mode keeps its own structural order.
+    if (typeof lastNormalGroups !== "undefined" && lastNormalGroups) {
+      renderNormalGrouped(lastNormalGroups);
+    }
   }
 
   // History Management (Redis Backend)
