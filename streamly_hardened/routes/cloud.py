@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, current_app
+from flask import Blueprint, jsonify, current_app, request
 from ..auth_utils import current_client
 from ..security import (
     csrf_required,
@@ -172,7 +172,7 @@ def add_magnet():
 @rate_limited(cost=1.0)
 def get_url():
     config = current_app.config
-    file_id = validate_positive_int(current_app.request.args.get("file_id"), name="file_id", maximum=config.get("max_file_id", 1_000_000_000))
+    file_id = validate_positive_int(request.args.get("file_id"), name="file_id", maximum=config.get("max_file_id", 1_000_000_000))
     cloud = getattr(current_app, "cloud", None)
     try:
         url = cloud.get_stream_url(current_client(), file_id)
