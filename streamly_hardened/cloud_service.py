@@ -141,7 +141,24 @@ class CloudService:
             raise ValidationError("Invalid type")
 
     def add_magnet(self, client: SeedrClientProtocol, magnet: str) -> None:
-        client.add_torrent(magnet)
+        try:
+            client.add_torrent(magnet)
+        except Exception as e:
+            # seedrcc raises APIError for provider rejections. A 413 ("Payload
+            # Too Large") from Seedr means the torrent is too big for the
+            # account's free space/quota — not a server bug. Surface it as a
+            # clear ConnectionError so the route returns a meaningful message
+            # instead of a generic 500.
+            name = type(e).__name__
+            text = str(e).lower()
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None)
+            if name == "APIError" or status == 413 or "413" in text or "too large" in text:
+                log.warning("Seedr rejected add_torrent (likely storage full / too large): %s", e)
+                raise ConnectionError(
+                    "Seedr rejected the torrent — it's too large for your available space."
+                ) from None
+            raise
 
     def get_stream_url(self, client: SeedrClientProtocol, file_id: int) -> str:
         try:

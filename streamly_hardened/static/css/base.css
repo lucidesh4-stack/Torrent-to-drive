@@ -190,8 +190,9 @@
     .encoder-section.other .encoder-name { color: var(--muted); }
     /* Multi-select dropdowns (Quality / Encoders) in the search row */
     .ms-dd { position: relative; flex-shrink: 0; }
-    .ms-dd-btn { background: #0b0e14; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 13px; font-weight: 700; white-space: nowrap; }
-    .ms-dd-btn:hover { background: #111d2b; transform: none; border-color: var(--blue); }
+    /* Match the Category <select> metrics exactly so Series row == Normal row height. */
+    .ms-dd-btn { background: #0b0e14; color: var(--text); border: 1px solid var(--line); border-radius: 12px; padding: 12px 13px; font-size: 16px; font-weight: 400; white-space: nowrap; line-height: normal; }
+    .ms-dd-btn:hover { background: #0b0e14; transform: none; border-color: var(--blue); }
     .ms-dd-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; background: #0b0e14; border: 1px solid var(--line); border-radius: 12px; padding: 8px; min-width: 160px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
     .ms-dd-panel label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 8px; color: var(--text); font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer; }
     .ms-dd-panel label:hover { background: #111d2b; }
