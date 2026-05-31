@@ -692,6 +692,18 @@
     return head;
   }
 
+  // Accordion: clicking a section header closes its siblings and toggles itself.
+  // `groupSel` scopes "siblings" (e.g. only sections in the same container, or
+  // only uploaders within the same encoder body).
+  function makeAccordion(section, header, container, groupSel) {
+    header.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return; // ignore Add-all clicks
+      const wasCollapsed = section.classList.contains("collapsed");
+      container.querySelectorAll(":scope > " + groupSel).forEach((s) => s.classList.add("collapsed"));
+      if (wasCollapsed) section.classList.remove("collapsed");
+    });
+  }
+
   function plainRow(row) {
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
@@ -723,18 +735,18 @@
     container.appendChild(seriesHeaderRow());
     for (const g of lastNormalGroups) {
       const section = document.createElement("div");
-      section.className = "encoder-section";
+      section.className = "encoder-section collapsed"; // accordion: closed by default
       const header = sectionHeader({
         title: g.label,
         sub: null,
         count: g.count + (g.count === 1 ? " result" : " results"),
       });
-      header.addEventListener("click", () => section.classList.toggle("collapsed"));
       const body = document.createElement("div");
       body.className = "encoder-body";
       for (const r of sortRows(g.rows)) body.appendChild(plainRow(r));
       section.append(header, body);
       container.appendChild(section);
+      makeAccordion(section, header, container, ".encoder-section");
     }
   }
 
@@ -846,24 +858,24 @@
     // --- Season Packs on top (smallest-first) ---
     if (packs.length) {
       const section = document.createElement("div");
-      section.className = "encoder-section packs";
+      section.className = "encoder-section packs collapsed"; // accordion: closed by default
       const header = sectionHeader({
         title: "\uD83D\uDCE6 Season Packs",
         sub: "complete seasons \u00b7 smallest first",
         count: packs.length + (packs.length === 1 ? " pack" : " packs"),
       });
-      header.addEventListener("click", () => section.classList.toggle("collapsed"));
       const body = document.createElement("div");
       body.className = "encoder-body";
       for (const p of packs) body.appendChild(seriesEpisodeRow(p, [p.pack_label || p.name, p.uploader]));
       section.append(header, body);
       container.appendChild(section);
+      makeAccordion(section, header, container, ".encoder-section");
     }
 
     // --- Encoder → Uploader → Quality → Season → Episode ---
     for (const enc of encoders) {
       const section = document.createElement("div");
-      section.className = "encoder-section";
+      section.className = "encoder-section collapsed"; // accordion: closed by default
       const allEps = (enc.uploaders || []).flatMap(u => u.seasons.flatMap(s => s.episodes));
       const header = sectionHeader({
         title: enc.name,
@@ -871,40 +883,54 @@
         count: enc.episode_count + (enc.episode_count === 1 ? " episode" : " episodes"),
         episodes: allEps,
       });
-      header.addEventListener("click", () => section.classList.toggle("collapsed"));
       const body = document.createElement("div");
       body.className = "encoder-body";
 
       for (const up of enc.uploaders || []) {
+        // Each uploader is its own collapsible accordion group within this encoder.
+        const upGroup = document.createElement("div");
+        upGroup.className = "uploader-group collapsed";
         const ulabel = document.createElement("div");
         ulabel.className = "uploader-label";
         const upEps = up.seasons.flatMap(s => s.episodes);
         ulabel.innerHTML = "";
+        const chev = document.createElement("span");
+        chev.className = "u-chevron";
+        chev.textContent = "\u25BC";
         const txt = document.createElement("span");
-        txt.textContent = "\u21B3 " + up.name + " \u00b7 " + up.quality + " (" + up.episode_count + ")";
-        ulabel.appendChild(txt);
+        txt.style.flex = "1";
+        txt.style.minWidth = "0";
+        txt.textContent = up.name + " \u00b7 " + up.quality + " (" + up.episode_count + ")";
+        ulabel.append(chev, txt);
         const addAllUp = document.createElement("button");
         addAllUp.type = "button";
         addAllUp.className = "section-add sm";
         addAllUp.textContent = "+ Add all " + upEps.length;
         addAllUp.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(upEps, addAllUp); });
         ulabel.appendChild(addAllUp);
-        body.appendChild(ulabel);
+        upGroup.appendChild(ulabel);
+        const upBody = document.createElement("div");
+        upBody.className = "uploader-body";
 
         for (const s of up.seasons) {
           const slabel = document.createElement("div");
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
-          body.appendChild(slabel);
+          upBody.appendChild(slabel);
           // Episodes default to S/E order, but header clicks re-sort within the group.
           const eps = userSorted ? sortRows(s.episodes) : s.episodes;
           for (const ep of eps) {
-            body.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, up.quality]));
+            upBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, up.quality]));
           }
         }
+        upGroup.appendChild(upBody);
+        body.appendChild(upGroup);
+        // Uploader-level accordion: one uploader open at a time within this encoder.
+        makeAccordion(upGroup, ulabel, body, ".uploader-group");
       }
       section.append(header, body);
       container.appendChild(section);
+      makeAccordion(section, header, container, ".encoder-section");
     }
   }
   async function saveToHistory(magnet, title) {
