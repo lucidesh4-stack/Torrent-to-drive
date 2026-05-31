@@ -46,35 +46,12 @@
 ### Known Tech Debt
 1. Duplicate `init()` in `1-core.js` and `6-main.js`.
 2. Dead code `updateSelected()` in `2-cloud.js`.
-3. In-process session store (logout on multi-worker). Also: in-process rate limiter under-limits across workers (same root cause).
+3. In-process session store (logout on multi-worker).
 4. Bitsearch rate limits.
-5. DoH DNS fallback monkeypatches global `socket.getaddrinfo` under a lock (serializes bitsearch DNS during the fallback window). Acceptable; documented.
-> RESOLVED in search audit: season-pack detection, dead `page` param, `Any` landmine, `search=None` 500, series-mode timeout (now budget-bounded), dead flat-table path, garbage-encoder tokens. See ai/AUDIT_search.md.
 
 ---
 
 ## 📜 Decision Ledger
-
-### 2026-05-31 — Search audit follow-up (timeout budget, dead-code purge, hardening)
-- **P3 — Series time budget**: added `SERIES_TIME_BUDGET_SECONDS=45`. The series branch now checks a wall-clock deadline before each bitsearch call and **stops issuing new calls** once spent, returning partial results with `partial: true`. Prevents the up-to-12-call worst case (~72s) from exceeding gunicorn `--timeout 60` and killing the worker. Verified: tiny-budget test stops at 3/8 calls, returns partial=True in 0.36s; full-budget runs return partial=False.
-- **F8 — Dead flat-table path removed**: deleted unused `renderPagination()` + `renderSearchTable()` from 5-search.js (never called) and the `#results`/`#pagination`/`#torrentBody`/`#mobileResults`/`sortMark-*` DOM from index.html. Made the remaining `#results`/`#pagination` hide-calls obsolete (removed). `syncSortControls` already null-guards; `.sortable[data-sort]` selector now matches nothing (live sort uses `.sec-h`). app.js: 1465 → 1352 lines.
-- **F5 — sort/order**: kept validation (input hygiene) but documented that values are intentionally not forwarded (client-driven sort). No behavior change.
-- **F7 — Quality label**: empty selection now shows "Quality: 1080p (default)" (matches backend fallback) instead of misleading "none".
-- **F10 — Encoder hardening**: `_extract_encoder` now rejects resolution/codec tokens (`1080p`,`x265`,`HEVC`,…) via `_NON_ENCODER_TOKENS` so brackets like `[1080p]`/`[x265]` never become a fake encoder.
-- **F9 — Dead mapping removed**: dropped unreachable `_CATEGORY_LABELS["1"]`.
-- **UI**: series result count now appends "· partial (time limit reached)" when `partial`.
-- **Files**: routes/search.py, search_service.py, static/js/src/5-search.js, 3b-series.js, templates/index.html, static/js/app.js (rebuilt).
-- **Verified**: py_compile; node --check (all 7 src + app.js); gunicorn boots; harness T1–T6 unchanged; P3 budget cutoff + partial flag; F10 garbage rejected / real encoders kept; all JS element-IDs still present; app.js in sync with src.
-
-### 2026-05-31 — Search audit fixes (packs, page param, Any landmine, search=None guard)
-- **F1 — Season-pack detection rewritten**: `_PACK_RE` now accepts `S05 COMPLETE` (space/underscore/dash, not just dot). Added `_SEASON_TOKEN_RE` so a **bare `Sxx` / `Season N` with no `SxxExx` episode token** is recognized as a pack (the dominant real-world form, e.g. `Show.S02.1080p...x265-GROUP`). Pack detection stays inside the `if not se:` block → episodes can never be misclassified. `parse_release` series-name slice uses whichever season marker matched. **Result: 7/7 test packs detected (was 4/7); 0 episodes misclassified.**
-- **F2 — Dead `page` param removed**: grouped Normal/Series modes always fetched page-1 (50/quality); `page` was validated then ignored. Removed parsing entirely (deep pagination would multiply quota cost against the quota-guard design). `page=abc/-5/99999` now return 200 (ignored) instead of bogus 400s.
-- **F3 — `Any` NameError landmine removed**: deleted redundant `validate_positive_int_local` (referenced undefined `Any`, survived only via PEP 563). `security.validate_positive_int` remains the single source.
-- **F4 — `search=None` guard**: `/api/search` + `/api/suggest` now return **503 `search_unavailable`** instead of an uncaught 500 when the service is unset. `json_error` promoted to a top-level import (removed duplicate lazy import in the series branch).
-- **F6 — Stale comment fixed**: template no longer says Quality/Encoder dropdowns are "hidden in Normal mode" (they're visible in both).
-- **Files**: search_service.py (`_PACK_RE`, `_SEASON_TOKEN_RE`, `parse_release`), routes/search.py (imports, None guards, page removal, dead fn deleted), templates/index.html (comment).
-- **Verified**: py_compile; gunicorn boots; full route harness (T1–T8 unchanged, T10 page→200, T11 None→503); pack tests 7/7 + episode non-regression; app.js untouched & in sync.
-- **Deferred (dead code, not bugs)**: F5 (sort/order validated-then-discarded), F8 (legacy flat-table path), F9 (`_CATEGORY_LABELS["1"]`), F10 (anime garbage-encoder hardening). See ai/AUDIT_search.md.
 
 ### 2026-05-31 — Accordion sections (collapsed default, one-open) both modes
 - **Why**: 50+ results all expanded = overwhelming scroll on mobile.
@@ -206,8 +183,6 @@
 
 
 ## 🔄 Recent Changes
-- **2026-05-31** — Search audit follow-up: (P3) series-mode 45s wall-clock budget → partial results instead of gunicorn worker kill; (F8) deleted dead flat-table render path + DOM (app.js 1465→1352); (F5) documented client-driven sort; (F7) "Quality: 1080p (default)" label; (F10) reject resolution/codec tokens as fake encoders; (F9) removed dead category mapping. Changed: routes/search.py, search_service.py, 5-search.js, 3b-series.js, index.html, app.js. See ai/AUDIT_search.md.
-- **2026-05-31** — Search audit fixes: (F1) season-pack parser now detects `Sxx COMPLETE` (space) + bare `Sxx`/`Season N` packs without misclassifying episodes; (F2) removed dead/ignored `page` param; (F3) deleted `Any`-NameError landmine fn; (F4) `search=None` → 503 not 500; (F6) fixed stale template comment. Changed: search_service.py, routes/search.py, templates/index.html. See ai/AUDIT_search.md.
 - **2026-05-31** — Accordion: all sections collapsed by default, one open at a time (both modes, both desktop+mobile); uploader sub-groups also collapsible. Changed: static/js/src/3b-series.js, static/css/base.css, app.js.
 - **2026-05-31** — Normal: fetch by seeders, display size-ascending; added clickable Name/SE/Time/Size/Add header row to sectioned views (both modes); Series episodes re-sort within groups on header click. Changed: routes/search.py, search_service.py, 1-core.js, 3b-series.js, 3-search-sort.js, base.css, responsive.css, app.js.
 - **2026-05-31** — Mobile UI fix: series/quality section rows reflow to a 2-line card (Name on top; seeds·size·Add below) so nothing is clipped on phones; dropdowns sized for mobile. Changed: static/css/responsive.css, app.js.

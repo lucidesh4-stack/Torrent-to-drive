@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import time
-
 from flask import Blueprint, jsonify, current_app, request
 from ..security import (
     rate_limited,
@@ -9,7 +7,6 @@ from ..security import (
     validate_category,
     validate_sort,
     validate_order,
-    json_error,
 )
 from ..cloud_service import format_size, _safe_int
 from ..search_service import group_series_results, build_packs, _dedup_by_infohash, group_by_quality
@@ -19,16 +16,9 @@ search_bp = Blueprint("search", __name__)
 ALLOWED_QUALITIES = ["2160p", "1080p", "720p"]   # 4K / 1080p / 720p
 PRESET_ENCODERS = ["ELiTE", "PSA", "MeGusta"]
 SERIES_MAX_REQUESTS = 12   # quota guard: hard ceiling on bitsearch calls per series search
-# Wall-clock budget for the whole series search. Sequential bitsearch calls can
-# each take up to request_timeout_seconds (~6s); 12 calls could exceed gunicorn's
-# --timeout 60 and get the worker killed. We stop issuing NEW calls once this
-# budget is spent and return whatever was gathered (partial=True). Safely < 60s.
-SERIES_TIME_BUDGET_SECONDS = 45.0
 
-# Note: "1" (Other) is intentionally omitted — it is not an allowed_categories
-# value and is unreachable from the UI <select>.
 _CATEGORY_LABELS = {
-    "2": "Movies", "3": "TV Shows", "4": "Anime", "5": "Software",
+    "1": "Other", "2": "Movies", "3": "TV Shows", "4": "Anime", "5": "Software",
     "6": "Games", "7": "Music", "8": "Audiobooks", "9": "Ebooks", "10": "Adult",
 }
 
@@ -87,8 +77,6 @@ def suggest():
     config = current_app.config
     q = validate_query(request.args.get("q"), config)
     search = getattr(current_app, "search", None)
-    if search is None:
-        return json_error(503, "search_unavailable", "Search service is not available")
     return jsonify(search.imdb_suggestions(q))
 
 @search_bp.get("/api/search")
@@ -97,21 +85,15 @@ def search_route():
     config = current_app.config
     q = validate_query(request.args.get("q"), config)
     category = validate_category(request.args.get("category"), config)
-    # sort/order are validated for input hygiene (reject malformed values) but
-    # the grouped views are sorted server-side by a fixed key and re-sorted
-    # client-side on demand, so these values are intentionally not forwarded.
-    validate_sort(request.args.get("sort"), config)
-    validate_order(request.args.get("order"), config)
-    # Note: grouped Normal/Series modes fetch a fixed page of 50 results per
-    # quality (deep pagination would multiply quota cost against the project's
-    # quota-guard design), so no `page` parameter is accepted here.
+    sort = validate_sort(request.args.get("sort"), config)
+    order = validate_order(request.args.get("order"), config)
+    page = validate_positive_int_local(request.args.get("page", 1), maximum=10_000)
+    page = max(1, page)
     # Dedup defaults ON; client sends dedup=0 to disable. Absent param ⇒ True.
     dedup = request.args.get("dedup", "1").strip().lower() not in ("0", "false", "no", "off")
     mode = request.args.get("mode", "").strip().lower()
 
     search = getattr(current_app, "search", None)
-    if search is None:
-        return json_error(503, "search_unavailable", "Search service is not available")
 
     # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
     if mode == "series":
@@ -124,20 +106,12 @@ def search_route():
         # Quota guard: count planned requests = packs(2 per quality) + encoders(N*Q).
         planned = (2 * len(qualities)) + (len(encoders) * len(qualities))
         if planned > SERIES_MAX_REQUESTS:
+            from ..security import json_error
             return json_error(
                 400, "too_many_requests",
                 f"This selection needs {planned} searches (limit {SERIES_MAX_REQUESTS}). "
                 "Reduce the number of qualities or encoders.",
             )
-
-        deadline = time.monotonic() + SERIES_TIME_BUDGET_SECONDS
-        state = {"used": 0, "partial": False}
-
-        def budget_exhausted() -> bool:
-            if time.monotonic() >= deadline:
-                state["partial"] = True
-                return True
-            return False
 
         def run(query_text, srt="seeders", ordr="desc"):
             try:
@@ -145,32 +119,24 @@ def search_route():
             except TypeError:
                 payload = search.bitsearch(query_text, category, srt, ordr)
             items, _, _ = _extract_items(payload, 1)
-            state["used"] += 1
             return _normalize_rows(items)
+
+        used = 0
 
         # --- Season Packs: <title> <q> x265 + <title> <q> hevc, sort size desc ---
         pack_rows = []
         for ql in qualities:
-            if budget_exhausted():
-                break
-            pack_rows += run(f"{q} {ql} x265", "size", "desc")
-            if budget_exhausted():
-                break
-            pack_rows += run(f"{q} {ql} hevc", "size", "desc")
+            pack_rows += run(f"{q} {ql} x265", "size", "desc"); used += 1
+            pack_rows += run(f"{q} {ql} hevc", "size", "desc"); used += 1
         pack_rows = _dedup_by_infohash(pack_rows)
         packs = build_packs(pack_rows)
 
         # --- Encoders: <title> <q> <ENCODER> per combination ---
         enc_rows = []
         for enc in encoders:
-            if budget_exhausted():
-                break
             for ql in qualities:
-                if budget_exhausted():
-                    break
-                enc_rows += run(f"{q} {ql} {enc}")
+                enc_rows += run(f"{q} {ql} {enc}"); used += 1
         enc_rows = _dedup_by_infohash(enc_rows)
-        used = state["used"]
 
         # Any qualifying packs found in encoder results, not already listed,
         # replace the largest in the top-N (list is smallest-first).
@@ -191,7 +157,6 @@ def search_route():
             "encoders": groups["encoders"],
             "stats": groups["stats"],
             "requests_used": used,
-            "partial": state["partial"],
             "qualities": qualities,
             "encoders_selected": encoders,
         })
@@ -217,3 +182,14 @@ def search_route():
     all_rows = _dedup_by_infohash(all_rows)
     quality_groups = group_by_quality(all_rows)
     return jsonify({"mode": "normal_grouped", "quality_groups": quality_groups})
+
+def validate_positive_int_local(value: Any, *, name: str = "value", maximum: int = 10_000) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        from ..security import ValidationError
+        raise ValidationError(f"{name} must be an integer") from None
+    if parsed < 0 or parsed > maximum:
+        from ..security import ValidationError
+        raise ValidationError(f"{name} out of range")
+    return parsed

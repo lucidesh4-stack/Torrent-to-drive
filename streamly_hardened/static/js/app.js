@@ -637,9 +637,7 @@
     const qs = getSelectedQualities();
     const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
     const qBtn = $("qualityDdBtn");
-    // No selection ⇒ backend falls back to 1080p; reflect that in the label
-    // instead of a misleading "none".
-    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "1080p (default)");
+    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "none");
     const es = getSelectedEncoders();
     const eBtn = $("encoderDdBtn");
     if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
@@ -654,6 +652,8 @@
     // Toggling only changes how the backend processes the next search.
     updateDropdownLabels();
     $("seriesResults").classList.add("hidden");
+    $("results").classList.add("hidden");
+    $("pagination").classList.add("hidden");
   }
 
   // ---- Client-side sort state (re-orders loaded rows; no re-fetch) ----
@@ -1076,12 +1076,15 @@
 
     if (!keepPage) currentPage = page || 1;
     status($("searchStatus"), "Searching...", "");
+    $("pagination").classList.add("hidden");
+    $("pagination").textContent = "";
     try {
       const params = new URLSearchParams();
       params.set("q", q);
       params.set("category", $("category").value || "");
       params.set("sort", currentSort);
       params.set("order", currentOrder);
+      params.set("page", String(currentPage));
       params.set("dedup", "1"); // dedup is always on (checkbox removed)
       // Quality applies to both modes (Normal groups by quality; Series uses it per-query).
       params.set("quality", getSelectedQualities().join(","));
@@ -1092,19 +1095,20 @@
       const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
 
       if (data && data.mode === "series") {
+        $("results").classList.add("hidden");
         $("seriesResults").classList.remove("hidden");
         renderSeriesGrouped(data);
         const packs = (data.packs || []).length;
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
-        const partialNote = data.partial ? " \u00b7 partial (time limit reached)" : "";
         if ($("resultCount")) $("resultCount").textContent =
-          packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used" + partialNote;
-        status($("searchStatus"), "Found " + (packs + eps) + " result(s)" + (data.partial ? " (partial)" : ""), "ok");
+          packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
+        status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
         return;
       }
 
       // Normal mode = quality-grouped sections
       const groups = Array.isArray(data.quality_groups) ? data.quality_groups : [];
+      $("results").classList.add("hidden");
       $("seriesResults").classList.remove("hidden");
       renderNormalGrouped(groups);
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
@@ -1112,6 +1116,115 @@
       status($("searchStatus"), "Found " + total + " result(s)", "ok");
     } catch (err) {
       status($("searchStatus"), err.message || "Search failed", "error");
+    }
+  }
+
+  function renderPagination(pagination, took, count) {
+    const box = $("pagination");
+    box.textContent = "";
+    if (!pagination || (!pagination.total && !count)) return;
+    const page = Number(pagination.page) || 1;
+    const totalPages = Number(pagination.totalPages) || 1;
+    const total = Number(pagination.total) || 0;
+    const isNarrow = window.innerWidth < 500;
+
+    function addButton(label, num, disabled, active) {
+      const btn = document.createElement("button");
+      btn.className = "page-btn" + (active ? " active" : "");
+      btn.textContent = label;
+      btn.disabled = disabled;
+      btn.addEventListener("click", () => {
+        currentPage = num;
+        search(true, num);
+        window.scrollTo({ top: ($("searchView").offsetTop || 200) - 100, behavior: "smooth" });
+      });
+      box.appendChild(btn);
+    }
+
+    addButton("\u2039", Math.max(1, page - 1), page <= 1, false);
+
+    if (isNarrow) {
+      addButton(String(page), page, false, true);
+    } else {
+      const pages = new Set([1, totalPages, page, page - 1, page + 1]);
+      for (let i = 1; i <= Math.min(totalPages, 3); i++) pages.add(i);
+      for (let i = Math.max(1, totalPages - 2); i <= totalPages; i++) pages.add(i);
+      const ordered = [...pages].filter(n => n >= 1 && n <= totalPages).sort((a, b) => a - b);
+      let last = 0;
+      for (const n of ordered) {
+        if (last && n > last + 1) {
+          const gap = document.createElement("span");
+          gap.className = "muted";
+          gap.textContent = "...";
+          box.appendChild(gap);
+        }
+        addButton(String(n), n, false, n === page);
+        last = n;
+      }
+    }
+
+    addButton("\u203A", Math.min(totalPages, page + 1), page >= totalPages, false);
+
+    const info = document.createElement("div");
+    info.className = "page-info";
+    const tookText = typeof took === "number" ? " in " + took + "ms" : "";
+    const perPage = Number(pagination.perPage || 50);
+    info.textContent = total ? "Page " + page + " of " + totalPages + " (" + total + " results, " + perPage + "/page" + tookText + ")" : "Page " + page + " of " + totalPages;
+    box.appendChild(info);
+    box.classList.remove("hidden");
+  }
+
+  function renderSearchTable(results) {
+    const body = $("torrentBody");
+    const mobile = $("mobileResults");
+    body.textContent = "";
+    mobile.textContent = "";
+    syncSortControls();
+    for (const result of results) {
+      const tr = document.createElement("tr");
+
+      const name = document.createElement("td");
+      name.className = "torrent-name";
+      const nameText = document.createElement("div");
+      nameText.className = "truncate";
+      nameText.title = result.name || "";
+      nameText.textContent = result.name || "Untitled";
+      name.appendChild(nameText);
+
+      const seeds = document.createElement("td");
+      seeds.className = "num seed";
+      seeds.textContent = result.seeds || 0;
+
+      const date = document.createElement("td");
+      date.className = "muted";
+      date.textContent = result.date || "-";
+
+      const size = document.createElement("td");
+      size.className = "num muted";
+      size.textContent = result.size || "-";
+
+      const addTd = document.createElement("td");
+      addTd.appendChild(makeAddButton(result));
+      tr.append(name, seeds, date, size, addTd);
+      body.appendChild(tr);
+
+      const card = document.createElement("div");
+      card.className = "mobile-result";
+      const cardTitle = document.createElement("div");
+      cardTitle.className = "result-title";
+      cardTitle.textContent = result.name || "Untitled";
+      const meta = document.createElement("div");
+      meta.className = "mobile-meta";
+      for (const part of ["Seeds: " + (result.seeds || 0), "Leeches: " + (result.leeches || 0), "Size: " + (result.size || "?"), "Date: " + (result.date || "?"), result.category || "Other"]) {
+        const span = document.createElement("span");
+        span.textContent = part;
+        meta.appendChild(span);
+      }
+      const actions = document.createElement("div");
+      actions.style.marginTop = "10px";
+      actions.appendChild(makeAddButton(result));
+      card.append(cardTitle, meta, actions);
+      mobile.appendChild(card);
     }
   }
 
