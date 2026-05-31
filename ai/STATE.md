@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Normal mode: top-30 by seeders per quality, shown size-ascending
+- **What**: `group_by_quality` now keeps only the **30 most-seeded** releases **per quality section** (4K/1080p/720p/Other), then displays each section **size-ascending**. Quality sections retained; per-quality cap (selecting multiple qualities yields up to 30 in EACH section). Cap = `NORMAL_TOP_PER_QUALITY = 30` (module constant). Applied after cross-source dedup.
+- **Scope**: single function in search_service.py; response shape (`normal_grouped`) and all frontend unchanged. Series mode unaffected (does not use group_by_quality).
+- **Files**: search_service.py.
+- **Verified**: unit (50→30 kept = highest seeds, size-asc); route harness (1080p capped 30, size-asc; series intact); py_compile; gunicorn boots; app.js untouched & in sync.
+
+
 ### 2026-05-31 — Multi-source search (concurrent merge + dedup) + category removed
 - **Why**: bitsearch.eu's /api/v1/search was returning 500/502 (recurring outages), taking down all search. Single-source = single point of failure.
 - **What**: Added `SearchService.multi_search(q)` — queries **bitsearch + apibay (The Pirate Bay JSON API) + torrents-csv CONCURRENTLY** (ThreadPoolExecutor), merges results, dedups by infohash (highest-seed kept). **Fault-tolerant**: a provider that 500s/times-out/throws contributes 0 rows and is logged; results still return from working providers. Latency ≈ slowest single provider, not the sum (proven: full merged search 1.12s while bitsearch alone hangs 6s to timeout).
@@ -193,6 +200,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Normal mode now keeps the 30 most-seeded per quality section and displays them size-ascending (quality sections retained, per-quality cap). Changed: search_service.py (group_by_quality + NORMAL_TOP_PER_QUALITY).
 - **2026-05-31** — Multi-source search: bitsearch + apibay + torrents-csv queried concurrently, merged & deduped; survives any provider outage (verified live with bitsearch down → 115 results in 1.12s). Category filter removed entirely. Changed: search_service.py, routes/search.py, config.py, templates/index.html, 5-search.js, 6-main.js, app.js.
 - **2026-05-31** — Accordion: all sections collapsed by default, one open at a time (both modes, both desktop+mobile); uploader sub-groups also collapsible. Changed: static/js/src/3b-series.js, static/css/base.css, app.js.
 - **2026-05-31** — Normal: fetch by seeders, display size-ascending; added clickable Name/SE/Time/Size/Add header row to sectioned views (both modes); Series episodes re-sort within groups on header click. Changed: routes/search.py, search_service.py, 1-core.js, 3b-series.js, 3-search-sort.js, base.css, responsive.css, app.js.
