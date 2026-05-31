@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 import ipaddress
 import logging
@@ -696,49 +695,47 @@ class SearchService:
                 rows.append(row)
         return rows
 
-    def multi_search(self, q: str) -> list[dict[str, Any]]:
-        """Query all enabled providers CONCURRENTLY, merge, and dedup by infohash.
-
-        Fault-tolerant: a provider that errors / times out contributes 0 rows and
-        is logged; results are returned from whichever providers succeed. Latency
-        ≈ the slowest single provider (calls run in parallel), so adding sources
-        does not slow down a normal search.
-        """
+    def _run_provider(self, name: str, q: str) -> list[dict[str, Any]]:
+        """Call a single provider by name. Never raises — returns [] on any error."""
         timeout = self.config.request_timeout_seconds
-        enabled = self.config.search_providers  # ordered tuple, e.g. ("bitsearch","apibay","torrents-csv")
+        try:
+            if name == "apibay":
+                return _fetch_apibay(self.http, q, timeout)
+            if name == "torrents-csv":
+                return _fetch_torrents_csv(self.http, q, timeout)
+            if name == "bitsearch":
+                return self._bitsearch_rows(q)
+        except Exception as exc:  # noqa: BLE001 - one provider must never break search
+            log.warning("provider %s failed: %s", name, exc)
+        return []
 
-        tasks: dict[str, Any] = {}
-        if "bitsearch" in enabled:
-            tasks["bitsearch"] = lambda: self._bitsearch_rows(q)
-        if "apibay" in enabled:
-            tasks["apibay"] = lambda: _fetch_apibay(self.http, q, timeout)
-        if "torrents-csv" in enabled:
-            tasks["torrents-csv"] = lambda: _fetch_torrents_csv(self.http, q, timeout)
+    def multi_search(self, q: str, prefer: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
+        """FAILOVER search: try providers in PRIORITY ORDER, return the FIRST that
+        yields results. Normal operation draws from a SINGLE source, so there is
+        no cross-source duplication.
 
-        if not tasks:
-            return []
+        - `prefer`: if given (e.g. the provider that won an earlier round of the
+          same series search), it is tried FIRST so a whole multi-round search
+          stays on one source for consistency.
+        - Returns (rows, winning_provider). `winning_provider` is None when every
+          provider was empty/unavailable.
 
-        merged: list[dict[str, Any]] = []
-        # Overall guard so one stuck socket can't exceed the request timeout budget.
-        overall = max(timeout + 2.0, timeout * 1.5)
-        with ThreadPoolExecutor(max_workers=len(tasks)) as ex:
-            futures = {ex.submit(fn): name for name, fn in tasks.items()}
-            try:
-                for fut in as_completed(futures, timeout=overall):
-                    name = futures[fut]
-                    try:
-                        rows = fut.result()
-                        merged += rows
-                        log.info("provider %s returned %d rows for %r", name, len(rows), q)
-                    except Exception as exc:  # noqa: BLE001 - one provider must never break search
-                        log.warning("provider %s failed: %s", name, exc)
-            except TimeoutError:
-                done = {futures[f] for f in futures if f.done()}
-                log.warning("multi_search overall timeout; slow providers skipped: %s",
-                            sorted(set(futures.values()) - done))
+        Same-source duplicates are still collapsed by infohash (keeps highest-seeded).
+        """
+        order: list[str] = []
+        if prefer and prefer in self.config.search_providers:
+            order.append(prefer)
+        for name in self.config.search_providers:
+            if name not in order:
+                order.append(name)
 
-        # Same-infohash duplicates across sources collapse to the highest-seeded copy.
-        return _dedup_by_infohash(merged)
+        for name in order:
+            rows = self._run_provider(name, q)
+            if rows:
+                log.info("provider %s returned %d rows for %r (failover stop)", name, len(rows), q)
+                return _dedup_by_infohash(rows), name
+            log.info("provider %s empty for %r, trying next", name, q)
+        return [], None
 
 
 def _safe_name_local(value: Any) -> str:

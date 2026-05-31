@@ -56,15 +56,21 @@ def search_route():
     if search is None:
         return json_error(503, "search_unavailable", "Search service is not available")
 
-    # Each "round" fans out to all enabled providers CONCURRENTLY (bitsearch +
-    # apibay + torrents-csv), merges and dedups by infohash. If a provider is
-    # down it contributes nothing — results still come from the working ones.
+    # FAILOVER, not merge: each "round" uses the FIRST provider (in priority
+    # order) that returns results — so a search draws from ONE source and we
+    # avoid cross-source duplicates. `_locked` pins the winning provider for the
+    # rest of THIS request (important for multi-round Series searches) so the
+    # whole result set stays on a single, consistent source.
     # Results are then filtered for relevance: a row is kept only if every word
     # of the user's query `q` appears in the parsed series name. This drops the
-    # unrelated junk that providers return for loose substring matches
+    # unrelated junk providers return for loose substring matches
     # (e.g. searching "Daredevil" must not surface "Bones" / "The Red Green Show").
+    locked = {"provider": None}
+
     def round_search(query_text):
-        rows = search.multi_search(query_text)
+        rows, winner = search.multi_search(query_text, prefer=locked["provider"])
+        if winner and locked["provider"] is None:
+            locked["provider"] = winner
         return [r for r in rows if matches_query(q, parse_release(str(r.get("name", "")))["series"])]
 
     # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
