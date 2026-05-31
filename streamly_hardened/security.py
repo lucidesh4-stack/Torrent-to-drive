@@ -20,7 +20,7 @@ class ValidationError(ValueError):
 
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,254}@[^@\s]{1,253}\.[^@\s]{2,63}$")
-BTIH_RE = re.compile(r"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})(?:&|$)")
+BTIH_RE = re.compile(r"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})", re.IGNORECASE)
 
 
 def _get_cfg(config: Any, key: str, default: Any = None) -> Any:
@@ -130,7 +130,7 @@ def validate_magnet(value: Any, config: Any) -> str:
     max_len = _get_cfg(config, "max_magnet_length", 8192)
     if len(value) > max_len:
         raise ValidationError("magnet too long")
-    if not value.startswith("magnet:?") or not BTIH_RE.search(value):
+    if not value.startswith("magnet:") or not BTIH_RE.search(value):
         raise ValidationError("Invalid magnet link")
     return value
 

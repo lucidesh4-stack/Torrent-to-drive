@@ -3,6 +3,7 @@
       await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet" });
     } catch (e) {
       console.warn("Failed to save history", e);
+      // Optional: toast("History save failed: " + (e.message || "Unknown error"));
     }
   }
 
@@ -60,7 +61,7 @@
           try {
             await postJson("/api/add", { magnet: item.magnet });
             toast("Added from history: " + item.title);
-            saveToHistory(item.magnet, item.title); // Update timestamp
+            await saveToHistory(item.magnet, item.title); // Update timestamp
             addBtn.textContent = "✓";
           } catch (e) {
             toast("Failed: " + e.message);
