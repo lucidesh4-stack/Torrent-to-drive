@@ -101,32 +101,36 @@ class CloudService:
             return None
 
     def list_items(self, client: SeedrClientProtocol, folder_id: int) -> dict[str, Any]:
-        contents = client.list_contents(folder_id)
-        settings = client.get_settings()
-        account = getattr(settings, "account", None)
-        return {
-            "parent": _safe_int(getattr(contents, "parent_id", 0)),
-            "folders": [
-                {
-                    "id": _safe_int(getattr(folder, "id", 0)),
-                    "name": _safe_name(getattr(folder, "name", "")),
-                    "size": max(0, _safe_int(getattr(folder, "size", 0))),
-                    "last_update": getattr(folder, "last_update", None),
-                }
-                for folder in list(getattr(contents, "folders", []) or [])[:1000]
-            ],
-            "files": [
-                {
-                    "id": _safe_int(getattr(file, "folder_file_id", 0)),
-                    "name": _safe_name(getattr(file, "name", "")),
-                    "size": max(0, _safe_int(getattr(file, "size", 0))),
-                    "last_update": getattr(file, "last_update", None),
-                }
-                for file in list(getattr(contents, "files", []) or [])[:1000]
-            ],
-            "used": max(0, _safe_int(getattr(account, "space_used", 0))),
-            "max": max(1, _safe_int(getattr(account, "space_max", 1), 1)),
-        }
+        try:
+            contents = client.list_contents(folder_id)
+            settings = client.get_settings()
+            account = getattr(settings, "account", None)
+            return {
+                "parent": _safe_int(getattr(contents, "parent_id", 0)),
+                "folders": [
+                    {
+                        "id": _safe_int(getattr(folder, "id", 0)),
+                        "name": _safe_name(getattr(folder, "name", "")),
+                        "size": max(0, _safe_int(getattr(folder, "size", 0))),
+                        "last_update": getattr(folder, "last_update", None),
+                    }
+                    for folder in list(getattr(contents, "folders", []) or [])[:1000]
+                ],
+                "files": [
+                    {
+                        "id": _safe_int(getattr(file, "folder_file_id", 0)),
+                        "name": _safe_name(getattr(file, "name", "")),
+                        "size": max(0, _safe_int(getattr(file, "size", 0))),
+                        "last_update": getattr(file, "last_update", None),
+                    }
+                    for file in list(getattr(contents, "files", []) or [])[:1000]
+                ],
+                "used": max(0, _safe_int(getattr(account, "space_used", 0))),
+                "max": max(1, _safe_int(getattr(account, "space_max", 1), 1)),
+            }
+        except Exception as e:
+            log.exception("Error listing items for folder %s: %s", folder_id, e)
+            raise ConnectionError("Provider failed to provide storage/item data") from e
 
     def delete_item(self, client: SeedrClientProtocol, item_type: str, item_id: int) -> None:
         if item_type == "folder":
