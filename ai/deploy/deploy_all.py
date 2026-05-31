@@ -5,7 +5,7 @@ Usage:
     python3 deploy/deploy_all.py
 
 Reads changes.json → writes files to disk → rebuilds app.js →
-runs check.py → auto-updates CHANGELOG/CONTEXT/ACTIVITY_LOG → creates project.zip
+runs check.py → auto-updates STATE.md → creates project.zip
 
 changes.json format:
 {
@@ -110,14 +110,14 @@ def _run_check():
 
 
 def _get_consistent_date():
-    """Use Arena's system date (Asia/Calcutta) aligned with CHANGELOG."""
+    """Use Arena's system date (Asia/Calcutta) aligned with STATE.md."""
     today = datetime.date.today().strftime("%Y-%m-%d")
-    cl_path = os.path.join(ROOT, "ai", "CHANGELOG.md")
-    if os.path.exists(cl_path):
-        content = open(cl_path, encoding="utf-8").read()
+    state_path = os.path.join(ROOT, "ai", "STATE.md")
+    if os.path.exists(state_path):
+        content = open(state_path, encoding="utf-8").read()
         for line in reversed(content.splitlines()):
-            if line.startswith("## 20") and len(line) >= 13:
-                latest = line[3:13]
+            if line.startswith("### 20") and len(line) >= 13:
+                latest = line[4:14]
                 if latest != today:
                     today = latest
                 break
@@ -127,47 +127,55 @@ def _get_consistent_date():
 def _auto_docs(session, changes):
     today = _get_consistent_date()
     files_changed = [c["file"] for c in changes]
+    state_path = os.path.join(ROOT, "ai", "STATE.md")
+    
+    if not os.path.exists(state_path):
+        print(f"  ERROR: STATE.md not found at {state_path}")
+        return
 
-    # CHANGELOG
-    cl_path = os.path.join(ROOT, "ai", "CHANGELOG.md")
-    cl = open(cl_path, encoding="utf-8").read() if os.path.exists(cl_path) else ""
-    marker = f"## {today}"
-    if marker not in cl:
-        entry = f"\n## {today} — {session}\n\n- Files changed: {', '.join(files_changed)}\n"
-        cl += entry
-        open(cl_path, "w", encoding="utf-8").write(cl)
-        print(f"  CHANGELOG.md: {today} entry added")
-    else:
-        # Append to existing section
-        idx = cl.index(marker)
-        end = cl.find("\n## ", idx + len(marker))
-        existing = cl[idx:end] if end > 0 else cl[idx:]
-        if all(f not in existing for f in files_changed):
-            cl = cl[:idx] + existing.rstrip() + f"\n- Files changed: {', '.join(files_changed)}\n" + cl[end if end > 0 else len(cl):]
-            open(cl_path, "w", encoding="utf-8").write(cl)
-            print(f"  CHANGELOG.md: appended files to {today}")
-        else:
-            print(f"  CHANGELOG.md: {today} already has these files, skipping")
+    state = open(state_path, "r", encoding="utf-8").read()
 
-    # CONTEXT recent changes
-    ctx_path = os.path.join(ROOT, "ai", "CONTEXT.md")
-    ctx = open(ctx_path, encoding="utf-8").read()
+    # 1. Update Decision Ledger
+    marker_dl = "## 📜 Decision Ledger"
+    if marker_dl in state:
+        idx = state.index(marker_dl)
+        end = state.find("## ", idx + len(marker_dl))
+        section = state[idx:end] if end > 0 else state[idx:]
+        entry = f"\n### {today} — {session}\n- Files: {', '.join(files_changed)}\n"
+        if entry.strip() not in section:
+            state = state[:idx] + marker_dl + "\n" + entry + state[idx + len(marker_dl):]
+            print("  STATE.md: Decision Ledger updated")
+
+    # 2. Update Deployment Activity
+    marker_da = "## 🚀 Deployment Activity"
+    if marker_da in state:
+        idx = state.index(marker_da)
+        end = state.find("## ", idx + len(marker_da))
+        section = state[idx:end] if end > 0 else state[idx:]
+        entry = f"[{today}] {session} — {', '.join(files_changed)}\n"
+        if entry.strip() not in section:
+            if end > 0:
+                state = state[:end] + entry + state[end:]
+            else:
+                state = state + "\n" + entry
+            print("  STATE.md: Deployment Activity updated")
+
+    # 3. Update Recent Changes (Add section if missing)
+    marker_rc = "## 🔄 Recent Changes"
     change_entry = f"- **{today}** — {session}. Changed: {', '.join(files_changed)}.\n"
-    if "## RECENT CHANGES LOG" in ctx and change_entry.strip() not in ctx:
-        idx = ctx.index("## RECENT CHANGES LOG") + len("## RECENT CHANGES LOG")
-        ctx = ctx[:idx] + "\n" + change_entry + ctx[idx:]
-        open(ctx_path, "w", encoding="utf-8").write(ctx)
-        print(f"  CONTEXT.md: recent changes updated")
-
-    # ACTIVITY_LOG
-    act_path = os.path.join(ROOT, "ai", "ACTIVITY_LOG.md")
-    act_entry = f"[{today}] {session} — {', '.join(files_changed)}\n"
-    act = open(act_path, encoding="utf-8").read() if os.path.exists(act_path) else "# Streamly Deployment Activity Log\n\n"
-    if act_entry.strip() not in act:
-        open(act_path, "w", encoding="utf-8").write(act + act_entry)
-        print(f"  ACTIVITY_LOG.md: entry added")
+    if marker_rc in state:
+        idx = state.index(marker_rc)
+        end = state.find("## ", idx + len(marker_rc))
+        section = state[idx:end] if end > 0 else state[idx:]
+        if change_entry.strip() not in section:
+            state = state[:idx + len(marker_rc) + 1] + "\n" + change_entry + state[idx + len(marker_rc) + 1:]
+            print("  STATE.md: Recent Changes updated")
     else:
-        print(f"  ACTIVITY_LOG.md: no change since last run")
+        state = state + "\n\n" + marker_rc + "\n" + change_entry
+        print("  STATE.md: Recent Changes section created")
+
+    with open(state_path, "w", encoding="utf-8") as f:
+        f.write(state)
 
 
 def _create_zip():
