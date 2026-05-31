@@ -12,27 +12,18 @@ from .config import AppConfig
 from .redis_store import RedisStore
 from .security import (
     ValidationError,
-    csrf_required,
     ensure_sid,
     get_csrf_token,
     install_security_headers,
     json_error,
-    rate_limited,
     require_json_body,
-    require_str,
     TokenBucketRateLimiter,
-    validate_category,
-    validate_email,
-    validate_item_type,
-    validate_magnet,
-    validate_order,
-    validate_password,
-    validate_positive_int,
-    validate_query,
-    validate_sort,
 )
-from .services import CloudService, SearchService, format_size, _safe_int
+from .cloud_service import CloudService
+from .search_service import SearchService
 from .store import NotAuthenticated, TTLStore
+from .routes import register_routes
+from . import extensions
 
 log = logging.getLogger(__name__)
 
@@ -54,14 +45,27 @@ def create_app(
         SESSION_COOKIE_SECURE=config.environment == "production",
         MAX_CONTENT_LENGTH=config.max_json_bytes,
         JSON_SORT_KEYS=False,
+        # Export env vars for easier access in blueprints
+        SEEDR_EMAIL=config.seedr_email,
+        SEEDR_PASSWORD=config.seedr_password,
     )
     install_security_headers(app)
 
+    # Initialize Rate Limiter
     limiter = TokenBucketRateLimiter(config.rate_limit_capacity, config.rate_limit_refill_per_second)
+    extensions.limiter = limiter
+
+    # Initialize Services
     cloud = cloud_service or CloudService(config)
     search = search_service or SearchService(config)
     store = client_store or TTLStore[Any](config.session_ttl_seconds, config.client_store_max_entries)
 
+    # Attach services to app for Blueprint access
+    app.cloud = cloud
+    app.search = search
+    app.store = store
+
+    # Initialize Redis
     rs: RedisStore | None = None
     if config.upstash_redis_url and config.upstash_redis_token:
         rs = RedisStore(config.upstash_redis_url, config.upstash_redis_token)
@@ -74,55 +78,10 @@ def create_app(
                     "Upstash Redis unreachable — history and token persistence disabled. "
                     "Check UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your environment."
                 )
+    app.rs = rs
 
-    def _try_restore_from_refresh(sid: str):
-        if not rs:
-            raise NotAuthenticated("Not authenticated")
-        rt = rs.get_refresh_token()
-        if not rt:
-            raise NotAuthenticated("Not authenticated")
-        try:
-            client, username = cloud.login_with_saved_token(rt)
-        except PermissionError:
-            rs.delete_refresh_token()
-            raise NotAuthenticated("Refresh token invalid")
-        store.put(sid, client)
-        session["username"] = username
-        new_rt = CloudService.serialize_token(client)
-        if new_rt:
-            rs.set_refresh_token(new_rt)
-        log.info("Session restored via global master token for sid=%s...", sid[:8])
-        return client
-
-    def current_client():
-        sid = session.get("sid")
-        if not sid:
-            sid = ensure_sid()
-        try:
-            return store.get(sid)
-        except NotAuthenticated:
-            try:
-                return _try_restore_from_refresh(sid)
-            except NotAuthenticated:
-                pass
-            if config.seedr_email and config.seedr_password:
-                try:
-                    client, username = cloud.login(config.seedr_email, config.seedr_password)
-                    store.put(sid, client)
-                    session["username"] = username
-                    if rs:
-                        rt = CloudService.serialize_token(client)
-                        if rt:
-                            rs.set_refresh_token(rt)
-                    log.info("Auto-logged in headless mode for sid=%s", sid[:8])
-                    return client
-                except PermissionError:
-                    log.error("Headless auto-login failed: invalid SEEDR_EMAIL/SEEDR_PASSWORD")
-                except ConnectionError:
-                    raise
-                except Exception:
-                    log.exception("Unexpected error during headless auto-login")
-            raise NotAuthenticated("Not authenticated")
+    # Register Blueprints
+    register_routes(app)
 
     @app.errorhandler(ValidationError)
     def handle_validation(exc: ValidationError):
@@ -172,282 +131,6 @@ def create_app(
     @app.get("/healthz")
     def healthz():
         return jsonify({"ok": True})
-
-    @app.get("/api/csrf")
-    @rate_limited(limiter, cost=0.2)
-    def csrf():
-        ensure_sid()
-        return jsonify({"success": True, "csrfToken": get_csrf_token()})
-
-    @app.get("/api/status")
-    @rate_limited(limiter, cost=0.2)
-    def status_route():
-        current_client()
-        return jsonify({"success": True, "authenticated": True, "username": session.get("username", "")})
-
-    @app.post("/api/login")
-    @rate_limited(limiter, cost=5.0)
-    @csrf_required
-    def login():
-        data = require_json_body(config)
-        email = validate_email(require_str(data, "email", max_len=320))
-        password = validate_password(data.get("password", data.get("pass")))
-        sid = ensure_sid()
-        client, username = cloud.login(email, password)
-        store.put(sid, client)
-        session["username"] = username
-        if rs:
-            rt = CloudService.serialize_token(client)
-            if rt:
-                rs.set_refresh_token(rt)
-        return jsonify({"success": True, "username": username})
-
-    @app.post("/api/login/silent")
-    @rate_limited(limiter, cost=1.0)
-    def login_silent():
-        sid = session.get("sid") or ensure_sid()
-        try:
-            current_client()
-            return jsonify({"success": True, "username": session.get("username", "")})
-        except NotAuthenticated:
-            return json_error(401, "no_refresh_token", "No valid refresh token stored")
-
-    @app.get("/fs/folder/<folder_id>/items")
-    @rate_limited(limiter, cost=1.0)
-    def list_items(folder_id: str):
-        folder = validate_positive_int(folder_id, name="folder_id", maximum=config.max_folder_id)
-        try:
-            data = cloud.list_items(current_client(), folder)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Provider error on list: %s", e)
-            return json_error(502, "provider_error", "Provider unavailable or failed to list items")
-        for item in data["folders"] + data["files"]:
-            item["size_str"] = format_size(item["size"])
-        return jsonify(data)
-
-    @app.post("/api/delete")
-    @rate_limited(limiter, cost=2.0)
-    @csrf_required
-    def delete_item():
-        data = require_json_body(config)
-        item_type = validate_item_type(data.get("type"))
-        item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
-        try:
-            cloud.delete_item(current_client(), item_type, item_id)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Provider error on delete: %s", e)
-            return json_error(502, "provider_error", "Provider rejected the request or is unavailable")
-        return jsonify({"success": True})
-
-    @app.post("/api/zip")
-    @rate_limited(limiter, cost=2.0)
-    @csrf_required
-    def zip_item():
-        data = require_json_body(config)
-        item_type = validate_item_type(data.get("type"))
-        item_id = validate_positive_int(data.get("id"), name="id", maximum=config.max_file_id)
-        try:
-            url = cloud.get_zip_url(current_client(), item_type, item_id)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Provider error on zip: %s", e)
-            return json_error(502, "provider_error", "Failed to create zip — provider unavailable")
-        return jsonify({"success": bool(url), "url": url})
-
-    @app.post("/api/delete/bulk")
-    @rate_limited(limiter, cost=3.0)
-    @csrf_required
-    def delete_bulk():
-        data = require_json_body(config)
-        items = data.get("items")
-        if not isinstance(items, list) or not items:
-            return json_error(400, "bad_request", "items must be a non-empty list")
-        if len(items) > 100:
-            return json_error(400, "bad_request", "Too many items (max 100)")
-        client = current_client()
-        results = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            try:
-                item_type = validate_item_type(item.get("type"))
-                item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
-                cloud.delete_item(client, item_type, item_id)
-                results.append({"id": item_id, "type": item_type, "ok": True})
-            except (ConnectionError, TimeoutError) as exc:
-                log.warning("Bulk delete item failed: %s", exc)
-                results.append({"id": item.get("id"), "type": item.get("type"), "ok": False, "error": "Failed to delete item"})
-            except ValidationError as exc:
-                results.append({"id": item.get("id"), "type": item.get("type"), "ok": False, "error": "Invalid item data"})
-        return jsonify({"success": True, "results": results})
-
-    @app.post("/api/zip/bulk")
-    @rate_limited(limiter, cost=3.0)
-    @csrf_required
-    def zip_bulk():
-        data = require_json_body(config)
-        items = data.get("items")
-        if not isinstance(items, list) or not items:
-            return json_error(400, "bad_request", "items must be a non-empty list")
-        if len(items) > 100:
-            return json_error(400, "bad_request", "Too many items (max 100)")
-        validated = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            item_type = validate_item_type(item.get("type"))
-            item_id = validate_positive_int(item.get("id"), name="id", maximum=config.max_file_id)
-            validated.append({"type": item_type, "id": item_id})
-        if not validated:
-            return json_error(400, "bad_request", "No valid items")
-        try:
-            url = cloud.get_zip_url_bulk(current_client(), validated)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Bulk zip failed: %s", e)
-            return json_error(502, "provider_error", "Failed to create zip — provider unavailable")
-        return jsonify({"success": bool(url), "url": url})
-
-    @app.post("/api/add")
-    @rate_limited(limiter, cost=2.0)
-    @csrf_required
-    def add_magnet():
-        data = require_json_body(config)
-        magnet = validate_magnet(data.get("magnet"), config)
-        raw_size = data.get("size")
-        if raw_size is not None:
-            size_bytes = _safe_int(raw_size)
-            if size_bytes > 0:
-                try:
-                    storage = cloud.list_items(current_client(), 0)
-                    used = max(0, _safe_int(storage.get("used")))
-                    maximum = max(1, _safe_int(storage.get("max")))
-                    if used + size_bytes > maximum:
-                        return json_error(
-                            400,
-                            "storage_full",
-                            "Not enough space. Clear some files from Seedr before adding."
-                        )
-                except (ConnectionError, TimeoutError) as e:
-                    log.warning("Storage check failed before add, proceeding anyway: %s", e)
-        try:
-            cloud.add_magnet(current_client(), magnet)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Provider error on add: %s", e)
-            return json_error(502, "provider_error", "Provider rejected the request (e.g. storage full) or is unavailable")
-        return jsonify({"success": True})
-
-    @app.get("/api/history")
-    @rate_limited(limiter, cost=1.0)
-    def get_history():
-        try:
-            items = rs.get_history("global_history") if rs else []
-            return jsonify({"success": True, "items": items})
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Redis error on get_history: %s", e)
-            return jsonify({"success": True, "items": [], "_warning": "History temporarily unavailable"})
-
-    @app.post("/api/history/add")
-    @csrf_required
-    def add_history():
-        data = require_json_body(config)
-        magnet = validate_magnet(data.get("magnet"), config)
-        name = require_str(data, "name", max_len=512) if data.get("name") else "Unknown Magnet"
-        import time
-        new_item = {
-            "magnet": magnet,
-            "title": name,
-            "time": time.strftime("%d/%m/%Y, %H:%M:%S")
-        }
-        items = rs.get_history("global_history") if rs else []
-        items = [it for it in items if it.get("magnet") != magnet]
-        items.insert(0, new_item)
-        items = items[:50]
-        if rs:
-            if not rs.save_history("global_history", items):
-                log.warning("Failed to persist history to Redis")
-        return jsonify({"success": True})
-
-    @app.post("/api/history/delete")
-    @csrf_required
-    def delete_history():
-        data = require_json_body(config)
-        magnet = data.get("magnet")
-        if not magnet:
-            return json_error(400, "bad_request", "Missing magnet link")
-        items = rs.get_history("global_history") if rs else []
-        new_items = [it for it in items if it.get("magnet") != magnet]
-        if len(items) != len(new_items) and rs:
-            rs.save_history("global_history", new_items)
-        return jsonify({"success": True})
-
-    @app.post("/api/history/clear")
-    @csrf_required
-    def clear_history():
-        if rs:
-            rs.save_history("global_history", [])
-        return jsonify({"success": True})
-
-    @app.get("/api/url")
-    @rate_limited(limiter, cost=1.0)
-    def get_url():
-        file_id = validate_positive_int(request.args.get("file_id"), name="file_id", maximum=config.max_file_id)
-        try:
-            url = cloud.get_stream_url(current_client(), file_id)
-        except (ConnectionError, TimeoutError) as e:
-            log.warning("Provider error on get_url: %s", e)
-            return json_error(502, "provider_error", "Failed to get stream URL — provider unavailable")
-        if not url:
-            return json_error(404, "not_found", "Stream URL not available for this file")
-        return jsonify({"success": True, "url": url})
-
-    @app.get("/api/suggest")
-    @rate_limited(limiter, cost=0.5)
-    def suggest():
-        q = validate_query(request.args.get("q"), config)
-        return jsonify(search.imdb_suggestions(q))
-
-    @app.get("/api/search")
-    @rate_limited(limiter, cost=1.0)
-    def search_route():
-        q = validate_query(request.args.get("q"), config)
-        category = validate_category(request.args.get("category"), config)
-        sort = validate_sort(request.args.get("sort"), config)
-        order = validate_order(request.args.get("order"), config)
-        page = validate_positive_int(request.args.get("page", 1), name="page", maximum=10_000)
-        page = max(1, page)
-        try:
-            raw_payload = search.bitsearch(q, category, sort, order, page)
-        except TypeError:
-            raw_payload = search.bitsearch(q, category, sort, order)
-        if isinstance(raw_payload, dict):
-            raw_items = raw_payload.get("results", []) if isinstance(raw_payload.get("results", []), list) else []
-            pagination = raw_payload.get("pagination", {}) if isinstance(raw_payload.get("pagination", {}), dict) else {}
-            took = raw_payload.get("took")
-        else:
-            raw_items = raw_payload if isinstance(raw_payload, list) else []
-            pagination = {"page": page, "perPage": len(raw_items), "total": len(raw_items), "totalPages": 1, "hasNext": False, "hasPrev": page > 1}
-            took = None
-        category_labels = {"1": "Other", "2": "Movies", "3": "TV Shows", "4": "Anime", "5": "Software", "6": "Games", "7": "Music", "8": "Audiobooks", "9": "Ebooks", "10": "Adult"}
-        rows = []
-        for item in raw_items:
-            infohash = str(item.get("infohash", ""))[:128]
-            title = str(item.get("title", ""))[:512]
-            if not infohash or not title:
-                continue
-            raw_category = str(item.get("category", "Other"))[:64]
-            raw_size = item.get("size")
-            rows.append(
-                {
-                    "name": title,
-                    "size": format_size(_safe_int(raw_size)),
-                    "size_bytes": max(0, _safe_int(raw_size)),
-                    "seeds": int(item.get("seeders", 0) or 0),
-                    "leeches": int(item.get("leecher", 0) or 0),
-                    "date": str(item.get("createdAt", "")).split("T")[0][:32],
-                    "category": category_labels.get(raw_category, raw_category or "Other"),
-                    "magnet": f"magnet:?xt=urn:btih:{infohash}&dn={title}",
-                }
-            )
-        return jsonify({"results": rows, "pagination": pagination, "took": took})
 
     return app
 

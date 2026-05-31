@@ -81,6 +81,22 @@ Loop: I edit src/ fragments → you double-click **deploy/deploy.bat** → done.
 App code + render.yaml + Dockerfile stay at repo root (that's what Render deploys).
 
 
+## 2026-05-31 — Architecture Refactor
+
+### Backend
+- **Split `app.py` routes into Blueprints**: Moved route logic to `routes/` folder (auth, cloud, search, history). `app.py` is now a clean factory.
+- **Split `services.py`**: Separated `CloudService` $\rightarrow$ `cloud_service.py` and `SearchService` $\rightarrow$ `search_service.py`.
+- **Decoupled Rate Limiting**: Moved `TokenBucketRateLimiter` to `extensions.py`. The `@rate_limited` decorator now resolves the limiter from the global extension instead of requiring a local variable, allowing it to work in Blueprints.
+- **Session/Client Helpers**: Extracted `current_client()` and `_try_restore_from_refresh()` to `auth_utils.py` to avoid circular imports between routes and app.
+
+### Dev tooling
+- **`check.py` update**: updated pre-flight checks to scan the new `routes/` directory and the split service files.
+
+### Breaking changes
+- None. API and behavior are identical.
+
+---
+
 ## 2026-05-31 — Security and reliability fixes
 
 ### Backend
@@ -99,10 +115,3 @@ App code + render.yaml + Dockerfile stay at repo root (that's what Render deploy
 
 ### Breaking changes
 - None. All changes are additive or defensive. No API contract changes.
-
-
- ['streamly_hardened/app.py', 'streamly_hardened/services.py', 'streamly_hardened/redis_store.py', 'streamly_hardened/static/js/src/5-search.js', 'deploy/check.py']
-- Run by: deploy_all.py (automated)
-
-
-

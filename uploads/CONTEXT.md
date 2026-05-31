@@ -59,20 +59,12 @@ workspace/
     ├── app.py
     ├── config.py
     ├── security.py
-    ├── cloud_service.py      ← (split from services.py)
-    ├── search_service.py     ← (split from services.py)
-    ├── auth_utils.py         ← (session/client helpers)
+    ├── services.py
     ├── store.py
     ├── redis_store.py
     ├── requirements.txt
     ├── Dockerfile
     ├── .dockerignore
-    ├── routes/               ← route blueprints
-    │   ├── __init__.py
-    │   ├── auth.py
-    │   ├── cloud.py
-    │   ├── search.py
-    │   └── history.py
     ├── static/
     │   ├── css/base.css         ← MUST LOAD FIRST
     │   ├── css/responsive.css   ← MUST LOAD SECOND
@@ -125,22 +117,19 @@ This user works in a specific way. **Follow these always:**
 
 ### Last session ended with these results:
 
-**What was being worked on:** Refactoring `app.py` routes into Blueprints and splitting `services.py` to improve maintainability.
+**What was being worked on:** Full project audit (security, architecture, performance, code quality, devops) + deep login flow analysis + edge case enumeration for global login architecture.
 
-**Status:** Completed and verified.
-- `services.py` $\rightarrow$ `cloud_service.py` + `search_service.py`.
-- `app.py` routes $\rightarrow$ `routes/` (auth, cloud, search, history).
-- Rate limiting decoupled from `create_app` via `extensions.py`.
-- `auth_utils.py` created for session/client management.
-- All checks pass via `check.py`.
+**Status:** Audit complete. 14 edge cases identified. 6 fixes planned and approved by user.
 
-**Pending fixes (from login audit):**
-1. Storage check before add (implemented, but needs verification in the new structure)
-2. Empty token guard (implemented)
-3. Logout endpoint (still pending)
-4. Redis health check on startup (implemented)
-5. Replace broad except Exception handlers (partially implemented, 1 broad remaining)
-6. Fix error messages leaking internal details (partially implemented)
+**Pending fixes (user will return to implement):**
+1. Storage check before add (check torrent size vs available space)
+2. Empty token guard (serialize_token returns empty string → corrupt Redis)
+3. Logout endpoint
+4. Redis health check on startup
+5. Replace broad except Exception handlers (13 occurrences)
+6. Fix error messages leaking internal details
+
+**Also discussed:** User's use case (Seedr for 7 years, shared account, custom video player, history as wishlist). Making changes quickly and accurately without debugging.
 
 ---
 

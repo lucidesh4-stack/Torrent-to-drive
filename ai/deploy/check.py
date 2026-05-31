@@ -15,17 +15,32 @@ PKG  = os.path.join(ROOT, "streamly_hardened")
 
 def preflight():
     app_py   = open(os.path.join(PKG, "app.py"), encoding="utf-8").read()
-    svcs_py  = open(os.path.join(PKG, "services.py"), encoding="utf-8").read()
+    cloud_py = open(os.path.join(PKG, "cloud_service.py"), encoding="utf-8").read()
     redis_py = open(os.path.join(PKG, "redis_store.py"), encoding="utf-8").read()
 
     checks = []
 
+    # Storage check
+    found_storage = False
+    # Check app.py
     if "storage_full" in app_py and "used + size_bytes" in app_py:
+        found_storage = True
+    else:
+        # Check routes/
+        routes_dir = os.path.join(PKG, "routes")
+        if os.path.exists(routes_dir):
+            for f in os.listdir(routes_dir):
+                if f.endswith(".py"):
+                    content = open(os.path.join(routes_dir, f), encoding="utf-8").read()
+                    if "storage_full" in content and "used + size_bytes" in content:
+                        found_storage = True; break
+    
+    if found_storage:
         checks.append(("Storage check before add", True, "server-side"))
     else:
         checks.append(("Storage check before add", False, "not implemented"))
 
-    if "return None" in svcs_py and 'if not token:' in redis_py:
+    if "return None" in cloud_py and 'if not token:' in redis_py:
         checks.append(("Empty token guard", True, "serialize returns None, Redis rejects empty"))
     else:
         checks.append(("Empty token guard", False, "not implemented"))
@@ -35,19 +50,28 @@ def preflight():
     else:
         checks.append(("Redis health check", False, "not implemented"))
 
-    broad  = app_py.count("except Exception as")
-    spec   = app_py.count("except (ConnectionError, TimeoutError)")
-    if spec >= 6 and broad == 0:
-        checks.append(("Specific exception handlers", True, f"{spec} specific, 0 broad"))
-    elif spec > 0:
-        checks.append(("Specific exception handlers", True, f"{spec} specific, {broad} broad (low risk)"))
+    # Broad exception handlers are now split across app.py and routes/
+    broad_count = app_py.count("except Exception as")
+    for f in os.listdir(os.path.join(PKG, "routes")):
+        if f.endswith(".py"):
+            broad_count += open(os.path.join(PKG, "routes", f), encoding="utf-8").read().count("except Exception as")
+            
+    spec_count = app_py.count("except (ConnectionError, TimeoutError)")
+    for f in os.listdir(os.path.join(PKG, "routes")):
+        if f.endswith(".py"):
+            spec_count += open(os.path.join(PKG, "routes", f), encoding="utf-8").read().count("except (ConnectionError, TimeoutError)")
+
+    if spec_count >= 6 and broad_count == 0:
+        checks.append(("Specific exception handlers", True, f"{spec_count} specific, 0 broad"))
+    elif spec_count > 0:
+        checks.append(("Specific exception handlers", True, f"{spec_count} specific, {broad_count} broad (low risk)"))
     else:
         checks.append(("Specific exception handlers", False, "not implemented"))
 
-    if broad == 0:
+    if broad_count == 0:
         checks.append(("Safe error messages", True, "no internal details leaked"))
     else:
-        checks.append(("Safe error messages", False, f"{broad} broad handlers remain"))
+        checks.append(("Safe error messages", False, f"{broad_count} broad handlers remain"))
 
     if "/api/logout" in app_py:
         checks.append(("Logout endpoint", True, "implemented"))
