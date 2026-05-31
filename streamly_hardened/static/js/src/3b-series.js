@@ -18,7 +18,9 @@
     const qs = getSelectedQualities();
     const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
     const qBtn = $("qualityDdBtn");
-    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "none");
+    // No selection ⇒ backend falls back to 1080p; reflect that in the label
+    // instead of a misleading "none".
+    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "1080p (default)");
     const es = getSelectedEncoders();
     const eBtn = $("encoderDdBtn");
     if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
@@ -33,8 +35,6 @@
     // Toggling only changes how the backend processes the next search.
     updateDropdownLabels();
     $("seriesResults").classList.add("hidden");
-    $("results").classList.add("hidden");
-    $("pagination").classList.add("hidden");
   }
 
   // ---- Client-side sort state (re-orders loaded rows; no re-fetch) ----
