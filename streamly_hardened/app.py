@@ -33,7 +33,11 @@ log = logging.getLogger(__name__)
 class RequestIDFilter(logging.Filter):
     """Injects the current request ID into every log record."""
     def filter(self, record):
-        record.request_id = getattr(g, "request_id", "system")
+        try:
+            record.request_id = g.get("request_id", "system")
+        except RuntimeError:
+            # No application/request context (e.g. worker boot, background logging).
+            record.request_id = "system"
         return True
 
 

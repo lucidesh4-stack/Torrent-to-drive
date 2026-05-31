@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-05-31 — Deploy Crash Fix: RequestIDFilter app-context safety
+- **Bug**: `RuntimeError: Working outside of application context` at boot → gunicorn "Worker failed to boot" → Render deploy exit 1.
+- **Cause**: `RequestIDFilter.filter` read `g` (request-only); boot-time Redis health-check log fired with no app context.
+- **Fix**: Wrap `g.get("request_id", ...)` in try/except RuntimeError, fallback to "system".
+- **Files**: streamly_hardened/app.py
+- **Verified**: gunicorn boot with Upstash env vars set (prev. crash condition) now succeeds; in-request logging unchanged.
+
 ### 2026-05-31 — 2026-05-31 — Secure Logging System Implementation
 - Files: streamly_hardened/app.py, ai/deploy/check.py
 
@@ -99,4 +106,5 @@
 
 
 ## 🔄 Recent Changes
+- **2026-05-31** — Deploy crash fix: made `RequestIDFilter` context-safe (no more boot-time `RuntimeError: working outside of application context`). Changed: streamly_hardened/app.py.
 - **2026-05-31** — 2026-05-31 — Secure Logging System Implementation. Changed: streamly_hardened/app.py, ai/deploy/check.py.
