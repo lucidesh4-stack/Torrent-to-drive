@@ -633,13 +633,37 @@
     badge.classList.toggle("over", planned > SERIES_MAX_REQUESTS);
   }
 
+  function updateDropdownLabels() {
+    const qs = getSelectedQualities();
+    const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
+    const qBtn = $("qualityDdBtn");
+    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "none");
+    const es = getSelectedEncoders();
+    const eBtn = $("encoderDdBtn");
+    if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
+  }
+
+  function renderDailyMeter(used, limit) {
+    const el = $("dailyMeter");
+    if (!el) return;
+    if (used == null || used < 0 || !limit) { el.textContent = ""; el.className = "daily-meter"; return; }
+    const pct = limit > 0 ? (used / limit) : 0;
+    let cls = "ok";
+    if (pct >= 0.9) cls = "danger"; else if (pct >= 0.7) cls = "warn";
+    el.className = "daily-meter " + cls;
+    el.textContent = "Bitsearch: " + used + " / " + limit + " today";
+  }
+
   function setSeriesMode(on) {
     seriesMode = !!on;
     const nBtn = $("modeNormal"), sBtn = $("modeSeries");
     if (nBtn) nBtn.classList.toggle("active", !seriesMode);
     if (sBtn) sBtn.classList.toggle("active", seriesMode);
-    const ctrls = $("seriesControls");
-    if (ctrls) ctrls.classList.toggle("hidden", !seriesMode);
+    // Show/hide the series-only dropdowns + meter strip.
+    if ($("qualityDd")) $("qualityDd").classList.toggle("hidden", !seriesMode);
+    if ($("encoderDd")) $("encoderDd").classList.toggle("hidden", !seriesMode);
+    if ($("seriesMeter")) $("seriesMeter").classList.toggle("hidden", !seriesMode);
+    updateDropdownLabels();
     updateQuotaBadge();
     // Just swap visible container; do NOT auto-fetch (series fetch costs quota).
     $("results").classList.toggle("hidden", seriesMode);
@@ -962,8 +986,7 @@
       params.set("sort", currentSort);
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
-      const dedupEl = $("dedupToggle");
-      params.set("dedup", dedupEl && !dedupEl.checked ? "0" : "1");
+      params.set("dedup", "1"); // dedup is always on (checkbox removed)
       if (typeof seriesMode !== "undefined" && seriesMode) {
         params.set("mode", "series");
         params.set("quality", getSelectedQualities().join(","));
@@ -979,6 +1002,7 @@
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
         if ($("resultCount")) $("resultCount").textContent =
           packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
+        if (typeof renderDailyMeter === "function") renderDailyMeter(data.daily_used, data.daily_limit);
         status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
         return;
       }
@@ -1195,19 +1219,29 @@
     updateSelection();
   });
   $("searchBtn").addEventListener("click", () => search(false, 1));
-  if ($("dedupToggle")) {
-    $("dedupToggle").addEventListener("change", () => {
-      // Re-run only if results are already shown, to avoid spending a quota hit.
-      const visible = !$("results").classList.contains("hidden") || !$("seriesResults").classList.contains("hidden");
-      if (visible && $("searchQuery").value.trim()) {
-        search(true, currentPage);
-      }
-    });
-  }
   if ($("modeNormal")) $("modeNormal").addEventListener("click", () => setSeriesMode(false));
   if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
+
+  // Multi-select dropdowns (Quality / Encoders)
+  function toggleDd(ddId) {
+    const dd = $(ddId);
+    if (!dd) return;
+    const panel = dd.querySelector(".ms-dd-panel");
+    const isOpen = !panel.classList.contains("hidden");
+    // close all panels first
+    document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
+    if (!isOpen) panel.classList.remove("hidden");
+  }
+  if ($("qualityDdBtn")) $("qualityDdBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleDd("qualityDd"); });
+  if ($("encoderDdBtn")) $("encoderDdBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleDd("encoderDd"); });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".ms-dd")) document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
+  });
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
-    el.addEventListener("change", () => { if (typeof updateQuotaBadge === "function") updateQuotaBadge(); })
+    el.addEventListener("change", () => {
+      if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+      if (typeof updateQuotaBadge === "function") updateQuotaBadge();
+    })
   );
 
   // ----- Mobile cloud wiring -----

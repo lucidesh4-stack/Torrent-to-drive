@@ -108,3 +108,32 @@ class RedisStore:
             return []
         # LRANGE returns newest-first (because we LPUSH); reverse for reading.
         return [str(x) for x in reversed(result)]
+
+    # --- Daily bitsearch request meter -------------------------------------
+    @staticmethod
+    def _today_key() -> str:
+        import datetime as _dt
+        return "streamly:bitsearch_count:" + _dt.datetime.utcnow().strftime("%Y-%m-%d")
+
+    def incr_request_count(self, n: int = 1) -> int:
+        """Increment today's bitsearch request counter; returns the new total.
+
+        The key auto-expires after 48h so old days clean themselves up.
+        Returns -1 on failure (caller should treat as 'unknown').
+        """
+        key = self._today_key()
+        result = self._execute("INCRBY", key, str(max(1, int(n))))
+        # best-effort TTL; ignore failures
+        self._execute("EXPIRE", key, str(60 * 60 * 48))
+        try:
+            return int(result)
+        except (TypeError, ValueError):
+            return -1
+
+    def get_request_count(self) -> int:
+        """Return today's bitsearch request count (0 if none / unknown)."""
+        raw = self.get(self._today_key())
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0

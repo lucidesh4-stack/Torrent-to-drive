@@ -35,8 +35,7 @@
       params.set("sort", currentSort);
       params.set("order", currentOrder);
       params.set("page", String(currentPage));
-      const dedupEl = $("dedupToggle");
-      params.set("dedup", dedupEl && !dedupEl.checked ? "0" : "1");
+      params.set("dedup", "1"); // dedup is always on (checkbox removed)
       if (typeof seriesMode !== "undefined" && seriesMode) {
         params.set("mode", "series");
         params.set("quality", getSelectedQualities().join(","));
@@ -52,6 +51,7 @@
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
         if ($("resultCount")) $("resultCount").textContent =
           packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
+        if (typeof renderDailyMeter === "function") renderDailyMeter(data.daily_used, data.daily_limit);
         status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
         return;
       }

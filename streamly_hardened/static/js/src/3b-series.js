@@ -20,13 +20,37 @@
     badge.classList.toggle("over", planned > SERIES_MAX_REQUESTS);
   }
 
+  function updateDropdownLabels() {
+    const qs = getSelectedQualities();
+    const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
+    const qBtn = $("qualityDdBtn");
+    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "none");
+    const es = getSelectedEncoders();
+    const eBtn = $("encoderDdBtn");
+    if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
+  }
+
+  function renderDailyMeter(used, limit) {
+    const el = $("dailyMeter");
+    if (!el) return;
+    if (used == null || used < 0 || !limit) { el.textContent = ""; el.className = "daily-meter"; return; }
+    const pct = limit > 0 ? (used / limit) : 0;
+    let cls = "ok";
+    if (pct >= 0.9) cls = "danger"; else if (pct >= 0.7) cls = "warn";
+    el.className = "daily-meter " + cls;
+    el.textContent = "Bitsearch: " + used + " / " + limit + " today";
+  }
+
   function setSeriesMode(on) {
     seriesMode = !!on;
     const nBtn = $("modeNormal"), sBtn = $("modeSeries");
     if (nBtn) nBtn.classList.toggle("active", !seriesMode);
     if (sBtn) sBtn.classList.toggle("active", seriesMode);
-    const ctrls = $("seriesControls");
-    if (ctrls) ctrls.classList.toggle("hidden", !seriesMode);
+    // Show/hide the series-only dropdowns + meter strip.
+    if ($("qualityDd")) $("qualityDd").classList.toggle("hidden", !seriesMode);
+    if ($("encoderDd")) $("encoderDd").classList.toggle("hidden", !seriesMode);
+    if ($("seriesMeter")) $("seriesMeter").classList.toggle("hidden", !seriesMode);
+    updateDropdownLabels();
     updateQuotaBadge();
     // Just swap visible container; do NOT auto-fetch (series fetch costs quota).
     $("results").classList.toggle("hidden", seriesMode);
