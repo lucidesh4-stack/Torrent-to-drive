@@ -34,18 +34,23 @@
   <section id="appScreen" class="app">
     <header class="topbar">
       <div class="topbar-inner">
-        <div class="brand" style="margin:0;">
+        <div class="brand topbar-storage-brand" style="margin:0;">
           <div class="logo" style="width:40px;height:40px;border-radius:13px;font-size:18px;">S</div>
-          <div>
-            <h2>Streamly Hardened</h2>
-            <div id="accountLabel" class="muted">Connected</div>
+          <div class="topbar-storage-copy">
+            <h2>Storage</h2>
+            <div class="topbar-storage-line">
+              <span id="topStorageText" class="muted">Unknown</span>
+              <span class="topbar-sep" aria-hidden="true">•</span>
+              <span id="accountLabel" class="muted">Connected</span>
+            </div>
+            <div class="topbar-storage-meter" aria-hidden="true"><div id="topStorageMeter"></div></div>
           </div>
         </div>
         <div class="tabs">
           <button id="cloudTab" class="tab active" type="button">Cloud Drive</button>
           <button id="searchTab" class="tab" type="button">Search</button>
           <button id="historyBtn" class="tab" type="button">History</button>
-          <span id="userPill" class="user-pill">Logged in</span>
+          <span id="userPill" class="user-pill hidden" aria-hidden="true">Logged in</span>
         </div>
       </div>
     </header>
@@ -78,16 +83,11 @@
           <div class="actions">
             <button id="openBtn" type="button">Open</button>
             <button id="downloadBtn" class="secondary" type="button" title="Folders are automatically zipped">Download</button>
+            <button id="copyLinkBtn" class="secondary" type="button" title="Copy file link or zip link">Copy Link</button>
             <button id="deleteBtn" class="danger" type="button">Delete</button>
             <button id="clearSelBtn" class="ghost" type="button" style="display:none; width: 100%;">Clear Selection</button>
           </div>
           <div id="cloudStatus" class="status"></div>
-          <div style="margin-top:18px; display: flex; justify-content: space-between; align-items: baseline;">
-            <h3 style="margin: 0;">Storage</h3>
-            <div id="pathLabel" class="muted" style="font-size: 12px;">Folder ID: 0</div>
-          </div>
-          <div class="meter"><div id="storageMeter"></div></div>
-          <div id="storageText" class="muted">Unknown</div>
         </aside>
 
         <!-- ===== Mobile-only Cloud (Seedr-style) ===== -->

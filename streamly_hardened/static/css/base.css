@@ -78,6 +78,13 @@
     .tab { background: transparent; color: var(--muted); border: 1px solid transparent; }
     .tab.active { color: white; border-color: var(--line); background: var(--panel-2); }
     .user-pill { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; color: #cbd5e1; background: #0b0e14; font-size: 13px; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-storage-brand { flex: 1 1 auto; min-width: 260px; max-width: 560px; }
+    .topbar-storage-copy { min-width: 0; flex: 1; }
+    .topbar-storage-line { display: flex; align-items: center; gap: 7px; min-width: 0; margin-top: 2px; }
+    .topbar-storage-line .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-sep { color: var(--line); font-size: 12px; flex: none; }
+    .topbar-storage-meter { height: 5px; width: min(360px, 100%); background: #263241; border-radius: 99px; overflow: hidden; margin-top: 7px; }
+    .topbar-storage-meter > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--orange), var(--red)); transition: width .2s; }
     .main { width: min(1420px, calc(100% - 28px)); margin: 22px auto 60px; }
     .panel { background: rgba(22, 27, 34, .96); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 18px 50px rgba(0,0,0,.28); overflow: visible; }
     .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line); background: rgba(17,24,39,.72); }

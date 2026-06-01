@@ -49,6 +49,7 @@
   $("upBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
+  if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
   $("deleteBtn").addEventListener("click", deleteSelected);
   $("selectAllCheck").addEventListener("change", (e) => {
     if (e.target.checked) {

@@ -47,6 +47,8 @@
 
     // Open button: disabled when multi-select (open only makes sense for one)
     $("openBtn").disabled = count !== 1;
+    const copyBtn = $("copyLinkBtn");
+    if (copyBtn) copyBtn.disabled = count === 0;
 
     // ----- Mobile selection sync -----
     document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
@@ -94,7 +96,8 @@
   function renderCloud() {
     const body = $("cloudBody");
     body.textContent = "";
-    $("pathLabel").textContent = `Folder ID: ${currentFolder}`;
+    const pathLabel = $("pathLabel");
+    if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
     $("upBtn").disabled = currentFolder === 0;
     $("cloudEmpty").classList.toggle("hidden", items.length !== 0);
     selectedKeys.clear();
@@ -267,12 +270,23 @@
 
   function updateStorage(used, max) {
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
-    $("storageMeter").style.width = pct.toFixed(1) + "%";
-    $("storageText").textContent = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
+    const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
+    const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
+
+    const storageMeter = $("storageMeter");
+    const storageText = $("storageText");
+    if (storageMeter) storageMeter.style.width = pct.toFixed(1) + "%";
+    if (storageText) storageText.textContent = label;
+
+    const topMeter = $("topStorageMeter");
+    const topText = $("topStorageText");
+    if (topMeter) topMeter.style.width = pct.toFixed(1) + "%";
+    if (topText) topText.textContent = label;
+
     const cmMeter = $("cmStorageMeter");
     const cmText = $("cmStorageText");
     if (cmMeter) cmMeter.style.width = pct.toFixed(1) + "%";
-    if (cmText) cmText.textContent = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
+    if (cmText) cmText.textContent = compactLabel;
   }
 
   function bytes(n) {
@@ -308,6 +322,36 @@
     if (!data.url) throw new Error("No download/stream URL returned");
     return data.url;
   }
+
+  async function copySelectedLink() {
+    if (selectedKeys.size === 0) return toast("Select item(s) first");
+    const selectedItems = items.filter(it => selectedKeys.has(it.key));
+    if (selectedItems.length === 0) return toast("Select item(s) first");
+
+    status($("cloudStatus"), selectedItems.length === 1 && selectedItems[0].type === "file" ? "Preparing file link..." : "Preparing zip link...", "");
+    try {
+      let url = "";
+      if (selectedItems.length === 1 && selectedItems[0].type === "file") {
+        url = await getFileUrl(selectedItems[0]);
+      } else {
+        const payload = selectedItems.map(it => ({ type: it.type, id: it.id }));
+        const endpoint = payload.length === 1 ? "/api/zip" : "/api/zip/bulk";
+        const body = payload.length === 1 ? { type: payload[0].type, id: payload[0].id } : { items: payload };
+        const data = await postJson(endpoint, body);
+        if (!data.url) throw new Error("Link URL was not returned");
+        url = data.url;
+      }
+      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard is not available in this browser");
+      await navigator.clipboard.writeText(url);
+      toast("Link copied to clipboard");
+      status($("cloudStatus"), "Link copied to clipboard.", "ok");
+    } catch (err) {
+      const message = err.message || "Could not copy link";
+      toast(message);
+      status($("cloudStatus"), message, "error");
+    }
+  }
+
 
   async function openItem(item = selected) {
     if (!item) return toast("Select an item first");
