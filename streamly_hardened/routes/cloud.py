@@ -28,6 +28,9 @@ def list_items(folder_id: str):
         return json_error(502, "provider_error", "Provider unavailable or failed to list items")
     for item in data["folders"] + data["files"]:
         item["size_str"] = format_size(item["size"])
+    for transfer in data.get("transfers", []):
+        transfer["size_str"] = format_size(transfer.get("size", 0))
+        transfer["download_rate_str"] = format_size(transfer.get("download_rate", 0)) + "/s"
     return jsonify(data)
 
 @cloud_bp.post("/api/delete")

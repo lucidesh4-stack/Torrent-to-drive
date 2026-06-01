@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Cloud Drive shows active Seedr transfers with progress
+- **What**: `/fs/folder/<id>/items` now includes active Seedr torrents from `contents.torrents` as `transfers[]`, with name, size, progress %, status, download rate, seeders, and formatted size/rate fields. If `progress_url` is available, the backend enriches progress via `client.get_torrent_progress()`.
+- **UI**: Desktop Cloud Drive renders transfer rows at the top with a progress bar. Mobile Cloud Drive renders loading transfer cards with progress bar/meta. Transfers are not selectable/deletable as normal files.
+- **Refresh**: Cloud Drive auto-refreshes every 5s while active transfers are visible; polling stops when leaving Cloud Drive. Add-to-Seedr success refreshes Cloud Drive if visible, otherwise refreshes storage snapshot only.
+- **Files**: cloud_service.py, routes/cloud.py, static/js/src/1-core.js, static/js/src/2-cloud.js, static/js/src/5-search.js, static/js/src/6-main.js, base.css, responsive.css, app.js.
+- **Verified**: fake Seedr transfer harness; app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Mobile Search V2 implementation: compact controls + global quality nav
 - **What**: Implemented the approved mobile search layout. Mobile now hides the Torrent Search title/subtitle, keeps the search input text visible, uses a compact `[input]+[search]` row, then `Filters` + `Normal|Series` segmented control, then result count.
 - **Global quality navigation**: Added mobile-only `4K | 1080p | 720p` segmented navigation under the `Name | SE | Time | Size | +` header. It navigates one returned quality at a time for both Normal/movie and Series results. Quality selection remains in Filters and controls which qualities are searched.
@@ -287,6 +294,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Active Seedr transfer progress in Cloud Drive — cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js
 [2026-06-01] Mobile Search V2 implementation — index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js
 [2026-06-01] Compact desktop UI + eager storage snapshot — base.css, 2-cloud.js, 6-main.js, app.js
 [2026-06-01] Desktop cloud UI: storage moved to topbar; desktop Copy Link action added — templates/index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js
@@ -300,6 +308,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Cloud Drive now shows active Seedr transfers before completion, with desktop/mobile progress bars and auto-refresh while transfers are loading. Changed: cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js.
 - **2026-06-01** — Implemented Mobile Search V2: no mobile Torrent Search header, compact visible search bar, Filters bottom sheet, Normal|Series segmented control, mobile global quality navigation, season chips per encoder, and removed Add-all buttons. Changed: index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js.
 - **2026-06-01** — Made desktop storage/topbar and selected-item side panel compact; added eager authenticated storage snapshot so storage usage loads on Search without clicking Cloud Drive. Changed: base.css, 2-cloud.js, 6-main.js, app.js.
 - **2026-06-01** — Desktop cloud UI updated: left topbar now shows Storage + compact meter + `Connected to <email>`, right email pill hidden, side-card Storage block removed, and desktop Copy Link action added for files/folders/multi-select zip links. Changed: index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js.
