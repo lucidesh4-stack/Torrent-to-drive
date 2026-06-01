@@ -91,6 +91,17 @@
     }
   }
 
+  function scheduleClipboardMagnetCheck(reason = "event") {
+    if (!$("searchView") || $("searchView").classList.contains("hidden")) return;
+    const now = Date.now();
+    const wait = Math.max(0, CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS - (now - lastClipboardMagnetCheckAt));
+    clearTimeout(clipboardMagnetCheckTimer);
+    clipboardMagnetCheckTimer = setTimeout(async () => {
+      lastClipboardMagnetCheckAt = Date.now();
+      await ingestClipboardMagnet(true);
+    }, wait);
+  }
+
   function extractMagnetFromUrl() {
     const candidates = [];
     const url = new URL(window.location.href);
