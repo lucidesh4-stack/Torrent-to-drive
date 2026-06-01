@@ -33,6 +33,23 @@ def list_items(folder_id: str):
         transfer["download_rate_str"] = format_size(transfer.get("download_rate", 0)) + "/s"
     return jsonify(data)
 
+
+@cloud_bp.post("/api/transfer/cancel")
+@rate_limited(cost=2.0)
+@csrf_required
+def cancel_transfer():
+    config = current_app.config
+    data = require_json_body(config)
+    transfer_id = validate_positive_int(data.get("id"), name="id", maximum=config.get("max_file_id", 1_000_000_000))
+    cloud = getattr(current_app, "cloud", None)
+    try:
+        cloud.delete_transfer(current_client(), transfer_id)
+    except (ConnectionError, TimeoutError) as e:
+        current_app.logger.warning("Provider error on transfer cancel: %s", e)
+        from ..security import json_error
+        return json_error(502, "provider_error", "Provider rejected the cancel request or is unavailable")
+    return jsonify({"success": True})
+
 @cloud_bp.post("/api/delete")
 @rate_limited(cost=2.0)
 @csrf_required
