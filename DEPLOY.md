@@ -1,9 +1,9 @@
-# Deploying Streamly to Render (free tier)
+# Deploying CloudFlow to Render (free tier)
 
-End state: a public HTTPS URL like `https://streamly-yourname.onrender.com`
+End state: a public HTTPS URL like `https://cloudflow-yourname.onrender.com`
 that you share with friends. Zero setup on their end.
 
-Streamly = Seedr-based torrent search & adder. No Colab bridge required.
+CloudFlow = Seedr-based torrent search, cloud drive, and streaming client. No Colab bridge required.
 
 ---
 
@@ -12,7 +12,7 @@ Streamly = Seedr-based torrent search & adder. No Colab bridge required.
 Used only to persist `SECRET_KEY` so users stay logged in across Render restarts.
 
 1. <https://upstash.com> → sign up (GitHub login is fastest)
-2. **Create Database** → name: `streamly` → region: closest to your Render region
+2. **Create Database** → name: `cloudflow` → region: closest to your Render region
 3. Open the DB → **REST API** tab → copy:
    - `UPSTASH_REDIS_REST_URL`
    - `UPSTASH_REDIS_REST_TOKEN`
@@ -21,9 +21,9 @@ Used only to persist `SECRET_KEY` so users stay logged in across Render restarts
 
 ```bash
 cd "Web based"
-git init && git add . && git commit -m "Initial Streamly deploy"
+git init && git add . && git commit -m "Initial CloudFlow deploy"
 git branch -M main
-git remote add origin https://github.com/<YOU>/streamly.git
+git remote add origin https://github.com/<YOU>/cloudflow.git
 git push -u origin main
 ```
 
@@ -32,7 +32,7 @@ git push -u origin main
 1. <https://render.com> → sign up → **New +** → **Blueprint**
 2. Connect your GitHub repo → Render auto-detects `render.yaml`
 3. Click **Apply** — first build ~5 min
-4. After deploy, open **streamly** service → **Environment** tab
+4. After deploy, open **cloudflow** service → **Environment** tab
 5. Paste the two Upstash values from step 1
 6. **Save changes** → Render redeploys (~1 min)
 7. Open the service URL → login screen ✅

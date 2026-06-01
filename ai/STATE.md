@@ -1,11 +1,11 @@
-# Streamly Project State
+# CloudFlow Project State
 
 > This is the Single Source of Truth (SOT) for the agent. Read this first in every new chat.
 
 ---
 
 ## ⚡ Quick Reference
-- **What**: Flask app — Seedr client + torrent search + custom video player + history.
+- **What**: CloudFlow — Flask app — Seedr client + torrent search + custom video player + history.
 - **Deploy**: Docker on Render (free tier).
 - **Persistence**: Upstash Redis.
 - **ZRP**: Zero-Regression Protocol is **ACTIVE** and mandatory.
@@ -52,6 +52,12 @@
 ---
 
 ## 📜 Decision Ledger
+
+### 2026-06-01 — UI/docs rename: CloudFlow
+- **What**: Renamed visible app branding from Streamly/Streamly Hardened to **CloudFlow** in UI and docs only.
+- **Scope**: Browser title, login brand/copy, log access page title, DEPLOY.md, and STATE.md. Internal Python package/folder names remain `streamly_hardened` to avoid import/deploy risk.
+- **Files**: templates/index.html, app.py, DEPLOY.md, render.yaml, ai/STATE.md, project.zip.
+- **Verified**: py_compile, app.js unchanged/valid, Flask test client served index/static assets.
 
 ### 2026-06-01 — High-confidence dead-weight cleanup
 - **What**: Removed obsolete flat search table/pagination path and stale Add-all code after grouped search/mobile redesign. Deleted `addAllEpisodes`, `renderPagination`, `renderSearchTable`, old `#results/#torrentBody/#mobileResults/#pagination` DOM, old pagination/mobile-card/table CSS, and stale `.section-add` styles.
@@ -354,6 +360,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Renamed visible app branding/docs to **CloudFlow** while preserving internal `streamly_hardened` package names. Changed: index.html, app.py, DEPLOY.md, render.yaml, STATE.md.
 - **2026-06-01** — Removed high-confidence dead weight: old flat search table/pagination renderer and DOM/CSS, stale Add-all code/styles, obsolete category/sort/order validators/config, unused config fields, and unused imports. Changed: index.html, 3b-series.js, 5-search.js, app.js, base.css, responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
 - **2026-06-01** — Clipboard magnet detection now re-checks on Search tab click, focus, visibility restore, and pointer interaction so newly copied magnets are detected. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
 - **2026-06-01** — Added 24h localStorage duplicate guard for magnet auto-add keyed by BTIH infohash; duplicate magnets fill the search box but do not auto-add unless user taps Add. Changed: 1-core.js, 5-search.js, app.js.

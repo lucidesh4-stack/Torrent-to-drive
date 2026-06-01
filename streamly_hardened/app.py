@@ -222,7 +222,7 @@ def create_app(
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Streamly | Log Access</title>
+            <title>CloudFlow | Log Access</title>
             <style>
                 body { font-family: system-ui, sans-serif; display: flex; justify-content: center; 
                        align-items: center; height: 100vh; margin: 0; background: #f4f7f6; }
@@ -243,7 +243,7 @@ def create_app(
                 <form method="POST" action="/api/logs">
                     <input type="email" name="email" placeholder="Email" required>
                     <input type="password" name="password" placeholder="Password" required>
-                    <button type="submit">Download streamly.log</button>
+                    <button type="submit">Download cloudflow.log</button>
                 </form>
             </div>
         </body>
@@ -269,7 +269,7 @@ def create_app(
             return Response(
                 body,
                 mimetype="text/plain",
-                headers={"Content-Disposition": 'attachment; filename="streamly.log"'},
+                headers={"Content-Disposition": 'attachment; filename="cloudflow.log"'},
             )
 
         log.warning("Unauthorized log access attempt from %s", request.remote_addr)

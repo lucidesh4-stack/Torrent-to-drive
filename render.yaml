@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: streamly
+    name: cloudflow
     runtime: docker
     plan: free
     region: oregon

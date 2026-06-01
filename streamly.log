@@ -1,3 +1,0 @@
-2026-05-31 07:07:33,151 | WARNING | [system] | streamly_hardened.redis_store:35 | Upstash request failed: HTTPSConnectionPool(host='fake.upstash.io', port=443): Max retries exceeded with url: / (Caused by NameResolutionError("HTTPSConnection(host='fake.upstash.io', port=443): Failed to resolve 'fake.upstash.io' ([Errno -2] Name or service not known)"))
-2026-05-31 07:07:33,152 | INFO | [system] | streamly_hardened.app:123 | Upstash Redis reachable — history and token persistence active
-2026-05-31 07:07:33,167 | INFO | [system] | x:8 | inside request ctx works
