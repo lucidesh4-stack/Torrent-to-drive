@@ -185,7 +185,7 @@
     add.type = "button";
     add.className = "add-btn";
     add.dataset.state = "idle";
-    add.textContent = "Add";
+    add.textContent = "+";
     add.addEventListener("click", async () => {
       saveToHistory(result.magnet, result.name);
       add.disabled = true;
@@ -195,11 +195,11 @@
         await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
         add.dataset.state = "done";
-        add.textContent = "\u2713 Added";
+        add.textContent = "\u2713";
       } catch (err) {
         toast(err.message || "Failed to add");
         add.dataset.state = "idle";
-        add.textContent = "Add";
+        add.textContent = "+";
         add.disabled = false;
       }
     });

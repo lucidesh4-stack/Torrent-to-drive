@@ -163,7 +163,7 @@
     .mode-toggle button.active { background: var(--blue); color: #fff; }
     #seriesResults { padding: 0 16px 16px; }
     /* Clickable header row for sectioned views (Normal + Series) */
-    .sec-head { display: grid; grid-template-columns: 1fr 80px 110px 100px 90px; gap: 8px; align-items: center; padding: 10px 14px 10px 30px; margin-bottom: 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .sec-head { display: grid; grid-template-columns: 1fr 80px 110px 100px 60px; gap: 8px; align-items: center; padding: 10px 14px 10px 30px; margin-bottom: 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
     .sec-head .sec-h { white-space: nowrap; }
     .sec-head .h-se, .sec-head .h-time, .sec-head .h-size { text-align: right; }
     .sec-head .h-add { text-align: right; }

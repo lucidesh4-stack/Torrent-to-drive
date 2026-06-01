@@ -679,7 +679,7 @@
       { label: "SE", key: "seeders", cls: "h-se" },
       { label: "Time", key: "date", cls: "h-time" },
       { label: "Size", key: "size", cls: "h-size" },
-      { label: "Add", key: null, cls: "h-add" },
+      { label: "+", key: null, cls: "h-add" },
     ];
     for (const c of cols) {
       const el = document.createElement("span");
@@ -784,13 +784,13 @@
     if (!episodes || !episodes.length) return;
     btn.disabled = true;
     const original = btn.textContent;
-    btn.textContent = "Adding...";
+    btn.textContent = "\u2026";
     try {
       for (const ep of episodes) saveToHistory(ep.magnet, ep.name);
       const first = episodes[0];
       await postJson("/api/add", { magnet: first.magnet, size: first.size_bytes || 0 });
       toast("Added " + (first.se || "episode 1") + " to Seedr \u00b7 " + episodes.length + " saved to History");
-      btn.textContent = "\u2713 Done";
+      btn.textContent = "\u2713";
     } catch (err) {
       toast(err.message || "Failed to add to Seedr (all saved to History)");
       btn.textContent = original;
@@ -828,7 +828,7 @@
       const addAll = document.createElement("button");
       addAll.type = "button";
       addAll.className = "section-add";
-      addAll.textContent = "+ Add all " + opts.episodes.length;
+      addAll.textContent = "+ " + opts.episodes.length;
       addAll.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(opts.episodes, addAll); });
       header.appendChild(addAll);
     }
@@ -904,7 +904,7 @@
         const addAllQ = document.createElement("button");
         addAllQ.type = "button";
         addAllQ.className = "section-add sm";
-        addAllQ.textContent = "+ Add all " + qEps.length;
+        addAllQ.textContent = "+ " + qEps.length;
         addAllQ.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(qEps, addAllQ); });
         qlabel.appendChild(addAllQ);
         qGroup.appendChild(qlabel);
@@ -987,7 +987,7 @@
 
         const addBtn = document.createElement("button");
         addBtn.className = "hist-icon";
-        addBtn.textContent = "＋";
+        addBtn.textContent = "+";
         addBtn.title = "Add to Destination";
         addBtn.onclick = async () => {
           addBtn.disabled = true;
@@ -1000,7 +1000,7 @@
           } catch (e) {
             toast("Failed: " + e.message);
             addBtn.disabled = false;
-            addBtn.textContent = "\uFF0B";
+            addBtn.textContent = "+";
           }
         };
         
@@ -1234,7 +1234,7 @@
     add.type = "button";
     add.className = "add-btn";
     add.dataset.state = "idle";
-    add.textContent = "Add";
+    add.textContent = "+";
     add.addEventListener("click", async () => {
       saveToHistory(result.magnet, result.name);
       add.disabled = true;
@@ -1244,11 +1244,11 @@
         await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
         add.dataset.state = "done";
-        add.textContent = "\u2713 Added";
+        add.textContent = "\u2713";
       } catch (err) {
         toast(err.message || "Failed to add");
         add.dataset.state = "idle";
-        add.textContent = "Add";
+        add.textContent = "+";
         add.disabled = false;
       }
     });
