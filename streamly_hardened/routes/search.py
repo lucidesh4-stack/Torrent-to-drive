@@ -53,6 +53,7 @@ def search_route():
     # Category removed: results are merged from multiple providers with differing
     # category schemes, so a single category filter is no longer meaningful.
     mode = request.args.get("mode", "").strip().lower()
+    provider_order = ("apibay", "bitsearch", "torrents-csv") if mode == "series" else None
 
     search = getattr(current_app, "search", None)
     if search is None:
@@ -88,6 +89,7 @@ def search_route():
             prefer=locked["provider"],
             strict_prefer=locked["provider"] is not None,
             allow_raw_fallback=False,
+            order_override=provider_order,
         )
         provider_attempts.extend(attempts)
         if fallback_mode and provider_fallback["mode"] is None:

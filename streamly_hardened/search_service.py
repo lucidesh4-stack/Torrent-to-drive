@@ -743,7 +743,7 @@ class SearchService:
 
     def _bitsearch_rows(self, q: str) -> list[dict[str, Any]]:
         """Bitsearch results as canonical rows (reuses bitsearch() + its DoH fallback)."""
-        payload = self.bitsearch(q, "", "seeders", "desc", 1, dedup=False)
+        payload = self.bitsearch(q, "", "relevance", "desc", 1, dedup=False)
         results = payload.get("results", []) if isinstance(payload, dict) else []
         rows: list[dict[str, Any]] = []
         for item in results if isinstance(results, list) else []:
@@ -776,13 +776,14 @@ class SearchService:
             log.warning("provider %s failed: %s", name, exc)
         return []
 
-    def _provider_order(self, prefer: str | None = None, *, strict_prefer: bool = False) -> list[str]:
-        if prefer and prefer in self.config.search_providers and strict_prefer:
+    def _provider_order(self, prefer: str | None = None, *, strict_prefer: bool = False, order_override: tuple[str, ...] | list[str] | None = None) -> list[str]:
+        configured = tuple(order_override or self.config.search_providers)
+        if prefer and prefer in configured and strict_prefer:
             return [prefer]
         order: list[str] = []
-        if prefer and prefer in self.config.search_providers:
+        if prefer and prefer in configured:
             order.append(prefer)
-        for name in self.config.search_providers:
+        for name in configured:
             if name not in order:
                 order.append(name)
         return order
@@ -801,7 +802,7 @@ class SearchService:
             log.info("provider %s empty for %r, trying next", name, q)
         return [], None
 
-    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False, allow_raw_fallback: bool = True) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
+    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False, allow_raw_fallback: bool = True, order_override: tuple[str, ...] | list[str] | None = None) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
         """Filtered FAILOVER search with raw fallback.
 
         A provider normally wins only if rows remain AFTER route-level filters.
@@ -814,7 +815,7 @@ class SearchService:
         raw_fallback_rows: list[dict[str, Any]] = []
         raw_fallback_provider: str | None = None
 
-        for name in self._provider_order(prefer, strict_prefer=strict_prefer):
+        for name in self._provider_order(prefer, strict_prefer=strict_prefer, order_override=order_override):
             raw_rows = _dedup_by_infohash(self._run_provider(name, q))
             filtered_rows = [r for r in raw_rows if filter_fn(r)]
             attempts.append({"provider": name, "raw": len(raw_rows), "filtered": len(filtered_rows)})

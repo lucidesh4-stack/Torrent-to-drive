@@ -53,6 +53,19 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Series mode provider order override: apibay first
+- **What**: Series mode now uses provider priority `apibay -> bitsearch -> torrents-csv`, while Normal mode keeps the default `bitsearch -> apibay -> torrents-csv`.
+- **Why**: Series mode performs multiple query rounds, so apibay-first is less noisy/flaky for grouped episode/pack discovery.
+- **UI**: Search status shows the active mode-specific provider order.
+- **Files**: search_service.py, routes/search.py, static/js/src/5-search.js, static/js/app.js.
+- **Verified**: provider order override harness; app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
+### 2026-06-01 — Bitsearch raw-ish fetch uses relevance instead of seeders
+- **What**: Bitsearch provider fetch now requests `sort=relevance&order=desc` instead of `sort=seeders&order=desc`, so Normal/Series provider rows are less biased toward seeder order before CloudFlow applies its own filtering/grouping/sorting.
+- **Scope**: Bitsearch provider only. Apibay and torrents-csv already use their provider-default broad search calls.
+- **Files**: search_service.py, ai/STATE.md, project.zip.
+- **Verified**: py_compile.
+
 ### 2026-06-01 — Normal mode relevance split: Less relevant section
 - **What**: Normal/movie search no longer discards rows that fail title relevance. Provider selection still prefers relevant rows, but non-relevant eligible rows from the winning provider are appended as a `Less relevant` section.
 - **Fallback**: If no provider has relevant rows but one has eligible rows, those rows are returned as `Less relevant` with `provider_fallback: "less_relevant"`. Series mode keeps strict relevance and does not use raw fallback.
@@ -386,6 +399,8 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Series mode now searches providers as `apibay → bitsearch → torrents-csv`, while Normal mode remains `bitsearch → apibay → torrents-csv`; status text reflects the active mode. Changed: search_service.py, routes/search.py, 5-search.js, app.js.
+- **2026-06-01** — Bitsearch provider now fetches with `sort=relevance` instead of `sort=seeders` for raw-ish provider results before CloudFlow local filtering/sorting. Changed: search_service.py.
 - **2026-06-01** — Normal search now shows relevance-filtered-out rows in a `Less relevant` section instead of discarding them; if no relevant rows exist, eligible rows appear there as fallback. Changed: search_service.py, routes/search.py, 3b-series.js, 5-search.js, app.js.
 - **2026-06-01** — Search provider priority changed to `bitsearch → apibay → torrents-csv`; filtered/raw fallback behavior preserved. Changed: config.py, 5-search.js, app.js, docs.
 - **2026-06-01** — Added raw unfiltered fallback for short/acronym searches: if all providers filter to zero but one had raw rows, show the first raw provider results and label status as `unfiltered fallback`. Changed: search_service.py, routes/search.py, 5-search.js, app.js.
