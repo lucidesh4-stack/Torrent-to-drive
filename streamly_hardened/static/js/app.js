@@ -1075,6 +1075,7 @@
 
     if (!keepPage) currentPage = page || 1;
     status($("searchStatus"), "Searching...", "");
+    if ($("resultCount")) $("resultCount").textContent = "";
     $("pagination").classList.add("hidden");
     $("pagination").textContent = "";
     try {
@@ -1100,9 +1101,8 @@
         renderSeriesGrouped(data);
         const packs = (data.packs || []).length;
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
-        if ($("resultCount")) $("resultCount").textContent =
-          packs + " pack(s), " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s) used";
-        status($("searchStatus"), "Found " + (packs + eps) + " result(s)", "ok");
+        if ($("resultCount")) $("resultCount").textContent = "";
+        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s)", "ok");
         return;
       }
 
@@ -1112,9 +1112,10 @@
       $("seriesResults").classList.remove("hidden");
       renderNormalGrouped(groups);
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
-      if ($("resultCount")) $("resultCount").textContent = total + " result(s) in " + groups.length + " quality group(s)";
-      status($("searchStatus"), "Found " + total + " result(s)", "ok");
+      if ($("resultCount")) $("resultCount").textContent = "";
+      status($("searchStatus"), "Found " + total + " result(s) across " + groups.length + " quality group(s)", "ok");
     } catch (err) {
+      if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");
     }
   }
