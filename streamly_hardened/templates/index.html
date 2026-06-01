@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Streamly Hardened</title>
+  <title>CloudFlow</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ asset_ver }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v={{ asset_ver }}">
@@ -13,13 +13,13 @@
     <div class="login-card">
       <button id="loginCloseBtn" class="login-close" type="button" aria-label="Close" title="Continue as guest">×</button>
       <div class="brand">
-        <div class="logo">S</div>
+        <div class="logo">C</div>
         <div>
-          <h1>Streamly</h1>
-          <div class="muted">Hardened local Seedr client</div>
+          <h1>CloudFlow</h1>
+          <div class="muted">Seedr cloud streaming client</div>
         </div>
       </div>
-      <p>Login with your Seedr account to browse your cloud files and add torrents. This app is running locally at 127.0.0.1.</p>
+      <p>Login with your Seedr account to browse your cloud files, stream media, and add torrents.</p>
       <form id="loginForm">
         <label for="email">Seedr Email</label>
         <input id="email" name="email" type="email" autocomplete="username" required placeholder="you@example.com">
@@ -35,7 +35,7 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand topbar-storage-brand" style="margin:0;">
-          <div class="logo" style="width:40px;height:40px;border-radius:13px;font-size:18px;">S</div>
+          <div class="logo" style="width:40px;height:40px;border-radius:13px;font-size:18px;">C</div>
           <div class="topbar-storage-copy">
             <h2>Storage</h2>
             <div class="topbar-storage-line">
