@@ -94,8 +94,6 @@
     // Toggling only changes how the backend processes the next search.
     updateDropdownLabels();
     $("seriesResults").classList.add("hidden");
-    $("results").classList.add("hidden");
-    $("pagination").classList.add("hidden");
   }
 
   // ---- Client-side sort state (re-orders loaded rows; no re-fetch) ----
@@ -236,25 +234,6 @@
 
     wrap.append(name, se, time, size, add);
     return wrap;
-  }
-
-  // "Add all N": add ONLY the first episode to Seedr, save ALL episodes to History.
-  async function addAllEpisodes(episodes, btn) {
-    if (!episodes || !episodes.length) return;
-    btn.disabled = true;
-    const original = btn.textContent;
-    btn.textContent = "\u2026";
-    try {
-      for (const ep of episodes) saveToHistory(ep.magnet, ep.name);
-      const first = episodes[0];
-      await postJson("/api/add", { magnet: first.magnet, size: first.size_bytes || 0 });
-      toast("Added " + (first.se || "episode 1") + " to Seedr \u00b7 " + episodes.length + " saved to History");
-      btn.textContent = "\u2713";
-    } catch (err) {
-      toast(err.message || "Failed to add to Seedr (all saved to History)");
-      btn.textContent = original;
-      btn.disabled = false;
-    }
   }
 
   function sectionHeader(opts) {

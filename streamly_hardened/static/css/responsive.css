@@ -18,49 +18,7 @@
       #cloudView .table td:nth-child(2) { max-width: 0; }
     }
 
-    /* --- Mobile: keep the desktop torrent TABLE, fit & shrink columns --- */
     @media (max-width: 700px) {
-      /* Show the real table, never the card list */
-      .torrent-table-wrap { display: block !important; min-width: 0 !important; }
-      #mobileResults { display: none !important; }
-      .mobile-result { display: none !important; }
-      .results { padding: 0 10px 14px; overflow-x: hidden; }
-
-      /* Full desktop table scaled to fit the viewport exactly (all columns) */
-      #searchView .table { table-layout: fixed; width: 100%; }
-      #searchView .table th { padding: 7px 2px; font-size: 8px; }
-      #searchView .table td { padding: 8px 2px; font-size: 9.5px; }
-      #searchView .sort-mark { font-size: 8px; margin-left: 1px; }
-      #searchView .torrent-name { min-width: 0; max-width: none; }
-      #searchView .torrent-name .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* Columns: NAME · SE · TIME · SIZE · ADD */
-      /* NAME — takes all remaining space (Add is now a fixed 34px) */
-      #searchView .table th:nth-child(1),
-      #searchView .table td:nth-child(1) { width: auto; max-width: 0; }
-      /* SE */
-      #searchView .table th:nth-child(2),
-      #searchView .table td:nth-child(2) { width: 9%; }
-      /* TIME */
-      #searchView .table th:nth-child(3),
-      #searchView .table td:nth-child(3) { width: 11%; }
-      /* SIZE */
-      #searchView .table th:nth-child(4),
-      #searchView .table td:nth-child(4) { width: 12%; }
-      /* ADD — icon-only (+) button so the column can be tiny */
-      #searchView .table th:nth-child(5),
-      #searchView .table td:nth-child(5) { width: 34px; padding-left: 2px !important; padding-right: 4px !important; }
-      #searchView .table td:nth-child(5) .add-btn {
-        width: 30px; height: 30px; padding: 0 !important; border-radius: 8px;
-        font-size: 0 !important; min-width: 0; display: inline-grid; place-items: center;
-      }
-      /* swap the long text for a compact glyph */
-      #searchView .table td:nth-child(5) .add-btn::before {
-        font-size: 16px; line-height: 1; font-weight: 900;
-      }
-      #searchView .table td:nth-child(5) .add-btn[data-state="idle"]::before  { content: "+"; }
-      #searchView .table td:nth-child(5) .add-btn[data-state="adding"]::before { content: "\2026"; } /* … */
-      #searchView .table td:nth-child(5) .add-btn[data-state="done"]::before  { content: "\2713"; } /* ✓ */
-
       .side-card { padding: 12px; }
       .actions { flex-direction: column; }
       .actions button { width: 100%; }
@@ -73,7 +31,6 @@
       .panel { border-radius: 14px; }
       #cloudView .table td { padding: 10px 10px; }
       #cloudView .table th { padding: 10px 10px; font-size: 11px; }
-      .page-btn { padding: 7px 10px; font-size: 13px; }
     }
 
     /* --- Mobile overlays (video + history): fit screen, no clipping --- */
@@ -89,9 +46,6 @@
 
     /* --- Small phones: compact pagination --- */
     @media (max-width: 420px) {
-      .pagination { gap: 4px; }
-      .page-btn { padding: 6px 9px; font-size: 12px; border-radius: 8px; }
-      .page-info { font-size: 12px; }
       .user-pill { display: none !important; }
       .login-card { padding: 20px; }
       h1 { font-size: 24px; }
@@ -344,13 +298,11 @@
   /* Compact clickable header on mobile (Name | SE | Time | Size | Add) */
   .sec-head { grid-template-columns: 1fr 42px 64px 64px 38px; gap: 6px; padding: 9px 10px; font-size: 10px; letter-spacing: .02em; }
 
-  /* Section header wraps so the title + count + "Add all" never overflow */
   .encoder-header { flex-wrap: wrap; padding: 11px 12px; gap: 8px; }
   .encoder-title { gap: 8px; flex: 1 1 100%; min-width: 0; }
   .encoder-name { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
   .encoder-quality { font-size: 12px; white-space: normal; }
   .encoder-count { font-size: 11px; }
-  .encoder-header .section-add { flex: 0 0 auto; margin-left: auto; }
 
   /* Episode/result row becomes a 2-line card: Name on top, meta+Add below */
   .episode-row {
@@ -376,7 +328,6 @@
 
   /* Uploader sub-row wraps too */
   .uploader-label { flex-wrap: wrap; padding: 8px 12px 8px 14px; }
-  .uploader-label .section-add.sm { margin-left: auto; }
 
   .season-label { padding-left: 14px; }
 }

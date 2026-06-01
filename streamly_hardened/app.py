@@ -6,7 +6,7 @@ import os
 import uuid
 from typing import Any
 
-from flask import Flask, Response, jsonify, render_template, request, session, g, render_template_string
+from flask import Flask, Response, jsonify, render_template, request, g, render_template_string
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import AppConfig
@@ -17,7 +17,6 @@ from .security import (
     get_csrf_token,
     install_security_headers,
     json_error,
-    require_json_body,
     TokenBucketRateLimiter,
 )
 from .cloud_service import CloudService
@@ -99,10 +98,6 @@ def create_app(
         max_json_bytes=config.max_json_bytes,
         max_query_length=config.max_query_length,
         max_magnet_length=config.max_magnet_length,
-        # Allowed lists
-        allowed_categories=config.allowed_categories,
-        allowed_sorts=config.allowed_sorts,
-        allowed_orders=config.allowed_orders,
     )
     install_security_headers(app)
 

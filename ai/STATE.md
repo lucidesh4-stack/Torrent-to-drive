@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — High-confidence dead-weight cleanup
+- **What**: Removed obsolete flat search table/pagination path and stale Add-all code after grouped search/mobile redesign. Deleted `addAllEpisodes`, `renderPagination`, `renderSearchTable`, old `#results/#torrentBody/#mobileResults/#pagination` DOM, old pagination/mobile-card/table CSS, and stale `.section-add` styles.
+- **Backend cleanup**: Removed obsolete category/sort/order validators and config allowlists, unused `bitsearch_api_key`, unused `seedr_archive_url`, unused `max_bulk_items`, and unused imports (`dataclass` in cloud_service, `CloudService` in routes/cloud, `session`/`require_json_body` in app).
+- **Preserved**: Provider failover/Bitsearch code, compatibility `userPill`, storage null guards, and other non-high-confidence items were left intact.
+- **Files**: templates/index.html, static/js/src/3b-series.js, static/js/src/5-search.js, static/js/app.js, static/css/base.css, static/css/responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
+- **Verified**: removed-symbol grep clean; app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Clipboard magnet re-check on focus/visibility/Search tab
 - **What**: Improved magnet clipboard detection so newly copied magnets are picked up after returning to Streamly. The frontend now schedules debounced clipboard checks on Search tab click, window focus, page visibility restore, and pointer interaction while Search is visible.
 - **Safety**: Checks are Search-tab gated and debounced (1.2s). Existing same-page and 24h localStorage duplicate guards still prevent repeat auto-adds.
@@ -327,6 +334,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] High-confidence dead-weight cleanup — removed old flat search/pagination/Add-all/config leftovers
 [2026-06-01] Clipboard magnet re-check on focus/visibility/Search tab — 1-core.js, 5-search.js, 6-main.js, app.js
 [2026-06-01] Persistent duplicate guard for magnet auto-add — 1-core.js, 5-search.js, app.js
 [2026-06-01] Frontend magnet auto-ingest from clipboard/paste/URL — 1-core.js, 5-search.js, 6-main.js, app.js
@@ -346,6 +354,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Removed high-confidence dead weight: old flat search table/pagination renderer and DOM/CSS, stale Add-all code/styles, obsolete category/sort/order validators/config, unused config fields, and unused imports. Changed: index.html, 3b-series.js, 5-search.js, app.js, base.css, responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
 - **2026-06-01** — Clipboard magnet detection now re-checks on Search tab click, focus, visibility restore, and pointer interaction so newly copied magnets are detected. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
 - **2026-06-01** — Added 24h localStorage duplicate guard for magnet auto-add keyed by BTIH infohash; duplicate magnets fill the search box but do not auto-add unless user taps Add. Changed: 1-core.js, 5-search.js, app.js.
 - **2026-06-01** — Added frontend magnet auto-ingest: clipboard auto-detect/autopaste/auto-add, paste auto-add, and URL/hash `magnet` ingest with URL cleanup. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
