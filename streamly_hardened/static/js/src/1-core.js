@@ -95,9 +95,13 @@
     isAuthenticated = !!username;
     $("loginScreen").classList.add("hidden");
     $("appScreen").classList.remove("hidden");
-    $("userPill").classList.toggle("hidden", !isAuthenticated);
-    $("userPill").textContent = username ? username : "Guest";
-    $("accountLabel").textContent = username ? `Connected as ${username}` : "Guest Mode";
+    const userPill = $("userPill");
+    if (userPill) {
+      userPill.classList.add("hidden");
+      userPill.textContent = username ? username : "Guest";
+    }
+    const accountLabel = $("accountLabel");
+    if (accountLabel) accountLabel.textContent = username ? `Connected to ${username}` : "Guest Mode";
     const cmAcct = $("cmAccount");
     if (cmAcct) cmAcct.textContent = username ? `Connected as ${username}` : "Guest Mode";
   }
