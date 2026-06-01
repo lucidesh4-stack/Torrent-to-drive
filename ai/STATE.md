@@ -53,6 +53,19 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Normal mode relevance split: Less relevant section
+- **What**: Normal/movie search no longer discards rows that fail title relevance. Provider selection still prefers relevant rows, but non-relevant eligible rows from the winning provider are appended as a `Less relevant` section.
+- **Fallback**: If no provider has relevant rows but one has eligible rows, those rows are returned as `Less relevant` with `provider_fallback: "less_relevant"`. Series mode keeps strict relevance and does not use raw fallback.
+- **UI**: Desktop shows `Less relevant` as a normal section; mobile shows it below the selected quality results, not in the 4K/1080p/720p quality chips.
+- **Files**: search_service.py, routes/search.py, static/js/src/3b-series.js, static/js/src/5-search.js, static/js/app.js.
+- **Verified**: route harness with 1 relevant + 1 non-relevant row creates `1080p` + `Less relevant`; app.js rebuilt; node --check; py_compile; CSS brace balance.
+
+### 2026-06-01 — Provider priority changed to bitsearch→apibay→torrents-csv
+- **What**: Default search provider priority changed to `bitsearch -> apibay -> torrents-csv` per user preference. Filtered fallback and raw fallback behavior remain unchanged.
+- **UI**: Search status now displays `Searching providers: bitsearch → apibay → torrents-csv...`.
+- **Files**: config.py, static/js/src/5-search.js, app.js, DEPLOY.md, AUDIT_REPORT.md, ai/STATE.md, project.zip.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Raw fallback for short/acronym searches
 - **What**: Added an unfiltered raw fallback for searches where every provider returns zero rows after strict relevance/filtering, but at least one provider had raw rows. This fixes short/acronym queries like `PRT` where Bitsearch has matches but strict title filtering removes them all.
 - **Behavior**: Normal filtered provider failover still wins first. Raw fallback activates only when all filtered attempts are empty. Response sets `provider_fallback: "unfiltered"`; UI shows `unfiltered fallback`.
@@ -60,9 +73,9 @@
 - **Verified**: raw fallback harness (`apibay=0`, `bitsearch raw=1 filtered=0` -> bitsearch unfiltered fallback); app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
 
 ### 2026-06-01 — Search failover now falls back after filters; provider order apibay→bitsearch→torrents-csv
-- **What**: Changed default provider priority to `apibay -> bitsearch -> torrents-csv`. Added filtered failover: a provider only wins if rows remain AFTER relevance/quality/encoder filters. If apibay returns raw rows but filtering removes all of them, bitsearch is tried next; then torrents-csv.
+- **What**: Changed default provider priority to `bitsearch -> apibay -> torrents-csv`. Added filtered failover: a provider only wins if rows remain AFTER relevance/quality/encoder filters. If apibay returns raw rows but filtering removes all of them, bitsearch is tried next; then torrents-csv.
 - **Provider lock**: Series mode locks to the first provider with usable filtered rows for consistency. `requests_used` now counts actual provider attempts, not just logical query rounds.
-- **UI**: Search status now starts with `Searching providers: apibay → bitsearch → torrents-csv...` and final results include provider text such as `via bitsearch after apibay filtered out`.
+- **UI**: Search status now starts with `Searching providers: bitsearch → apibay → torrents-csv...` and final results include provider text such as `via bitsearch after apibay filtered out`.
 - **Files**: config.py, search_service.py, routes/search.py, static/js/src/5-search.js, static/js/app.js, ai/STATE.md, project.zip.
 - **Verified**: filtered-failover service harness; app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
 
@@ -373,8 +386,10 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Normal search now shows relevance-filtered-out rows in a `Less relevant` section instead of discarding them; if no relevant rows exist, eligible rows appear there as fallback. Changed: search_service.py, routes/search.py, 3b-series.js, 5-search.js, app.js.
+- **2026-06-01** — Search provider priority changed to `bitsearch → apibay → torrents-csv`; filtered/raw fallback behavior preserved. Changed: config.py, 5-search.js, app.js, docs.
 - **2026-06-01** — Added raw unfiltered fallback for short/acronym searches: if all providers filter to zero but one had raw rows, show the first raw provider results and label status as `unfiltered fallback`. Changed: search_service.py, routes/search.py, 5-search.js, app.js.
-- **2026-06-01** — Search provider order is now `apibay → bitsearch → torrents-csv`, and provider fallback now happens after filtering so apibay raw results filtered to zero trigger bitsearch. Status text shows provider attempts/winner. Changed: config.py, search_service.py, routes/search.py, 5-search.js, app.js.
+- **2026-06-01** — Search provider order is now `bitsearch → apibay → torrents-csv`, and provider fallback now happens after filtering so apibay raw results filtered to zero trigger bitsearch. Status text shows provider attempts/winner. Changed: config.py, search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-06-01** — Renamed visible app branding/docs to **CloudFlow** while preserving internal `streamly_hardened` package names. Changed: index.html, app.py, DEPLOY.md, render.yaml, STATE.md.
 - **2026-06-01** — Removed high-confidence dead weight: old flat search table/pagination renderer and DOM/CSS, stale Add-all code/styles, obsolete category/sort/order validators/config, unused config fields, and unused imports. Changed: index.html, 3b-series.js, 5-search.js, app.js, base.css, responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
 - **2026-06-01** — Clipboard magnet detection now re-checks on Search tab click, focus, visibility restore, and pointer interaction so newly copied magnets are detected. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.

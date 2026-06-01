@@ -156,6 +156,7 @@
     }
     let label = "via " + provider;
     if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
+    if (data.provider_fallback === "less_relevant") label += " · showing less relevant matches";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
@@ -192,7 +193,7 @@
     }
 
     if (!keepPage) currentPage = page || 1;
-    status($("searchStatus"), "Searching providers: apibay → bitsearch → torrents-csv...", "");
+    status($("searchStatus"), "Searching providers: bitsearch → apibay → torrents-csv...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
     try {
       const params = new URLSearchParams();

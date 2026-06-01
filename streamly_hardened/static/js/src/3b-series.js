@@ -177,15 +177,33 @@
     container.appendChild(seriesHeaderRow());
 
     if (isMobileSearchUi()) {
-      const available = lastNormalGroups.map(g => g.quality);
+      const primaryGroups = lastNormalGroups.filter(g => g.quality !== "less_relevant");
+      const lessGroup = lastNormalGroups.find(g => g.quality === "less_relevant");
+      const available = primaryGroups.map(g => g.quality);
       activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
       const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
         activeNormalQuality = q;
         renderNormalGrouped(lastNormalGroups);
       });
       if (nav) container.appendChild(nav);
-      const active = lastNormalGroups.find(g => g.quality === activeNormalQuality) || lastNormalGroups[0];
-      for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
+      const active = primaryGroups.find(g => g.quality === activeNormalQuality) || primaryGroups[0];
+      if (active) for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
+      if (lessGroup && (lessGroup.rows || []).length) {
+        const section = document.createElement("div");
+        section.className = "encoder-section collapsed";
+        applyOpenState(section, "normal:less_relevant", prevOpen);
+        const header = sectionHeader({
+          title: lessGroup.label || "Less relevant",
+          sub: null,
+          count: lessGroup.count + (lessGroup.count === 1 ? " result" : " results"),
+        });
+        const body = document.createElement("div");
+        body.className = "encoder-body";
+        for (const r of sortRows(lessGroup.rows || [])) body.appendChild(plainRow(r));
+        section.append(header, body);
+        container.appendChild(section);
+        makeAccordion(section, header, container, ".encoder-section");
+      }
       return;
     }
 
