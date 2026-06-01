@@ -198,6 +198,8 @@
         if (initialTab === "cloud") {
           setTab("cloud");
           await loadFolder(0);
+        } else if (typeof refreshStorageSnapshot === "function") {
+          refreshStorageSnapshot();
         }
       }
     } catch (_) {
