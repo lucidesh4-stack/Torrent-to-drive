@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Series mode relevance fallback sections + pack-only sorting
+- **What**: Series mode now starts with apibay and does backend classification instead of hard-dropping raw provider rows. Strong matches still go into packs/encoder episode groups; non-strong raw rows are preserved in `Less relevant` or `Other / Unparsed` sections. Article-insensitive matching lets searches like `boys` match `The Boys`.
+- **Sorting**: Series header sorting now applies only to Season Packs. Encoder sections stay alphabetic and episodes always stay in season/episode sequence.
+- **UI**: Series renderer now displays `less_relevant` and `other` sections below grouped results. Status includes extra other-result counts when present.
+- **Files**: routes/search.py, static/js/src/3b-series.js, static/js/src/5-search.js, static/js/app.js.
+- **Verified**: route harness for `boys` -> `The Boys` grouped result plus `Other`; app.js rebuilt; node --check; py_compile; CSS brace balance.
+
 ### 2026-06-01 — Series mode provider order override: apibay first
 - **What**: Series mode now uses provider priority `apibay -> bitsearch -> torrents-csv`, while Normal mode keeps the default `bitsearch -> apibay -> torrents-csv`.
 - **Why**: Series mode performs multiple query rounds, so apibay-first is less noisy/flaky for grouped episode/pack discovery.
@@ -399,6 +406,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Series mode now keeps raw provider leftovers as `Less relevant` / `Other / Unparsed` instead of dropping them, supports article-insensitive matches like `boys` → `The Boys`, and sorting affects Season Packs only while episodes stay in sequence. Changed: routes/search.py, 3b-series.js, 5-search.js, app.js.
 - **2026-06-01** — Series mode now searches providers as `apibay → bitsearch → torrents-csv`, while Normal mode remains `bitsearch → apibay → torrents-csv`; status text reflects the active mode. Changed: search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-06-01** — Bitsearch provider now fetches with `sort=relevance` instead of `sort=seeders` for raw-ish provider results before CloudFlow local filtering/sorting. Changed: search_service.py.
 - **2026-06-01** — Normal search now shows relevance-filtered-out rows in a `Less relevant` section instead of discarding them; if no relevant rows exist, eligible rows appear there as fallback. Changed: search_service.py, routes/search.py, 3b-series.js, 5-search.js, app.js.

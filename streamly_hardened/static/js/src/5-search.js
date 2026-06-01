@@ -157,6 +157,7 @@
     let label = "via " + provider;
     if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
     if (data.provider_fallback === "less_relevant") label += " · showing less relevant matches";
+    if (data.provider_fallback === "other") label += " · showing other matches";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
@@ -220,9 +221,12 @@
         renderSeriesGrouped(data);
         const packs = (data.packs || []).length;
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
+        const less = (data.less_relevant || []).length;
+        const other = (data.other || []).length;
+        const extra = (less || other) ? " + " + (less + other) + " other" : "";
         if ($("resultCount")) $("resultCount").textContent = "";
         const providerText = providerStatusText(data);
-        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
+        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s)" + extra + " \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
         return;
       }
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from flask import Blueprint, jsonify, current_app, request
 from ..security import (
     rate_limited,
@@ -77,6 +79,26 @@ def search_route():
         # Episode => exact title match (drops spin-offs); movie/pack => prefix match.
         return matches_query(q, info["series"], is_episode=info["episode"] is not None)
 
+    def _tokens(value):
+        return [t for t in re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split() if t]
+
+    def _without_articles(tokens):
+        return [t for t in tokens if t not in {"the", "a", "an"}]
+
+    query_core = _without_articles(_tokens(q))
+
+    def _series_primary_relevant(row):
+        info = parse_release(str(row.get("name", "")))
+        if matches_query(q, info["series"], is_episode=info["episode"] is not None):
+            return True
+        series_core = _without_articles(_tokens(info["series"]))
+        return bool(query_core) and series_core == query_core
+
+    def _series_loose_relevant(row):
+        info = parse_release(str(row.get("name", "")))
+        series_core = _without_articles(_tokens(info["series"]))
+        return bool(query_core) and all(t in series_core for t in query_core)
+
     def round_search(query_text, extra_filter=None):
         def _combined(row):
             if not _relevant(row):
@@ -115,16 +137,63 @@ def search_route():
                 "Reduce the number of qualities or encoders.",
             )
 
+        series_less_relevant: list[dict] = []
+        series_other: list[dict] = []
+        main_hashes: set[str] = set()
+
+        def _remember_series_fallback(raw_rows, primary_rows):
+            primary_hashes = {str(r.get("infohash", "")).lower() for r in primary_rows}
+            for row in raw_rows:
+                ih = str(row.get("infohash", "")).lower()
+                if ih and ih in primary_hashes:
+                    continue
+                info = parse_release(str(row.get("name", "")))
+                if _series_loose_relevant(row):
+                    series_less_relevant.append(row)
+                elif not info.get("parsed") or not _series_primary_relevant(row):
+                    series_other.append(row)
+
+        def series_round_search(query_text):
+            order = [locked["provider"]] if locked["provider"] else list(provider_order or search._provider_order())
+            first_raw_provider = None
+            first_raw_rows: list[dict] = []
+            for provider in order:
+                raw_rows = _dedup_by_infohash(search._run_provider(provider, query_text))
+                primary_rows = [r for r in raw_rows if _series_primary_relevant(r)]
+                less_count = sum(1 for r in raw_rows if r not in primary_rows and _series_loose_relevant(r))
+                other_count = max(0, len(raw_rows) - len(primary_rows) - less_count)
+                provider_attempts.append({
+                    "provider": provider,
+                    "raw": len(raw_rows),
+                    "filtered": len(primary_rows),
+                    "less_relevant": less_count,
+                    "other": other_count,
+                })
+                if raw_rows and first_raw_provider is None:
+                    first_raw_provider = provider
+                    first_raw_rows = raw_rows
+                if primary_rows:
+                    if locked["provider"] is None:
+                        locked["provider"] = provider
+                    _remember_series_fallback(raw_rows, primary_rows)
+                    return primary_rows
+            if locked["provider"] is None and first_raw_provider is not None:
+                locked["provider"] = first_raw_provider
+                if provider_fallback["mode"] is None:
+                    provider_fallback["mode"] = "other"
+                _remember_series_fallback(first_raw_rows, [])
+            return []
+
         # --- Broad: a single <title>-only query first (catches releases the
         #     narrow per-quality/encoder queries miss). Merged into both packs
         #     and episodes below. ---
-        broad_rows = round_search(q)
+        broad_rows = series_round_search(q)
 
         # --- Season Packs: <title> <q> x265 + <title> <q> hevc ---
         pack_rows = list(broad_rows)
         for ql in qualities:
-            pack_rows += round_search(f"{q} {ql} x265")
-            pack_rows += round_search(f"{q} {ql} hevc")
+            pack_rows += series_round_search(f"{q} {ql} x265")
+            pack_rows += series_round_search(f"{q} {ql} hevc")
         pack_rows = _dedup_by_infohash(pack_rows)
         packs = build_packs(pack_rows)
 
@@ -132,7 +201,7 @@ def search_route():
         enc_rows = list(broad_rows)
         for enc in encoders:
             for ql in qualities:
-                enc_rows += round_search(f"{q} {ql} {enc}")
+                enc_rows += series_round_search(f"{q} {ql} {enc}")
         enc_rows = _dedup_by_infohash(enc_rows)
 
         # Encoder filter: the broad query returns ALL release groups; if the user
@@ -155,10 +224,19 @@ def search_route():
         packs = packs[:20]
 
         groups = group_series_results(enc_rows)
+        main_hashes = {str(r.get("infohash", "")).lower() for r in packs + enc_rows if r.get("infohash")}
+        series_less_relevant = [r for r in _dedup_by_infohash(series_less_relevant) if str(r.get("infohash", "")).lower() not in main_hashes]
+        less_hashes = {str(r.get("infohash", "")).lower() for r in series_less_relevant if r.get("infohash")}
+        series_other = [
+            r for r in _dedup_by_infohash(series_other)
+            if str(r.get("infohash", "")).lower() not in main_hashes and str(r.get("infohash", "")).lower() not in less_hashes
+        ]
         return jsonify({
             "mode": "series",
             "packs": packs,
             "encoders": groups["encoders"],
+            "less_relevant": series_less_relevant,
+            "other": series_other,
             "stats": groups["stats"],
             "requests_used": len(provider_attempts),
             "provider": locked["provider"],
