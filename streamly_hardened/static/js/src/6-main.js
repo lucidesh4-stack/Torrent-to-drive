@@ -19,9 +19,11 @@
     $("cloudTab").classList.toggle("active", name === "cloud");
     $("searchTab").classList.toggle("active", name === "search");
 
-    // Auto-load root folder when switching to cloud view
+    // Auto-load root folder when switching to cloud view; stop transfer polling off-cloud.
     if (name === "cloud" && isAuthenticated) {
       await loadFolder(currentFolder || 0);
+    } else if (typeof syncCloudAutoRefresh === "function") {
+      syncCloudAutoRefresh();
     }
   }
 

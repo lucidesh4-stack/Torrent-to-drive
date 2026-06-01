@@ -20,6 +20,7 @@ class SeedrClientProtocol(Protocol):
     def delete_file(self, file_id: int) -> Any: ...
     def add_torrent(self, magnet: str) -> Any: ...
     def fetch_file(self, file_id: int) -> Any: ...
+    def get_torrent_progress(self, progress_url: str) -> Any: ...
 
 
 ClientFactory = Callable[[str, str], SeedrClientProtocol]
@@ -33,6 +34,15 @@ def default_seedr_client_factory(email: str, password: str) -> SeedrClientProtoc
 def _safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if isinstance(value, str):
+            value = value.strip().rstrip("%")
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -100,13 +110,80 @@ class CloudService:
         except Exception:
             return None
 
+    def _progress_error_types(self) -> tuple[type[BaseException], ...]:
+        types: list[type[BaseException]] = [
+            ConnectionError,
+            TimeoutError,
+            requests.RequestException,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ]
+        try:
+            import httpx
+            types.append(httpx.HTTPError)
+        except ImportError:
+            pass
+        try:
+            from seedrcc.exceptions import SeedrError
+            types.append(SeedrError)
+        except ImportError:
+            pass
+        return tuple(types)
+
+    def _serialize_transfer(self, client: SeedrClientProtocol, torrent: Any) -> dict[str, Any]:
+        progress_url = getattr(torrent, "progress_url", None)
+        name = _safe_name(getattr(torrent, "name", ""))
+        size = max(0, _safe_int(getattr(torrent, "size", 0)))
+        progress = _safe_float(getattr(torrent, "progress", 0.0))
+        stopped = _safe_int(getattr(torrent, "stopped", 0))
+        download_rate = max(0.0, _safe_float(getattr(torrent, "download_rate", 0.0)))
+        seeders = max(0, _safe_int(getattr(torrent, "seeders", 0)))
+        warnings = _safe_name(getattr(torrent, "warnings", ""))
+
+        if isinstance(progress_url, str) and progress_url:
+            try:
+                details = client.get_torrent_progress(progress_url)
+                name = _safe_name(getattr(details, "title", name) or name)
+                size = max(size, _safe_int(getattr(details, "size", size)))
+                progress = _safe_float(getattr(details, "progress", progress))
+                stopped = _safe_int(getattr(details, "stopped", stopped))
+                download_rate = max(download_rate, _safe_float(getattr(details, "download_rate", download_rate)))
+                warnings = _safe_name(getattr(details, "warnings", warnings) or warnings)
+                stats = getattr(details, "stats", None)
+                if stats is not None:
+                    seeders = max(seeders, _safe_int(getattr(stats, "seeders", seeders)))
+            except self._progress_error_types() as exc:
+                log.info("Seedr transfer progress unavailable for torrent %s: %s", getattr(torrent, "id", "?"), exc)
+
+        progress = min(100.0, max(0.0, progress))
+        status = "Stopped" if stopped else ("Finalizing" if progress >= 100 else "Loading")
+        if warnings:
+            status = warnings[:80]
+
+        return {
+            "id": _safe_int(getattr(torrent, "id", 0)),
+            "name": name or "Loading torrent",
+            "size": size,
+            "progress": progress,
+            "status": status,
+            "download_rate": download_rate,
+            "seeders": seeders,
+            "stopped": stopped,
+            "last_update": getattr(torrent, "last_update", None),
+        }
+
     def list_items(self, client: SeedrClientProtocol, folder_id: int) -> dict[str, Any]:
         try:
             contents = client.list_contents(folder_id)
             settings = client.get_settings()
             account = getattr(settings, "account", None)
+            transfers = [
+                self._serialize_transfer(client, torrent)
+                for torrent in list(getattr(contents, "torrents", []) or [])[:100]
+            ]
             return {
-                "parent": _safe_int(getattr(contents, "parent_id", 0)),
+                "parent": _safe_int(getattr(contents, "parent_id", getattr(contents, "parent", 0))),
                 "folders": [
                     {
                         "id": _safe_int(getattr(folder, "id", 0)),
@@ -125,8 +202,9 @@ class CloudService:
                     }
                     for file in list(getattr(contents, "files", []) or [])[:1000]
                 ],
-                "used": max(0, _safe_int(getattr(account, "space_used", 0))),
-                "max": max(1, _safe_int(getattr(account, "space_max", 1), 1)),
+                "transfers": transfers,
+                "used": max(0, _safe_int(getattr(account, "space_used", getattr(contents, "space_used", 0)))),
+                "max": max(1, _safe_int(getattr(account, "space_max", getattr(contents, "space_max", 1)), 1)),
             }
         except Exception as e:
             log.exception("Error listing items for folder %s: %s", folder_id, e)

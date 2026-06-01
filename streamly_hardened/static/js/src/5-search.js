@@ -194,6 +194,8 @@
       try {
         await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
+        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+        else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
         add.dataset.state = "done";
         add.textContent = "\u2713";
       } catch (err) {

@@ -96,16 +96,85 @@
     updateSelection();
   }
 
+  function transferPct(t) {
+    const n = Number(t && t.progress);
+    if (!isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, n));
+  }
+
+  function transferMeta(t) {
+    const parts = [];
+    const pct = transferPct(t).toFixed(1).replace(/\.0$/, "");
+    parts.push(pct + "%");
+    if (t && t.status) parts.push(t.status);
+    if (t && t.download_rate_str && t.download_rate > 0) parts.push(t.download_rate_str);
+    if (t && t.seeders) parts.push(t.seeders + " seeders");
+    return parts.join(" · ");
+  }
+
+  function transferBar(t) {
+    const bar = document.createElement("div");
+    bar.className = "transfer-bar";
+    const fill = document.createElement("div");
+    fill.style.width = transferPct(t).toFixed(1) + "%";
+    bar.appendChild(fill);
+    return bar;
+  }
+
+  function renderTransferRow(t) {
+    const tr = document.createElement("tr");
+    tr.className = "transfer-row";
+    const iconTd = document.createElement("td");
+    iconTd.textContent = "⏳";
+    iconTd.title = "Transfer loading";
+
+    const nameTd = document.createElement("td");
+    const box = document.createElement("div");
+    box.className = "transfer-cell";
+    const title = document.createElement("div");
+    title.className = "transfer-title truncate";
+    title.textContent = t.name || "Loading torrent";
+    title.title = t.name || "";
+    const meta = document.createElement("div");
+    meta.className = "transfer-meta";
+    meta.textContent = transferMeta(t);
+    box.append(title, transferBar(t), meta);
+    nameTd.appendChild(box);
+
+    const typeTd = document.createElement("td");
+    typeTd.className = "muted";
+    typeTd.textContent = "loading";
+    const sizeTd = document.createElement("td");
+    sizeTd.className = "muted";
+    sizeTd.textContent = t.size_str || "-";
+    const dateTd = document.createElement("td");
+    dateTd.className = "muted";
+    dateTd.textContent = t.status || "Loading";
+    tr.append(iconTd, nameTd, typeTd, sizeTd, dateTd);
+    return tr;
+  }
+
+  function syncCloudAutoRefresh() {
+    clearTimeout(cloudAutoRefreshTimer);
+    cloudAutoRefreshTimer = null;
+    const cloudVisible = $("cloudView") && !$("cloudView").classList.contains("hidden");
+    if (isAuthenticated && cloudVisible && transfers.length > 0) {
+      cloudAutoRefreshTimer = setTimeout(() => loadFolder(currentFolder || 0, { silent: true }), CLOUD_TRANSFER_REFRESH_MS);
+    }
+  }
+
   function renderCloud() {
     const body = $("cloudBody");
     body.textContent = "";
     const pathLabel = $("pathLabel");
     if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
     $("upBtn").disabled = currentFolder === 0;
-    $("cloudEmpty").classList.toggle("hidden", items.length !== 0);
+    $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length !== 0);
     selectedKeys.clear();
     lastClickedKey = null;
     updateSelection();
+
+    for (const t of transfers) body.appendChild(renderTransferRow(t));
 
     for (const item of items) {
       const tr = document.createElement("tr");
@@ -161,10 +230,29 @@
     if (!list) return;
     list.textContent = "";
     const cnt = $("cmCount");
-    if (cnt) cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}`;
+    if (cnt) cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}` + (transfers.length ? ` · ${transfers.length} loading` : "");
     const empty = $("cloudMobileEmpty");
-    if (empty) empty.classList.toggle("hidden", items.length !== 0);
+    if (empty) empty.classList.toggle("hidden", items.length + transfers.length !== 0);
     $("cmUpBtn").disabled = currentFolder === 0;
+
+    for (const t of transfers) {
+      const row = document.createElement("div");
+      row.className = "cm-row cm-transfer";
+      const ic = document.createElement("div");
+      ic.className = "cm-ic";
+      ic.textContent = "⏳";
+      const info = document.createElement("div");
+      info.className = "cm-info";
+      const fn = document.createElement("div");
+      fn.className = "cm-fn";
+      fn.textContent = t.name || "Loading torrent";
+      const meta = document.createElement("div");
+      meta.className = "cm-meta";
+      meta.textContent = transferMeta(t) + (t.size_str ? " · " + t.size_str : "");
+      info.append(fn, transferBar(t), meta);
+      row.append(ic, info);
+      list.appendChild(row);
+    }
 
     for (const item of items) {
       const row = document.createElement("div");
@@ -317,21 +405,26 @@
     }
   }
 
-  async function loadFolder(id) {
-    status($("cloudStatus"), "Loading folder...", "");
+  async function loadFolder(id, opts = {}) {
+    const silent = !!(opts && opts.silent);
+    if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
       const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin" }));
       currentFolder = Number(id);
       parentFolder = Number(data.parent || 0);
       items = [];
+      transfers = [];
+      for (const transfer of data.transfers || []) transfers.push({ ...transfer, type: "transfer", key: `transfer:${transfer.id}` });
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
       updateStorage(data.used || 0, data.max || 1);
       renderCloud();
-      status($("cloudStatus"), `Loaded ${items.length} item(s).`, "ok");
+      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + ".", "ok");
+      syncCloudAutoRefresh();
     } catch (err) {
       if ((err.message || "").toLowerCase().includes("login")) showLogin();
-      status($("cloudStatus"), err.message || "Failed to load folder", "error");
+      if (!silent) status($("cloudStatus"), err.message || "Failed to load folder", "error");
+      syncCloudAutoRefresh();
     }
   }
 

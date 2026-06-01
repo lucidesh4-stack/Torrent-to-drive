@@ -6,6 +6,9 @@
   // Backwards-compat shim: code reading "selected" expects single item.
   // We expose a getter that returns the first selected item or null.
   let selected = null;
+  let transfers = [];
+  let cloudAutoRefreshTimer = null;
+  const CLOUD_TRANSFER_REFRESH_MS = 5000;
   function refreshSelectedShim() {
     if (selectedKeys.size === 0) { selected = null; return; }
     const firstKey = selectedKeys.values().next().value;
