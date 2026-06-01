@@ -53,7 +53,7 @@
 
         const addBtn = document.createElement("button");
         addBtn.className = "hist-icon";
-        addBtn.textContent = "＋";
+        addBtn.textContent = "+";
         addBtn.title = "Add to Destination";
         addBtn.onclick = async () => {
           addBtn.disabled = true;
@@ -66,7 +66,7 @@
           } catch (e) {
             toast("Failed: " + e.message);
             addBtn.disabled = false;
-            addBtn.textContent = "\uFF0B";
+            addBtn.textContent = "+";
           }
         };
         
