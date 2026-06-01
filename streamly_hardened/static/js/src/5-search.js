@@ -154,7 +154,8 @@
         before.push({ provider: a.provider, raw: Number(a.raw || 0), filtered: Number(a.filtered || 0) });
       }
     }
-    const label = "via " + provider;
+    let label = "via " + provider;
+    if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
