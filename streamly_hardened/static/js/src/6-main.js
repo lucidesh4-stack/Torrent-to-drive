@@ -46,7 +46,10 @@
   });
 
   $("cloudTab").addEventListener("click", () => setTab("cloud"));
-  $("searchTab").addEventListener("click", () => setTab("search"));
+  $("searchTab").addEventListener("click", async () => {
+    await setTab("search");
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
+  });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   $("upBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
   $("openBtn").addEventListener("click", () => openItem());
@@ -216,6 +219,16 @@
     video.load();
     $("videoOverlay").classList.add("hidden");
   });
+
+  window.addEventListener("focus", () => {
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("focus");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("visible");
+  });
+  document.addEventListener("pointerdown", () => {
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("pointer");
+  }, { passive: true });
 
   // Initialization Sequence
   async function init() {

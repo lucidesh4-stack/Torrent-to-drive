@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Clipboard magnet re-check on focus/visibility/Search tab
+- **What**: Improved magnet clipboard detection so newly copied magnets are picked up after returning to Streamly. The frontend now schedules debounced clipboard checks on Search tab click, window focus, page visibility restore, and pointer interaction while Search is visible.
+- **Safety**: Checks are Search-tab gated and debounced (1.2s). Existing same-page and 24h localStorage duplicate guards still prevent repeat auto-adds.
+- **Files**: static/js/src/1-core.js, static/js/src/5-search.js, static/js/src/6-main.js, static/js/app.js.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Persistent duplicate guard for magnet auto-add
 - **What**: Hardened clipboard/paste/URL magnet auto-add with a browser-local duplicate guard. The frontend extracts the `btih` infohash and stores `streamly:autoAddedMagnet:<hash>` in `localStorage` for 24 hours.
 - **Behavior**: If the same infohash is detected again within 24 hours, Streamly fills/keeps the magnet in the search bar but does not auto-add. It shows `Magnet already auto-added recently. Tap Add to force add again.` Manual Add still works and refreshes the timestamp.
@@ -321,6 +327,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Clipboard magnet re-check on focus/visibility/Search tab — 1-core.js, 5-search.js, 6-main.js, app.js
 [2026-06-01] Persistent duplicate guard for magnet auto-add — 1-core.js, 5-search.js, app.js
 [2026-06-01] Frontend magnet auto-ingest from clipboard/paste/URL — 1-core.js, 5-search.js, 6-main.js, app.js
 [2026-06-01] Mobile Search V2 polish: unclip suggestions, preserve open sections, compact rows — 3b-series.js, responsive.css, app.js
@@ -339,6 +346,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Clipboard magnet detection now re-checks on Search tab click, focus, visibility restore, and pointer interaction so newly copied magnets are detected. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
 - **2026-06-01** — Added 24h localStorage duplicate guard for magnet auto-add keyed by BTIH infohash; duplicate magnets fill the search box but do not auto-add unless user taps Add. Changed: 1-core.js, 5-search.js, app.js.
 - **2026-06-01** — Added frontend magnet auto-ingest: clipboard auto-detect/autopaste/auto-add, paste auto-add, and URL/hash `magnet` ingest with URL cleanup. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
 - **2026-06-01** — Polished Mobile Search V2: suggestions no longer clipped, sort/quality/season clicks preserve open sections, quality nav now looks like season chips, and result rows are denser. Changed: 3b-series.js, responsive.css, app.js.

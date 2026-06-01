@@ -24,7 +24,10 @@
   let isAuthenticated = false;
   let lastAutoAddedMagnet = "";
   let autoAddTimer = null;
+  let clipboardMagnetCheckTimer = null;
+  let lastClipboardMagnetCheckAt = 0;
   const AUTO_ADD_MAGNET_TTL_MS = 24 * 60 * 60 * 1000;
+  const CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS = 1200;
 
 
   const $ = (id) => document.getElementById(id);
@@ -1451,6 +1454,17 @@
     }
   }
 
+  function scheduleClipboardMagnetCheck(reason = "event") {
+    if (!$("searchView") || $("searchView").classList.contains("hidden")) return;
+    const now = Date.now();
+    const wait = Math.max(0, CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS - (now - lastClipboardMagnetCheckAt));
+    clearTimeout(clipboardMagnetCheckTimer);
+    clipboardMagnetCheckTimer = setTimeout(async () => {
+      lastClipboardMagnetCheckAt = Date.now();
+      await ingestClipboardMagnet(true);
+    }, wait);
+  }
+
   function extractMagnetFromUrl() {
     const candidates = [];
     const url = new URL(window.location.href);
@@ -1752,7 +1766,10 @@
   });
 
   $("cloudTab").addEventListener("click", () => setTab("cloud"));
-  $("searchTab").addEventListener("click", () => setTab("search"));
+  $("searchTab").addEventListener("click", async () => {
+    await setTab("search");
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
+  });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   $("upBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
   $("openBtn").addEventListener("click", () => openItem());
@@ -1922,6 +1939,16 @@
     video.load();
     $("videoOverlay").classList.add("hidden");
   });
+
+  window.addEventListener("focus", () => {
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("focus");
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("visible");
+  });
+  document.addEventListener("pointerdown", () => {
+    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("pointer");
+  }, { passive: true });
 
   // Initialization Sequence
   async function init() {
