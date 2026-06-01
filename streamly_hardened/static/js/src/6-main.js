@@ -89,6 +89,52 @@
     })
   );
 
+
+  // Mobile search filters: bottom sheet mirrors the desktop dropdown checkbox state.
+  function syncMobileFiltersFromDesktop() {
+    document.querySelectorAll(".mQualityOpt").forEach((m) => {
+      const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
+      if (d) m.checked = d.checked;
+    });
+    document.querySelectorAll(".mEncoderOpt").forEach((m) => {
+      const d = document.querySelector(`.encoderOpt[value="${m.value}"]`);
+      if (d) m.checked = d.checked;
+    });
+  }
+  function syncDesktopFiltersFromMobile() {
+    document.querySelectorAll(".mQualityOpt").forEach((m) => {
+      const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
+      if (d) d.checked = m.checked;
+    });
+    document.querySelectorAll(".mEncoderOpt").forEach((m) => {
+      const d = document.querySelector(`.encoderOpt[value="${m.value}"]`);
+      if (d) d.checked = m.checked;
+    });
+    if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+  }
+  function closeMobileFilters() {
+    const sheet = $("mobileFilterSheet");
+    if (!sheet) return;
+    sheet.classList.add("hidden");
+    sheet.setAttribute("aria-hidden", "true");
+  }
+  function openMobileFilters() {
+    const sheet = $("mobileFilterSheet");
+    if (!sheet) return;
+    syncMobileFiltersFromDesktop();
+    sheet.classList.remove("hidden");
+    sheet.setAttribute("aria-hidden", "false");
+  }
+  if ($("mobileFilterBtn")) $("mobileFilterBtn").addEventListener("click", openMobileFilters);
+  if ($("mobileFilterClose")) $("mobileFilterClose").addEventListener("click", closeMobileFilters);
+  if ($("mobileFilterApply")) $("mobileFilterApply").addEventListener("click", () => {
+    syncDesktopFiltersFromMobile();
+    closeMobileFilters();
+  });
+  if ($("mobileFilterSheet")) $("mobileFilterSheet").addEventListener("click", (e) => {
+    if (e.target.dataset.close === "1") closeMobileFilters();
+  });
+
   // ----- Mobile cloud wiring -----
   if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
   if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => loadFolder(currentFolder));

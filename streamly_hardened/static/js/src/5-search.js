@@ -64,7 +64,7 @@
       renderNormalGrouped(groups);
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
       if ($("resultCount")) $("resultCount").textContent = "";
-      status($("searchStatus"), "Found " + total + " result(s) across " + groups.length + " quality group(s)", "ok");
+      status($("searchStatus"), "Found " + total + " results" + (groups.length ? " across " + groups.length + " quality group" + (groups.length === 1 ? "" : "s") : ""), "ok");
     } catch (err) {
       if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");
