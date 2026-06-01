@@ -85,4 +85,4 @@ No Upstash vars → an ephemeral SECRET_KEY is generated per run.
 | Users logged out after every redeploy | Upstash vars missing → SECRET_KEY changes each boot |
 | Cold start every visit | UptimeRobot not configured / interval too long |
 | `502 Bad Gateway` | Container crashed — check Render logs |
-| Search returns no results | All configured providers empty/unavailable; default order is apibay → bitsearch → torrents-csv |
+| Search returns no results | All configured providers empty/unavailable; default order is bitsearch → apibay → torrents-csv |

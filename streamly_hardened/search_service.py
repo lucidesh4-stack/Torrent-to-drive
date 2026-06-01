@@ -801,7 +801,7 @@ class SearchService:
             log.info("provider %s empty for %r, trying next", name, q)
         return [], None
 
-    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
+    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False, allow_raw_fallback: bool = True) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
         """Filtered FAILOVER search with raw fallback.
 
         A provider normally wins only if rows remain AFTER route-level filters.
@@ -834,7 +834,7 @@ class SearchService:
             else:
                 log.info("provider %s empty for %r, trying next", name, q)
 
-        if raw_fallback_provider is not None:
+        if allow_raw_fallback and raw_fallback_provider is not None:
             log.info("using raw fallback provider %s with %d rows for %r", raw_fallback_provider, len(raw_fallback_rows), q)
             return raw_fallback_rows, raw_fallback_provider, attempts, "unfiltered"
         return [], None, attempts, None

@@ -87,6 +87,7 @@ def search_route():
             _combined,
             prefer=locked["provider"],
             strict_prefer=locked["provider"] is not None,
+            allow_raw_fallback=False,
         )
         provider_attempts.extend(attempts)
         if fallback_mode and provider_fallback["mode"] is None:
@@ -166,9 +167,9 @@ def search_route():
         })
 
     # --- Normal Mode: ONE broad query -> filter (quality + encoder) -> quality sections ---
-    # Provider fallback is decided AFTER relevance/quality/encoder filters. If
-    # apibay returns raw rows but all are filtered out, bitsearch is tried, then
-    # torrents-csv.
+    # Relevance no longer discards rows outright. The provider selection prefers
+    # relevant rows, but non-relevant rows from the winning provider are shown in
+    # a separate "Less relevant" section.
     selected_encoders = {
         e for e in (_normalize_encoder(x) for x in _csv(request.args.get("encoders", "")))
         if e
@@ -183,12 +184,54 @@ def search_route():
             return False
         return True
 
-    all_rows = _dedup_by_infohash(round_search(q, _normal_filter))
-    quality_groups = group_by_quality(all_rows, only_qualities=qualities or None, cap=None)
+    chosen_provider = None
+    matched_rows: list[dict] = []
+    less_relevant_rows: list[dict] = []
+    fallback_mode = None
+    first_less_provider = None
+    first_less_rows: list[dict] = []
+
+    for provider in search._provider_order():
+        raw_rows = _dedup_by_infohash(search._run_provider(provider, q))
+        eligible = [r for r in raw_rows if _normal_filter(r)]
+        relevant = [r for r in eligible if _relevant(r)]
+        less = [r for r in eligible if not _relevant(r)]
+        provider_attempts.append({
+            "provider": provider,
+            "raw": len(raw_rows),
+            "eligible": len(eligible),
+            "filtered": len(relevant),
+            "less_relevant": len(less),
+        })
+        if eligible and first_less_provider is None:
+            first_less_provider = provider
+            first_less_rows = eligible
+        if relevant:
+            chosen_provider = provider
+            matched_rows = relevant
+            less_relevant_rows = less
+            break
+
+    if chosen_provider is None and first_less_provider is not None:
+        chosen_provider = first_less_provider
+        less_relevant_rows = first_less_rows
+        fallback_mode = "less_relevant"
+
+    locked["provider"] = chosen_provider
+    quality_groups = group_by_quality(_dedup_by_infohash(matched_rows), only_qualities=qualities or None, cap=None)
+    if less_relevant_rows:
+        less_relevant_rows = _dedup_by_infohash(less_relevant_rows)
+        less_relevant_rows.sort(key=lambda r: r.get("size_bytes", 0) or 0)
+        quality_groups.append({
+            "quality": "less_relevant",
+            "label": "Less relevant",
+            "count": len(less_relevant_rows),
+            "rows": less_relevant_rows,
+        })
     return jsonify({
         "mode": "normal_grouped",
         "quality_groups": quality_groups,
         "provider": locked["provider"],
         "provider_attempts": provider_attempts,
-        "provider_fallback": provider_fallback["mode"],
+        "provider_fallback": fallback_mode,
     })

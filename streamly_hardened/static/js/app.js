@@ -990,15 +990,33 @@
     container.appendChild(seriesHeaderRow());
 
     if (isMobileSearchUi()) {
-      const available = lastNormalGroups.map(g => g.quality);
+      const primaryGroups = lastNormalGroups.filter(g => g.quality !== "less_relevant");
+      const lessGroup = lastNormalGroups.find(g => g.quality === "less_relevant");
+      const available = primaryGroups.map(g => g.quality);
       activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
       const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
         activeNormalQuality = q;
         renderNormalGrouped(lastNormalGroups);
       });
       if (nav) container.appendChild(nav);
-      const active = lastNormalGroups.find(g => g.quality === activeNormalQuality) || lastNormalGroups[0];
-      for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
+      const active = primaryGroups.find(g => g.quality === activeNormalQuality) || primaryGroups[0];
+      if (active) for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
+      if (lessGroup && (lessGroup.rows || []).length) {
+        const section = document.createElement("div");
+        section.className = "encoder-section collapsed";
+        applyOpenState(section, "normal:less_relevant", prevOpen);
+        const header = sectionHeader({
+          title: lessGroup.label || "Less relevant",
+          sub: null,
+          count: lessGroup.count + (lessGroup.count === 1 ? " result" : " results"),
+        });
+        const body = document.createElement("div");
+        body.className = "encoder-body";
+        for (const r of sortRows(lessGroup.rows || [])) body.appendChild(plainRow(r));
+        section.append(header, body);
+        container.appendChild(section);
+        makeAccordion(section, header, container, ".encoder-section");
+      }
       return;
     }
 
@@ -1498,6 +1516,7 @@
     }
     let label = "via " + provider;
     if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
+    if (data.provider_fallback === "less_relevant") label += " · showing less relevant matches";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
@@ -1534,7 +1553,7 @@
     }
 
     if (!keepPage) currentPage = page || 1;
-    status($("searchStatus"), "Searching providers: apibay → bitsearch → torrents-csv...", "");
+    status($("searchStatus"), "Searching providers: bitsearch → apibay → torrents-csv...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
     try {
       const params = new URLSearchParams();
