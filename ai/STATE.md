@@ -53,6 +53,15 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Mobile Search V2 implementation: compact controls + global quality nav
+- **What**: Implemented the approved mobile search layout. Mobile now hides the Torrent Search title/subtitle, keeps the search input text visible, uses a compact `[input]+[search]` row, then `Filters` + `Normal|Series` segmented control, then result count.
+- **Global quality navigation**: Added mobile-only `4K | 1080p | 720p` segmented navigation under the `Name | SE | Time | Size | +` header. It navigates one returned quality at a time for both Normal/movie and Series results. Quality selection remains in Filters and controls which qualities are searched.
+- **Series browsing**: Series mode removes per-encoder quality accordions on mobile; selected global quality is applied across packs/encoders. Open encoder shows encoder title, season chips (`S1..S8`), and only the active season episodes. Season labels are hidden on mobile.
+- **No Add all**: Removed generated section/quality Add-all buttons completely; only per-row `+` remains.
+- **Filters**: Added mobile bottom-sheet filters with quality + encoder checkboxes, synced to existing desktop dropdown checkboxes before search.
+- **Files**: templates/index.html, static/js/src/3b-series.js, static/js/src/5-search.js, static/js/src/6-main.js, static/css/responsive.css, static/js/app.js.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Compact desktop cloud UI + eager storage snapshot
 - **What**: Tightened desktop topbar storage into a compact single-line header with a thinner meter; reduced desktop cloud side-card width/padding, metric spacing, and action button size so Open/Download/Copy Link/Delete/Clear Selection no longer appear oversized.
 - **Storage load fix**: Added `refreshStorageSnapshot()` to fetch `/fs/folder/0/items` after authenticated startup on the Search tab, updating only storage usage without switching tabs or rendering Cloud Drive. Existing Cloud Drive loads still use `loadFolder()`.
@@ -278,6 +287,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Mobile Search V2 implementation — index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js
 [2026-06-01] Compact desktop UI + eager storage snapshot — base.css, 2-cloud.js, 6-main.js, app.js
 [2026-06-01] Desktop cloud UI: storage moved to topbar; desktop Copy Link action added — templates/index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js
 [2026-05-31] Protocol Adoption & Workspace Cleanup — ai/QUICK.md
@@ -290,6 +300,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Implemented Mobile Search V2: no mobile Torrent Search header, compact visible search bar, Filters bottom sheet, Normal|Series segmented control, mobile global quality navigation, season chips per encoder, and removed Add-all buttons. Changed: index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js.
 - **2026-06-01** — Made desktop storage/topbar and selected-item side panel compact; added eager authenticated storage snapshot so storage usage loads on Search without clicking Cloud Drive. Changed: base.css, 2-cloud.js, 6-main.js, app.js.
 - **2026-06-01** — Desktop cloud UI updated: left topbar now shows Storage + compact meter + `Connected to <email>`, right email pill hidden, side-card Storage block removed, and desktop Copy Link action added for files/folders/multi-select zip links. Changed: index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js.
 - **2026-05-31** — Series mode now also runs a broad <title> query first and merges it into packs + episodes (catches releases the narrow queries miss); broad query counts toward the 12-query quota; episodes filtered to ticked encoders. Changed: routes/search.py.

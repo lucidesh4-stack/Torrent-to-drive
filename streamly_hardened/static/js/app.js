@@ -692,12 +692,63 @@
   // True once the user clicks a column header; until then Series keeps its native
   // S/E order (Normal always uses size-asc default regardless).
   let userSorted = false;
+  let activeNormalQuality = "";
+  let activeSeriesQuality = "";
+  const activeSeriesSeason = Object.create(null);
+
+  function isMobileSearchUi() {
+    return window.matchMedia && window.matchMedia("(max-width: 768px)").matches;
+  }
+
+  function qualityLabel(q) {
+    return ({ "2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other" })[q] || q || "Other";
+  }
+
+  function qualityBucketFromName(name) {
+    const m = String(name || "").match(/(?:^|[^0-9])(2160p|1080p|720p)(?:[^0-9]|$)/i);
+    return m ? m[1].toLowerCase() : "Other";
+  }
+
+  function normalizeQualityList(list) {
+    const order = ["2160p", "1080p", "720p", "Other"];
+    const set = new Set((list || []).filter(Boolean));
+    return order.filter(q => set.has(q));
+  }
+
+  function chooseActiveQuality(available, current) {
+    const qs = normalizeQualityList(available);
+    if (!qs.length) return "";
+    if (current && qs.includes(current)) return current;
+    const selected = getSelectedQualities();
+    for (const q of selected) if (qs.includes(q)) return q;
+    if (qs.includes("1080p")) return "1080p";
+    return qs[0];
+  }
+
+  function mobileQualityNav(available, active, onPick) {
+    const qs = normalizeQualityList(available).filter(q => q !== "Other");
+    if (!qs.length) return null;
+    const nav = document.createElement("div");
+    nav.className = "mobile-quality-nav";
+    for (const q of qs) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mobile-quality-tab" + (q === active ? " active" : "");
+      btn.textContent = qualityLabel(q);
+      btn.addEventListener("click", () => onPick(q));
+      nav.appendChild(btn);
+    }
+    return nav;
+  }
 
   function getSelectedQualities() {
-    return Array.from(document.querySelectorAll(".qualityOpt:checked")).map(c => c.value);
+    const sel = isMobileSearchUi() ? ".mQualityOpt:checked" : ".qualityOpt:checked";
+    const values = Array.from(document.querySelectorAll(sel)).map(c => c.value);
+    return values.length ? values : Array.from(document.querySelectorAll(".qualityOpt:checked")).map(c => c.value);
   }
   function getSelectedEncoders() {
-    return Array.from(document.querySelectorAll(".encoderOpt:checked")).map(c => c.value);
+    const sel = isMobileSearchUi() ? ".mEncoderOpt:checked" : ".encoderOpt:checked";
+    return Array.from(document.querySelectorAll(sel)).map(c => c.value);
   }
 
   function updateDropdownLabels() {
@@ -786,7 +837,8 @@
     return wrap;
   }
 
-  // Normal mode: render quality sections (4K/1080p/720p/Other), rows sorted by current sort.
+  // Normal mode: render quality sections. On mobile, quality tabs navigate one
+  // quality at a time; desktop keeps the existing accordion sections.
   function renderNormalGrouped(groups) {
     lastNormalGroups = groups || [];
     const container = $("seriesResults");
@@ -800,9 +852,23 @@
     }
     syncSortControls();
     container.appendChild(seriesHeaderRow());
+
+    if (isMobileSearchUi()) {
+      const available = lastNormalGroups.map(g => g.quality);
+      activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
+      const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
+        activeNormalQuality = q;
+        renderNormalGrouped(lastNormalGroups);
+      });
+      if (nav) container.appendChild(nav);
+      const active = lastNormalGroups.find(g => g.quality === activeNormalQuality) || lastNormalGroups[0];
+      for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
+      return;
+    }
+
     for (const g of lastNormalGroups) {
       const section = document.createElement("div");
-      section.className = "encoder-section collapsed"; // accordion: closed by default
+      section.className = "encoder-section collapsed";
       const header = sectionHeader({
         title: g.label,
         sub: null,
@@ -866,14 +932,14 @@
   }
 
   function sectionHeader(opts) {
-    // opts: {title, sub, count, episodes?}
+    // opts: {title, sub, count}. Bulk Add-all buttons intentionally removed.
     const header = document.createElement("div");
     header.className = "encoder-header";
     const titleWrap = document.createElement("div");
     titleWrap.className = "encoder-title";
     const chevron = document.createElement("span");
     chevron.className = "chevron";
-    chevron.textContent = "\u25BC";
+    chevron.textContent = "▼";
     const nameEl = document.createElement("span");
     nameEl.className = "encoder-name";
     nameEl.textContent = opts.title;
@@ -881,7 +947,7 @@
     if (opts.sub) {
       const q = document.createElement("span");
       q.className = "encoder-quality";
-      q.textContent = "\u2014 " + opts.sub;
+      q.textContent = "— " + opts.sub;
       titleWrap.appendChild(q);
     }
     if (opts.count != null) {
@@ -891,14 +957,6 @@
       titleWrap.appendChild(countEl);
     }
     header.appendChild(titleWrap);
-    if (opts.episodes && opts.episodes.length) {
-      const addAll = document.createElement("button");
-      addAll.type = "button";
-      addAll.className = "section-add";
-      addAll.textContent = "+ " + opts.episodes.length;
-      addAll.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(opts.episodes, addAll); });
-      header.appendChild(addAll);
-    }
     return header;
   }
 
@@ -922,58 +980,106 @@
     syncSortControls();
     container.appendChild(seriesHeaderRow());
 
-    // --- Season Packs on top (smallest-first); shown with ORIGINAL torrent name ---
-    if (packs.length) {
+    const mobile = isMobileSearchUi();
+    const available = [];
+    for (const p of packs) available.push(qualityBucketFromName(p.name));
+    for (const enc of encoders) for (const qg of (enc.qualities || [])) available.push(qg.quality);
+    activeSeriesQuality = chooseActiveQuality(available, activeSeriesQuality);
+    if (mobile) {
+      const nav = mobileQualityNav(available, activeSeriesQuality, (q) => {
+        activeSeriesQuality = q;
+        renderSeriesGrouped(lastSeriesData);
+      });
+      if (nav) container.appendChild(nav);
+    }
+
+    const packsToShow = mobile ? packs.filter(p => qualityBucketFromName(p.name) === activeSeriesQuality) : packs;
+    if (packsToShow.length) {
       const section = document.createElement("div");
-      section.className = "encoder-section packs collapsed"; // accordion: closed by default
+      section.className = "encoder-section packs collapsed";
       const header = sectionHeader({
-        title: "\uD83D\uDCE6 Season Packs",
-        sub: "complete seasons \u00b7 smallest first",
-        count: packs.length + (packs.length === 1 ? " pack" : " packs"),
+        title: "📦 Season Packs",
+        sub: mobile ? null : "complete seasons · smallest first",
+        count: packsToShow.length + (packsToShow.length === 1 ? " pack" : " packs"),
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
-      for (const p of packs) body.appendChild(seriesEpisodeRow(p, [p.name]));
+      for (const p of packsToShow) body.appendChild(seriesEpisodeRow(p, [p.name]));
       section.append(header, body);
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
     }
 
-    // --- Encoder → Quality → Season → Episode (uploader level removed) ---
     for (const enc of encoders) {
+      const qualityGroups = mobile
+        ? (enc.qualities || []).filter(qg => qg.quality === activeSeriesQuality)
+        : (enc.qualities || []);
+      if (!qualityGroups.length) continue;
+      const visibleCount = qualityGroups.reduce((a, qg) => a + (qg.episode_count || 0), 0);
+      if (!visibleCount) continue;
+
       const section = document.createElement("div");
-      section.className = "encoder-section collapsed"; // accordion: closed by default
-      const allEps = (enc.qualities || []).flatMap(qg => qg.seasons.flatMap(s => s.episodes));
+      section.className = "encoder-section collapsed";
       const header = sectionHeader({
         title: enc.name,
-        sub: (enc.qualities || []).length + " quality group(s)",
-        count: enc.episode_count + (enc.episode_count === 1 ? " episode" : " episodes"),
-        episodes: allEps,
+        sub: mobile ? null : qualityGroups.length + " quality group(s)",
+        count: visibleCount + (visibleCount === 1 ? " episode" : " episodes"),
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
 
-      for (const qg of enc.qualities || []) {
-        // Each quality is its own collapsible accordion group within this encoder.
+      for (const qg of qualityGroups) {
+        if (mobile) {
+          const title = document.createElement("div");
+          title.className = "mobile-encoder-title";
+          const strong = document.createElement("strong");
+          strong.textContent = enc.name;
+          const badge = document.createElement("span");
+          badge.className = "encoder-count";
+          badge.textContent = qg.label || qualityLabel(qg.quality);
+          title.append(strong, badge);
+          body.appendChild(title);
+
+          const seasons = qg.seasons || [];
+          if (seasons.length) {
+            const skey = enc.encoder_norm + ":" + qg.quality;
+            const availableSeasons = seasons.map(s => s.season);
+            if (!activeSeriesSeason[skey] || !availableSeasons.includes(activeSeriesSeason[skey])) {
+              activeSeriesSeason[skey] = availableSeasons[0];
+            }
+            const nav = document.createElement("div");
+            nav.className = "mobile-season-nav";
+            for (const season of availableSeasons) {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "mobile-season-tab" + (season === activeSeriesSeason[skey] ? " active" : "");
+              btn.textContent = "S" + season;
+              btn.addEventListener("click", () => {
+                activeSeriesSeason[skey] = season;
+                renderSeriesGrouped(lastSeriesData);
+              });
+              nav.appendChild(btn);
+            }
+            body.appendChild(nav);
+            const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
+            const eps = userSorted ? sortRows(activeSeason.episodes || []) : (activeSeason.episodes || []);
+            for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, enc.name, qg.label || qg.quality]));
+          }
+          continue;
+        }
+
         const qGroup = document.createElement("div");
         qGroup.className = "uploader-group collapsed";
         const qlabel = document.createElement("div");
         qlabel.className = "uploader-label";
-        const qEps = qg.seasons.flatMap(s => s.episodes);
         const chev = document.createElement("span");
         chev.className = "u-chevron";
-        chev.textContent = "\u25BC";
+        chev.textContent = "▼";
         const txt = document.createElement("span");
         txt.style.flex = "1";
         txt.style.minWidth = "0";
         txt.textContent = (qg.label || qg.quality) + " (" + qg.episode_count + ")";
         qlabel.append(chev, txt);
-        const addAllQ = document.createElement("button");
-        addAllQ.type = "button";
-        addAllQ.className = "section-add sm";
-        addAllQ.textContent = "+ " + qEps.length;
-        addAllQ.addEventListener("click", (e) => { e.stopPropagation(); addAllEpisodes(qEps, addAllQ); });
-        qlabel.appendChild(addAllQ);
         qGroup.appendChild(qlabel);
         const qBody = document.createElement("div");
         qBody.className = "uploader-body";
@@ -983,7 +1089,6 @@
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
           qBody.appendChild(slabel);
-          // Episodes come pre-sorted in sequence; header clicks re-sort on demand.
           const eps = userSorted ? sortRows(s.episodes) : s.episodes;
           for (const ep of eps) {
             qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, qg.label || qg.quality]));
@@ -991,7 +1096,6 @@
         }
         qGroup.appendChild(qBody);
         body.appendChild(qGroup);
-        // Quality-level accordion: one quality group open at a time within this encoder.
         makeAccordion(qGroup, qlabel, body, ".uploader-group");
       }
       section.append(header, body);
@@ -1180,7 +1284,7 @@
       renderNormalGrouped(groups);
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
       if ($("resultCount")) $("resultCount").textContent = "";
-      status($("searchStatus"), "Found " + total + " result(s) across " + groups.length + " quality group(s)", "ok");
+      status($("searchStatus"), "Found " + total + " results" + (groups.length ? " across " + groups.length + " quality group" + (groups.length === 1 ? "" : "s") : ""), "ok");
     } catch (err) {
       if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");
@@ -1411,6 +1515,52 @@
       if (typeof updateDropdownLabels === "function") updateDropdownLabels();
     })
   );
+
+
+  // Mobile search filters: bottom sheet mirrors the desktop dropdown checkbox state.
+  function syncMobileFiltersFromDesktop() {
+    document.querySelectorAll(".mQualityOpt").forEach((m) => {
+      const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
+      if (d) m.checked = d.checked;
+    });
+    document.querySelectorAll(".mEncoderOpt").forEach((m) => {
+      const d = document.querySelector(`.encoderOpt[value="${m.value}"]`);
+      if (d) m.checked = d.checked;
+    });
+  }
+  function syncDesktopFiltersFromMobile() {
+    document.querySelectorAll(".mQualityOpt").forEach((m) => {
+      const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
+      if (d) d.checked = m.checked;
+    });
+    document.querySelectorAll(".mEncoderOpt").forEach((m) => {
+      const d = document.querySelector(`.encoderOpt[value="${m.value}"]`);
+      if (d) d.checked = m.checked;
+    });
+    if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+  }
+  function closeMobileFilters() {
+    const sheet = $("mobileFilterSheet");
+    if (!sheet) return;
+    sheet.classList.add("hidden");
+    sheet.setAttribute("aria-hidden", "true");
+  }
+  function openMobileFilters() {
+    const sheet = $("mobileFilterSheet");
+    if (!sheet) return;
+    syncMobileFiltersFromDesktop();
+    sheet.classList.remove("hidden");
+    sheet.setAttribute("aria-hidden", "false");
+  }
+  if ($("mobileFilterBtn")) $("mobileFilterBtn").addEventListener("click", openMobileFilters);
+  if ($("mobileFilterClose")) $("mobileFilterClose").addEventListener("click", closeMobileFilters);
+  if ($("mobileFilterApply")) $("mobileFilterApply").addEventListener("click", () => {
+    syncDesktopFiltersFromMobile();
+    closeMobileFilters();
+  });
+  if ($("mobileFilterSheet")) $("mobileFilterSheet").addEventListener("click", (e) => {
+    if (e.target.dataset.close === "1") closeMobileFilters();
+  });
 
   // ----- Mobile cloud wiring -----
   if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });

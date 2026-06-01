@@ -173,9 +173,33 @@
           <div id="searchStatus" class="status"></div>
           <div class="mode-row">
             <div id="resultCount" class="muted"></div>
+            <button id="mobileFilterBtn" class="mobile-filter-btn" type="button">Filters</button>
             <div class="mode-toggle">
               <button id="modeNormal" type="button" class="active">Normal</button>
               <button id="modeSeries" type="button">Series Mode</button>
+            </div>
+          </div>
+          <div id="mobileFilterSheet" class="mobile-filter-sheet hidden" aria-hidden="true">
+            <div class="mfs-backdrop" data-close="1"></div>
+            <div class="mfs-panel" role="dialog" aria-modal="true" aria-label="Search filters">
+              <div class="mfs-grab"></div>
+              <div class="mfs-head">
+                <h3>Filters</h3>
+                <button id="mobileFilterClose" class="mfs-close" type="button" aria-label="Close filters">×</button>
+              </div>
+              <div class="mfs-field">
+                <div class="mfs-title">Quality included in search</div>
+                <label><input type="checkbox" class="mQualityOpt" value="2160p"> 4K</label>
+                <label><input type="checkbox" class="mQualityOpt" value="1080p" checked> 1080p</label>
+                <label><input type="checkbox" class="mQualityOpt" value="720p"> 720p</label>
+              </div>
+              <div class="mfs-field">
+                <div class="mfs-title">Encoders</div>
+                <label><input type="checkbox" class="mEncoderOpt" value="ELiTE"> ELiTE</label>
+                <label><input type="checkbox" class="mEncoderOpt" value="PSA"> PSA</label>
+                <label><input type="checkbox" class="mEncoderOpt" value="MeGusta"> MeGusta</label>
+              </div>
+              <button id="mobileFilterApply" class="mfs-apply" type="button">Apply filters</button>
             </div>
           </div>
         </div>
