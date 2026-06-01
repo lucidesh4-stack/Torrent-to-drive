@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Cancel active Seedr transfers from Cloud Drive
+- **What**: Added transfer cancellation for active Seedr torrents. Backend endpoint `POST /api/transfer/cancel` validates the transfer id and calls `CloudService.delete_transfer()` -> `client.delete_torrent(str(id))`.
+- **UI**: Active transfer rows/cards now show a `Cancel` button on desktop and mobile. Cancel confirms, calls the endpoint, refreshes current Cloud Drive, and shows status/toast. Completed files/folders still use existing delete flow.
+- **Files**: cloud_service.py, routes/cloud.py, static/js/src/2-cloud.js, base.css, responsive.css, app.js.
+- **Verified**: service harness (`delete_transfer` string id); app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Cloud Drive shows active Seedr transfers with progress
 - **What**: `/fs/folder/<id>/items` now includes active Seedr torrents from `contents.torrents` as `transfers[]`, with name, size, progress %, status, download rate, seeders, and formatted size/rate fields. If `progress_url` is available, the backend enriches progress via `client.get_torrent_progress()`.
 - **UI**: Desktop Cloud Drive renders transfer rows at the top with a progress bar. Mobile Cloud Drive renders loading transfer cards with progress bar/meta. Transfers are not selectable/deletable as normal files.
@@ -294,6 +300,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Cancel active Seedr transfers — cloud_service.py, routes/cloud.py, 2-cloud.js, base.css, responsive.css, app.js
 [2026-06-01] Active Seedr transfer progress in Cloud Drive — cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js
 [2026-06-01] Mobile Search V2 implementation — index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js
 [2026-06-01] Compact desktop UI + eager storage snapshot — base.css, 2-cloud.js, 6-main.js, app.js
@@ -308,6 +315,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Added Cancel button for active Seedr transfers in Cloud Drive; endpoint `/api/transfer/cancel` calls Seedr `delete_torrent`. Changed: cloud_service.py, routes/cloud.py, 2-cloud.js, base.css, responsive.css, app.js.
 - **2026-06-01** — Cloud Drive now shows active Seedr transfers before completion, with desktop/mobile progress bars and auto-refresh while transfers are loading. Changed: cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js.
 - **2026-06-01** — Implemented Mobile Search V2: no mobile Torrent Search header, compact visible search bar, Filters bottom sheet, Normal|Series segmented control, mobile global quality navigation, season chips per encoder, and removed Add-all buttons. Changed: index.html, 3b-series.js, 5-search.js, 6-main.js, responsive.css, app.js.
 - **2026-06-01** — Made desktop storage/topbar and selected-item side panel compact; added eager authenticated storage snapshot so storage usage loads on Search without clicking Cloud Drive. Changed: base.css, 2-cloud.js, 6-main.js, app.js.

@@ -148,8 +148,12 @@
     sizeTd.className = "muted";
     sizeTd.textContent = t.size_str || "-";
     const dateTd = document.createElement("td");
-    dateTd.className = "muted";
-    dateTd.textContent = t.status || "Loading";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "danger transfer-cancel-btn";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.addEventListener("click", () => cancelTransfer(t));
+    dateTd.appendChild(cancelBtn);
     tr.append(iconTd, nameTd, typeTd, sizeTd, dateTd);
     return tr;
   }
@@ -249,7 +253,12 @@
       const meta = document.createElement("div");
       meta.className = "cm-meta";
       meta.textContent = transferMeta(t) + (t.size_str ? " · " + t.size_str : "");
-      info.append(fn, transferBar(t), meta);
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.className = "danger cm-transfer-cancel";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelTransfer(t); });
+      info.append(fn, transferBar(t), meta, cancel);
       row.append(ic, info);
       list.appendChild(row);
     }
@@ -425,6 +434,22 @@
       if ((err.message || "").toLowerCase().includes("login")) showLogin();
       if (!silent) status($("cloudStatus"), err.message || "Failed to load folder", "error");
       syncCloudAutoRefresh();
+    }
+  }
+
+  async function cancelTransfer(t) {
+    if (!t || !t.id) return toast("Transfer id unavailable");
+    if (!confirm(`Cancel transfer: ${t.name || "loading torrent"}?`)) return;
+    status($("cloudStatus"), "Cancelling transfer...", "");
+    try {
+      await postJson("/api/transfer/cancel", { id: t.id });
+      toast("Transfer cancelled");
+      await loadFolder(currentFolder || 0, { silent: true });
+      status($("cloudStatus"), "Transfer cancelled.", "ok");
+    } catch (err) {
+      const message = err.message || "Cancel failed";
+      toast(message);
+      status($("cloudStatus"), message, "error");
     }
   }
 
