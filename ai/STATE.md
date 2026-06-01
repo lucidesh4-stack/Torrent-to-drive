@@ -53,6 +53,20 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Persistent duplicate guard for magnet auto-add
+- **What**: Hardened clipboard/paste/URL magnet auto-add with a browser-local duplicate guard. The frontend extracts the `btih` infohash and stores `streamly:autoAddedMagnet:<hash>` in `localStorage` for 24 hours.
+- **Behavior**: If the same infohash is detected again within 24 hours, Streamly fills/keeps the magnet in the search bar but does not auto-add. It shows `Magnet already auto-added recently. Tap Add to force add again.` Manual Add still works and refreshes the timestamp.
+- **Scope**: Frontend-only; no backend/API changes. Same-page in-memory guard remains, localStorage adds refresh/new-tab protection.
+- **Files**: static/js/src/1-core.js, static/js/src/5-search.js, static/js/app.js.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
+### 2026-06-01 — Frontend magnet auto-ingest: clipboard, paste, URL
+- **What**: Added frontend-only magnet ingest. Search page detects magnet links from clipboard, paste/input, `?magnet=`, hash param `#magnet=`, and direct hash text. Detected magnets fill the search box and trigger the existing add flow automatically.
+- **Clipboard/Paste**: On Search tab init and after authenticated status, Streamly attempts clipboard read; if clipboard contains a valid magnet, it auto-pastes and auto-adds. Paste button and manual paste also auto-add. Duplicate guard prevents repeatedly adding the same magnet in the same page session.
+- **URL cleanup**: `?magnet=`/hash magnet URLs are cleaned with `history.replaceState()` after detection to avoid repeat-add on refresh.
+- **Files**: static/js/src/1-core.js, static/js/src/5-search.js, static/js/src/6-main.js, static/js/app.js.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Mobile Search V2 polish: overlay, stable sections, denser rows
 - **What**: Fixed regressions from Mobile Search V2. Suggestion overlay is no longer clipped on mobile. Sorting header clicks and quality/season navigation preserve open sections instead of collapsing everything.
 - **UI**: Restyled global quality navigation to match season chips (small pill style instead of segmented bar). Reduced mobile result vertical space via tighter section headers, rows, metadata, season chips, and smaller add buttons.
@@ -307,6 +321,8 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Persistent duplicate guard for magnet auto-add — 1-core.js, 5-search.js, app.js
+[2026-06-01] Frontend magnet auto-ingest from clipboard/paste/URL — 1-core.js, 5-search.js, 6-main.js, app.js
 [2026-06-01] Mobile Search V2 polish: unclip suggestions, preserve open sections, compact rows — 3b-series.js, responsive.css, app.js
 [2026-06-01] Cancel active Seedr transfers — cloud_service.py, routes/cloud.py, 2-cloud.js, base.css, responsive.css, app.js
 [2026-06-01] Active Seedr transfer progress in Cloud Drive — cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js
@@ -323,6 +339,8 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Added 24h localStorage duplicate guard for magnet auto-add keyed by BTIH infohash; duplicate magnets fill the search box but do not auto-add unless user taps Add. Changed: 1-core.js, 5-search.js, app.js.
+- **2026-06-01** — Added frontend magnet auto-ingest: clipboard auto-detect/autopaste/auto-add, paste auto-add, and URL/hash `magnet` ingest with URL cleanup. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
 - **2026-06-01** — Polished Mobile Search V2: suggestions no longer clipped, sort/quality/season clicks preserve open sections, quality nav now looks like season chips, and result rows are denser. Changed: 3b-series.js, responsive.css, app.js.
 - **2026-06-01** — Added Cancel button for active Seedr transfers in Cloud Drive; endpoint `/api/transfer/cancel` calls Seedr `delete_torrent`. Changed: cloud_service.py, routes/cloud.py, 2-cloud.js, base.css, responsive.css, app.js.
 - **2026-06-01** — Cloud Drive now shows active Seedr transfers before completion, with desktop/mobile progress bars and auto-refresh while transfers are loading. Changed: cloud_service.py, routes/cloud.py, 1-core.js, 2-cloud.js, 5-search.js, 6-main.js, base.css, responsive.css, app.js.

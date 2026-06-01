@@ -153,20 +153,19 @@
 
   if ($("pasteBtn")) {
     $("pasteBtn").addEventListener("click", async () => {
+      const added = typeof ingestClipboardMagnet === "function" ? await ingestClipboardMagnet(true) : false;
+      if (added) return;
       try {
         const text = await navigator.clipboard.readText();
         $("searchQuery").value = text;
         $("searchQuery").focus();
-        
-        // Auto-add if it's a magnet link
-        if (/^magnet:\?xt=urn:btih:/i.test(text)) {
-           search(false, 1);
-        }
+        if (typeof setMagnetUiState === "function") setMagnetUiState(text);
       } catch (err) {
         toast("Clipboard access denied");
       }
     });
   }
+
 
   // Allow dismissing login overlay (continue as guest)
   $("loginCloseBtn").addEventListener("click", () => {
@@ -195,13 +194,14 @@
   $("searchQuery").addEventListener("input", (e) => {
     getSuggestions();
     const q = e.target.value.trim();
-    if (/^magnet:\?xt=urn:btih:/i.test(q)) {
-      $("searchBtn").classList.add("hidden");
-      $("addMagnetBtn").classList.remove("hidden");
-    } else {
-      $("searchBtn").classList.remove("hidden");
-      $("addMagnetBtn").classList.add("hidden");
-    }
+    if (typeof maybeAutoAddMagnet === "function" && maybeAutoAddMagnet(q, "input")) return;
+    if (typeof setMagnetUiState === "function") setMagnetUiState(q);
+  });
+  $("searchQuery").addEventListener("paste", () => {
+    setTimeout(() => {
+      const q = $("searchQuery").value.trim();
+      if (typeof maybeAutoAddMagnet === "function") maybeAutoAddMagnet(q, "paste");
+    }, 0);
   });
 
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
@@ -224,8 +224,10 @@
     
     // Optimistically show header and search tab immediately
     showApp(null); 
+    const hadUrlMagnet = typeof ingestUrlMagnet === "function" && ingestUrlMagnet();
     if (initialTab === "search") {
       setTab("search");
+      if (!hadUrlMagnet && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
     }
 
     try {
@@ -243,6 +245,7 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
+        if (initialTab === "search" && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
         if (initialTab === "cloud") {
           setTab("cloud");
           await loadFolder(0);
