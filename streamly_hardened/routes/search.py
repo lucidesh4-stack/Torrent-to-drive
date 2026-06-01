@@ -69,6 +69,7 @@ def search_route():
     # (e.g. searching "Daredevil" must not surface "Bones" / "The Red Green Show").
     locked = {"provider": None}
     provider_attempts: list[dict] = []
+    provider_fallback = {"mode": None}
 
     def _relevant(r):
         info = parse_release(str(r.get("name", "")))
@@ -81,13 +82,15 @@ def search_route():
                 return False
             return bool(extra_filter(row)) if extra_filter else True
 
-        rows, winner, attempts = search.multi_search_filtered(
+        rows, winner, attempts, fallback_mode = search.multi_search_filtered(
             query_text,
             _combined,
             prefer=locked["provider"],
             strict_prefer=locked["provider"] is not None,
         )
         provider_attempts.extend(attempts)
+        if fallback_mode and provider_fallback["mode"] is None:
+            provider_fallback["mode"] = fallback_mode
         if winner and locked["provider"] is None:
             locked["provider"] = winner
         return rows
@@ -157,6 +160,7 @@ def search_route():
             "requests_used": len(provider_attempts),
             "provider": locked["provider"],
             "provider_attempts": provider_attempts,
+            "provider_fallback": provider_fallback["mode"],
             "qualities": qualities,
             "encoders_selected": encoders,
         })
@@ -186,4 +190,5 @@ def search_route():
         "quality_groups": quality_groups,
         "provider": locked["provider"],
         "provider_attempts": provider_attempts,
+        "provider_fallback": provider_fallback["mode"],
     })

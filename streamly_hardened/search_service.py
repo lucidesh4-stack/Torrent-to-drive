@@ -801,30 +801,43 @@ class SearchService:
             log.info("provider %s empty for %r, trying next", name, q)
         return [], None
 
-    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:
-        """Filtered FAILOVER search: a provider only wins if rows remain AFTER
-        route-level relevance/filter checks.
+    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
+        """Filtered FAILOVER search with raw fallback.
 
-        This handles the important case where a provider returns raw rows, but all
-        of them are filtered out as unrelated/wrong quality/wrong encoder. In that
-        case the next provider is tried.
+        A provider normally wins only if rows remain AFTER route-level filters.
+        If every provider is filtered to zero but at least one provider had raw
+        rows, return the first raw provider's rows as an `unfiltered` fallback so
+        short/acronym searches (e.g. release group tokens) do not falsely show no
+        results.
         """
         attempts: list[dict[str, Any]] = []
+        raw_fallback_rows: list[dict[str, Any]] = []
+        raw_fallback_provider: str | None = None
+
         for name in self._provider_order(prefer, strict_prefer=strict_prefer):
             raw_rows = _dedup_by_infohash(self._run_provider(name, q))
             filtered_rows = [r for r in raw_rows if filter_fn(r)]
             attempts.append({"provider": name, "raw": len(raw_rows), "filtered": len(filtered_rows)})
+
+            if raw_rows and raw_fallback_provider is None:
+                raw_fallback_rows = raw_rows
+                raw_fallback_provider = name
+
             if filtered_rows:
                 log.info(
                     "provider %s returned %d raw / %d filtered rows for %r (filtered failover stop)",
                     name, len(raw_rows), len(filtered_rows), q,
                 )
-                return filtered_rows, name, attempts
+                return filtered_rows, name, attempts, None
             if raw_rows:
                 log.info("provider %s had %d raw rows for %r but 0 after filters, trying next", name, len(raw_rows), q)
             else:
                 log.info("provider %s empty for %r, trying next", name, q)
-        return [], None, attempts
+
+        if raw_fallback_provider is not None:
+            log.info("using raw fallback provider %s with %d rows for %r", raw_fallback_provider, len(raw_fallback_rows), q)
+            return raw_fallback_rows, raw_fallback_provider, attempts, "unfiltered"
+        return [], None, attempts, None
 
 
 def _safe_name_local(value: Any) -> str:

@@ -53,6 +53,12 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Raw fallback for short/acronym searches
+- **What**: Added an unfiltered raw fallback for searches where every provider returns zero rows after strict relevance/filtering, but at least one provider had raw rows. This fixes short/acronym queries like `PRT` where Bitsearch has matches but strict title filtering removes them all.
+- **Behavior**: Normal filtered provider failover still wins first. Raw fallback activates only when all filtered attempts are empty. Response sets `provider_fallback: "unfiltered"`; UI shows `unfiltered fallback`.
+- **Files**: search_service.py, routes/search.py, static/js/src/5-search.js, static/js/app.js.
+- **Verified**: raw fallback harness (`apibay=0`, `bitsearch raw=1 filtered=0` -> bitsearch unfiltered fallback); app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — Search failover now falls back after filters; provider order apibay→bitsearch→torrents-csv
 - **What**: Changed default provider priority to `apibay -> bitsearch -> torrents-csv`. Added filtered failover: a provider only wins if rows remain AFTER relevance/quality/encoder filters. If apibay returns raw rows but filtering removes all of them, bitsearch is tried next; then torrents-csv.
 - **Provider lock**: Series mode locks to the first provider with usable filtered rows for consistency. `requests_used` now counts actual provider attempts, not just logical query rounds.
@@ -367,6 +373,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Added raw unfiltered fallback for short/acronym searches: if all providers filter to zero but one had raw rows, show the first raw provider results and label status as `unfiltered fallback`. Changed: search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-06-01** — Search provider order is now `apibay → bitsearch → torrents-csv`, and provider fallback now happens after filtering so apibay raw results filtered to zero trigger bitsearch. Status text shows provider attempts/winner. Changed: config.py, search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-06-01** — Renamed visible app branding/docs to **CloudFlow** while preserving internal `streamly_hardened` package names. Changed: index.html, app.py, DEPLOY.md, render.yaml, STATE.md.
 - **2026-06-01** — Removed high-confidence dead weight: old flat search table/pagination renderer and DOM/CSS, stale Add-all code/styles, obsolete category/sort/order validators/config, unused config fields, and unused imports. Changed: index.html, 3b-series.js, 5-search.js, app.js, base.css, responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
