@@ -142,6 +142,24 @@
     return true;
   }
 
+  function providerStatusText(data) {
+    if (!data || !data.provider) return "";
+    const provider = data.provider;
+    const attempts = Array.isArray(data.provider_attempts) ? data.provider_attempts : [];
+    const before = [];
+    for (const a of attempts) {
+      if (!a || !a.provider) continue;
+      if (a.provider === provider && Number(a.filtered || 0) > 0) break;
+      if (a.provider !== provider && !before.some(x => x.provider === a.provider)) {
+        before.push({ provider: a.provider, raw: Number(a.raw || 0), filtered: Number(a.filtered || 0) });
+      }
+    }
+    const label = "via " + provider;
+    if (!before.length) return label;
+    const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
+    return label + " after " + details;
+  }
+
   async function search(keepPage, page) {
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
@@ -173,7 +191,7 @@
     }
 
     if (!keepPage) currentPage = page || 1;
-    status($("searchStatus"), "Searching...", "");
+    status($("searchStatus"), "Searching providers: apibay → bitsearch → torrents-csv...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
     try {
       const params = new URLSearchParams();
@@ -198,7 +216,8 @@
         const packs = (data.packs || []).length;
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
         if ($("resultCount")) $("resultCount").textContent = "";
-        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s)", "ok");
+        const providerText = providerStatusText(data);
+        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
         return;
       }
 
@@ -208,7 +227,8 @@
       renderNormalGrouped(groups);
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
       if ($("resultCount")) $("resultCount").textContent = "";
-      status($("searchStatus"), "Found " + total + " results" + (groups.length ? " across " + groups.length + " quality group" + (groups.length === 1 ? "" : "s") : ""), "ok");
+      const providerText = providerStatusText(data);
+      status($("searchStatus"), "Found " + total + " results" + (groups.length ? " across " + groups.length + " quality group" + (groups.length === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
       if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");

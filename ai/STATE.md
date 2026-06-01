@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Search failover now falls back after filters; provider order apibay→bitsearch→torrents-csv
+- **What**: Changed default provider priority to `apibay -> bitsearch -> torrents-csv`. Added filtered failover: a provider only wins if rows remain AFTER relevance/quality/encoder filters. If apibay returns raw rows but filtering removes all of them, bitsearch is tried next; then torrents-csv.
+- **Provider lock**: Series mode locks to the first provider with usable filtered rows for consistency. `requests_used` now counts actual provider attempts, not just logical query rounds.
+- **UI**: Search status now starts with `Searching providers: apibay → bitsearch → torrents-csv...` and final results include provider text such as `via bitsearch after apibay filtered out`.
+- **Files**: config.py, search_service.py, routes/search.py, static/js/src/5-search.js, static/js/app.js, ai/STATE.md, project.zip.
+- **Verified**: filtered-failover service harness; app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets.
+
 ### 2026-06-01 — UI/docs rename: CloudFlow
 - **What**: Renamed visible app branding from Streamly/Streamly Hardened to **CloudFlow** in UI and docs only.
 - **Scope**: Browser title, login brand/copy, log access page title, DEPLOY.md, and STATE.md. Internal Python package/folder names remain `streamly_hardened` to avoid import/deploy risk.
@@ -360,6 +367,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Search provider order is now `apibay → bitsearch → torrents-csv`, and provider fallback now happens after filtering so apibay raw results filtered to zero trigger bitsearch. Status text shows provider attempts/winner. Changed: config.py, search_service.py, routes/search.py, 5-search.js, app.js.
 - **2026-06-01** — Renamed visible app branding/docs to **CloudFlow** while preserving internal `streamly_hardened` package names. Changed: index.html, app.py, DEPLOY.md, render.yaml, STATE.md.
 - **2026-06-01** — Removed high-confidence dead weight: old flat search table/pagination renderer and DOM/CSS, stale Add-all code/styles, obsolete category/sort/order validators/config, unused config fields, and unused imports. Changed: index.html, 3b-series.js, 5-search.js, app.js, base.css, responsive.css, app.py, config.py, security.py, cloud_service.py, routes/cloud.py.
 - **2026-06-01** — Clipboard magnet detection now re-checks on Search tab click, focus, visibility restore, and pointer interaction so newly copied magnets are detected. Changed: 1-core.js, 5-search.js, 6-main.js, app.js.
