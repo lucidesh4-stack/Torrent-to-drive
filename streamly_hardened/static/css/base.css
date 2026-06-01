@@ -119,7 +119,6 @@
     #cloudView .side-card .status { margin-top: 10px; min-height: 18px; font-size: 13px; }
     .search-grid { grid-template-columns: minmax(260px, 1fr) 190px; }
     .results { padding: 0 16px 16px; overflow-x: auto; overflow-y: visible; }
-    .torrent-table-wrap { min-width: 980px; }
     .search-box-wrap { position: relative; min-width: 260px; }
     /* icons embedded inside the search input */
     .search-box-wrap > input { padding-left: 42px; padding-right: 40px; }
@@ -141,24 +140,8 @@
     .sortable { cursor: pointer; user-select: none; }
     .sortable:hover { color: white; }
     .sort-mark { color: #93c5fd; font-size: 11px; margin-left: 4px; }
-    .torrent-name { max-width: 640px; min-width: 300px; }
-    .pagination { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; padding: 14px 16px 22px; }
-    .page-btn { padding: 8px 12px; border-radius: 10px; background: #263241; }
-    .page-btn.active { background: var(--blue); }
-    .page-btn:disabled { opacity: .45; }
-    .page-info { width: 100%; text-align: center; color: var(--muted); font-size: 14px; margin-top: 4px; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .seed { color: #86efac; font-weight: 900; }
-    .leech { color: #fca5a5; }
-    /* Search results: Name left-aligned, all other columns centered */
-    #searchView .table th:not(:first-child),
-    #searchView .table td:not(:first-child) { text-align: center; }
-    #searchView .table th:first-child,
-    #searchView .table td:first-child { text-align: left; }
-    #mobileResults { display: none !important; }
-    .mobile-result { display: none !important; border: 1px solid var(--line); border-radius: 15px; background: #0b0e14; padding: 13px; margin-bottom: 10px; }
-    .result-title { font-weight: 900; overflow-wrap: anywhere; }
-    .mobile-meta { margin-top: 7px; color: var(--muted); font-size: 13px; display: flex; gap: 12px; flex-wrap: wrap; }
     .empty { padding: 42px 16px; color: var(--muted); text-align: center; }
     .overlay { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.88); display: grid; place-items: center; padding: 20px; }
     .player-box { width: min(1100px, 96vw); }
@@ -194,8 +177,6 @@
     .encoder-name { font-weight: 800; font-size: 15px; white-space: nowrap; }
     .encoder-quality { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .encoder-count { color: var(--muted); font-size: 12px; background: rgba(148,163,184,.12); padding: 2px 10px; border-radius: 12px; white-space: nowrap; }
-    .section-add { padding: 7px 14px; background: rgba(74,144,226,.15); color: #7eb6f6; border: 1px solid rgba(74,144,226,.35); border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 800; white-space: nowrap; flex: none; }
-    .section-add:hover { background: rgba(74,144,226,.25); transform: none; }
     .encoder-body { background: var(--panel); }
     .season-label { padding: 8px 16px 8px 30px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; background: rgba(0,0,0,.2); border-top: 1px solid var(--line-soft); }
     .episode-row { display: grid; grid-template-columns: 1fr 80px 110px 100px 90px; align-items: center; gap: 8px; padding: 11px 14px 11px 30px; border-top: 1px solid rgba(148,163,184,.06); font-size: 14px; }
@@ -225,7 +206,6 @@
     .u-chevron { color: var(--muted); font-size: 9px; width: 10px; flex: none; transition: transform .15s; }
     .uploader-group.collapsed .u-chevron { transform: rotate(-90deg); }
     .uploader-group.collapsed .uploader-body { display: none; }
-    .section-add.sm { padding: 4px 10px; font-size: 11px; }
     
     
 

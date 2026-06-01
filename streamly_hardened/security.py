@@ -92,30 +92,6 @@ def validate_query(q: Any, config: Any) -> str:
     return q
 
 
-def validate_category(category: Any, config: Any) -> str:
-    category = "" if category is None else str(category)
-    allowed = _get_cfg(config, "allowed_categories", [])
-    if category not in allowed:
-        raise ValidationError("Invalid category")
-    return category
-
-
-def validate_sort(sort: Any, config: Any) -> str:
-    sort = "relevance" if sort in (None, "") else str(sort)
-    allowed = _get_cfg(config, "allowed_sorts", [])
-    if sort not in allowed:
-        raise ValidationError("Invalid sort")
-    return sort
-
-
-def validate_order(order: Any, config: Any) -> str:
-    order = "desc" if order in (None, "") else str(order)
-    allowed = _get_cfg(config, "allowed_orders", [])
-    if order not in allowed:
-        raise ValidationError("Invalid order")
-    return order
-
-
 def validate_item_type(value: Any) -> str:
     if value not in {"file", "folder"}:
         raise ValidationError("type must be 'file' or 'folder'")

@@ -21,16 +21,11 @@ class AppConfig:
     max_folder_id: int = 9_007_199_254_740_991
     max_file_id: int = 9_007_199_254_740_991
     max_json_bytes: int = 16 * 1024
-    max_bulk_items: int = 100  # Used by delete_bulk and zip_bulk
     session_ttl_seconds: int = 60 * 60 * 12
     client_store_max_entries: int = 100_000
     rate_limit_capacity: int = 60
     rate_limit_refill_per_second: float = 1.0
-    allowed_categories: frozenset[str] = frozenset({"", "2", "3", "4", "5", "6", "7", "8", "9", "10"})
-    allowed_sorts: frozenset[str] = frozenset({"relevance", "seeders", "leechers", "date", "size"})
-    allowed_orders: frozenset[str] = frozenset({"asc", "desc"})
     bitsearch_url: str = "https://bitsearch.eu/api/v1/search"
-    bitsearch_api_key: str = ""
     # Torrent search providers tried in PRIORITY ORDER (failover, not merge):
     # multi_search uses the FIRST provider that returns results, so normal
     # operation draws from a single source (no cross-source duplicates).
@@ -38,7 +33,6 @@ class AppConfig:
     # SEARCH_PROVIDERS env (comma-separated, in priority order).
     search_providers: tuple[str, ...] = ("apibay", "torrents-csv", "bitsearch")
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
-    seedr_archive_url: str = "https://www.seedr.cc/api/v2/download/archive"
     upstash_redis_url: str = ""
     upstash_redis_token: str = ""
     seedr_email: str = ""
@@ -71,11 +65,9 @@ class AppConfig:
             seedr_email=os.getenv("SEEDR_EMAIL", ""),
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
-            bitsearch_api_key=os.getenv("BITSEARCH_API_KEY", ""),
             search_providers=tuple(
                 p.strip() for p in os.getenv(
                     "SEARCH_PROVIDERS", "apibay,torrents-csv,bitsearch"
                 ).split(",") if p.strip()
             ) or ("apibay", "torrents-csv", "bitsearch"),
-            max_bulk_items=int(os.getenv("MAX_BULK_ITEMS", "100")),
         )

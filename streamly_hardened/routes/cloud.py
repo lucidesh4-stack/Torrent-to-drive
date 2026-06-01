@@ -10,7 +10,7 @@ from ..security import (
     validate_positive_int,
     validate_magnet,
 )
-from ..cloud_service import CloudService, format_size, _safe_int
+from ..cloud_service import format_size, _safe_int
 
 cloud_bp = Blueprint("cloud", __name__)
 
