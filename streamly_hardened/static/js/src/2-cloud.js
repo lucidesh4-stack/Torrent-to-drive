@@ -1,3 +1,6 @@
+  let storageSnapshotLoading = false;
+  let storageSnapshotLoaded = false;
+
   function updateSelection() {
     refreshSelectedShim();
     const count = selectedKeys.size;
@@ -269,6 +272,7 @@
   }
 
   function updateStorage(used, max) {
+    storageSnapshotLoaded = true;
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
     const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
     const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
@@ -296,6 +300,21 @@
     if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + " MB";
     if (n >= 1024) return (n / 1024).toFixed(1) + " KB";
     return n + " B";
+  }
+
+  async function refreshStorageSnapshot(force = false) {
+    if (!isAuthenticated) return;
+    if (storageSnapshotLoading) return;
+    if (storageSnapshotLoaded && !force) return;
+    storageSnapshotLoading = true;
+    try {
+      const data = await parseResponse(await fetch("/fs/folder/0/items", { credentials: "same-origin" }));
+      updateStorage(data.used || 0, data.max || 1);
+    } catch (_) {
+      // Silent by design: topbar storage should not interrupt Search/Guest flows.
+    } finally {
+      storageSnapshotLoading = false;
+    }
   }
 
   async function loadFolder(id) {

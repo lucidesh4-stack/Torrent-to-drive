@@ -53,6 +53,13 @@
 
 ## 📜 Decision Ledger
 
+### 2026-06-01 — Compact desktop cloud UI + eager storage snapshot
+- **What**: Tightened desktop topbar storage into a compact single-line header with a thinner meter; reduced desktop cloud side-card width/padding, metric spacing, and action button size so Open/Download/Copy Link/Delete/Clear Selection no longer appear oversized.
+- **Storage load fix**: Added `refreshStorageSnapshot()` to fetch `/fs/folder/0/items` after authenticated startup on the Search tab, updating only storage usage without switching tabs or rendering Cloud Drive. Existing Cloud Drive loads still use `loadFolder()`.
+- **Safety**: Snapshot fetch is auth-gated, deduped by `storageSnapshotLoading/storageSnapshotLoaded`, silent on failure, and does not mutate `items/currentFolder/selectedKeys`.
+- **Files**: static/css/base.css, static/js/src/2-cloud.js, static/js/src/6-main.js, static/js/app.js, ai/STATE.md, project.zip.
+- **Verified**: app.js rebuilt; node --check; py_compile; CSS brace balance; Flask test client served index/static assets after installing deps in excluded .venv.
+
 ### 2026-06-01 — Desktop cloud UI: storage topbar + copy-link action
 - **What**: Desktop topbar no longer shows the Streamly Hardened title or right-side email pill. The left brand area now shows Storage usage with a compact meter and account text (`Connected to <email>`). The desktop cloud side-card no longer contains the Storage block.
 - **Copy Link**: Added desktop `Copy Link` action. File selection copies `/api/url`; single folder copies `/api/zip`; multi-select copies `/api/zip/bulk`. Existing mobile context-menu Copy Link remains unchanged.
@@ -271,6 +278,7 @@
 ---
 
 ## 🚀 Deployment Activity
+[2026-06-01] Compact desktop UI + eager storage snapshot — base.css, 2-cloud.js, 6-main.js, app.js
 [2026-06-01] Desktop cloud UI: storage moved to topbar; desktop Copy Link action added — templates/index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js
 [2026-05-31] Protocol Adoption & Workspace Cleanup — ai/QUICK.md
 [2026-05-31] Code quality: magic numbers extracted, route docstrings added, no behavior change
@@ -282,6 +290,7 @@
 
 
 ## 🔄 Recent Changes
+- **2026-06-01** — Made desktop storage/topbar and selected-item side panel compact; added eager authenticated storage snapshot so storage usage loads on Search without clicking Cloud Drive. Changed: base.css, 2-cloud.js, 6-main.js, app.js.
 - **2026-06-01** — Desktop cloud UI updated: left topbar now shows Storage + compact meter + `Connected to <email>`, right email pill hidden, side-card Storage block removed, and desktop Copy Link action added for files/folders/multi-select zip links. Changed: index.html, base.css, 1-core.js, 2-cloud.js, 6-main.js, app.js.
 - **2026-05-31** — Series mode now also runs a broad <title> query first and merges it into packs + episodes (catches releases the narrow queries miss); broad query counts toward the 12-query quota; episodes filtered to ticked encoders. Changed: routes/search.py.
 - **2026-05-31** — Normal mode simplified: one broad query -> filter by quality (sections) + encoder -> size-asc quality sections (no cap). Also fixed relevance filter silently dropping ALL movies (episodes=exact match, movies=prefix match). Changed: search_service.py, routes/search.py, 5-search.js, app.js.
