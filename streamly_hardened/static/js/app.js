@@ -22,6 +22,9 @@
   let currentOrder = "asc";
   let currentPage = 1;
   let isAuthenticated = false;
+  let lastAutoAddedMagnet = "";
+  let autoAddTimer = null;
+  const AUTO_ADD_MAGNET_TTL_MS = 24 * 60 * 60 * 1000;
 
 
   const $ = (id) => document.getElementById(id);
@@ -1355,6 +1358,139 @@
     }
   });
 
+
+  function isMagnetLink(value) {
+    return /^magnet:\?xt=urn:btih:/i.test(String(value || "").trim());
+  }
+
+  function magnetInfoHash(value) {
+    const text = String(value || "");
+    const m = text.match(/xt=urn:btih:([^&]+)/i);
+    if (!m) return "";
+    try { return decodeURIComponent(m[1]).trim().toLowerCase(); }
+    catch (_) { return String(m[1] || "").trim().toLowerCase(); }
+  }
+
+  function autoAddedStorageKey(magnet) {
+    const hash = magnetInfoHash(magnet);
+    return hash ? "streamly:autoAddedMagnet:" + hash : "";
+  }
+
+  function wasAutoAddedRecently(magnet) {
+    const key = autoAddedStorageKey(magnet);
+    if (!key) return false;
+    try {
+      const raw = localStorage.getItem(key);
+      const ts = Number(raw || 0);
+      if (!ts) return false;
+      if (Date.now() - ts > AUTO_ADD_MAGNET_TTL_MS) {
+        localStorage.removeItem(key);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function rememberAutoAddedMagnet(magnet) {
+    const key = autoAddedStorageKey(magnet);
+    if (!key) return;
+    try { localStorage.setItem(key, String(Date.now())); } catch (_) {}
+  }
+
+  function showRecentMagnetSkip() {
+    status($("searchStatus"), "Magnet already auto-added recently. Tap Add to force add again.", "ok");
+  }
+
+  function setMagnetUiState(value) {
+    const isMagnet = isMagnetLink(value);
+    if ($("searchBtn") && $("addMagnetBtn")) {
+      $("searchBtn").classList.toggle("hidden", isMagnet);
+      $("addMagnetBtn").classList.toggle("hidden", !isMagnet);
+      $("addMagnetBtn").textContent = "➕";
+      $("addMagnetBtn").title = "Add magnet";
+    }
+    return isMagnet;
+  }
+
+  function maybeAutoAddMagnet(value, source = "input") {
+    const magnet = String(value || "").trim();
+    if (!setMagnetUiState(magnet)) return false;
+    if (lastAutoAddedMagnet === magnet) return true;
+    if (wasAutoAddedRecently(magnet)) {
+      showRecentMagnetSkip();
+      return true;
+    }
+    clearTimeout(autoAddTimer);
+    autoAddTimer = setTimeout(() => {
+      if ($("searchQuery").value.trim() !== magnet) return;
+      if (lastAutoAddedMagnet === magnet) return;
+      if (wasAutoAddedRecently(magnet)) {
+        showRecentMagnetSkip();
+        return;
+      }
+      lastAutoAddedMagnet = magnet;
+      rememberAutoAddedMagnet(magnet);
+      search(false, 1);
+    }, source === "input" ? 250 : 0);
+    return true;
+  }
+
+  async function ingestClipboardMagnet(autoAdd = true) {
+    if (!navigator.clipboard || !navigator.clipboard.readText) return false;
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!isMagnetLink(text)) return false;
+      $("searchQuery").value = text;
+      setMagnetUiState(text);
+      if (autoAdd) maybeAutoAddMagnet(text, "clipboard");
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function extractMagnetFromUrl() {
+    const candidates = [];
+    const url = new URL(window.location.href);
+    candidates.push(url.searchParams.get("magnet"));
+    const rawHash = window.location.hash ? window.location.hash.slice(1) : "";
+    if (rawHash) {
+      candidates.push(rawHash);
+      try {
+        const hp = new URLSearchParams(rawHash.startsWith("?") ? rawHash.slice(1) : rawHash);
+        candidates.push(hp.get("magnet"));
+      } catch (_) {}
+    }
+    for (const c of candidates) {
+      if (!c) continue;
+      let value = String(c).trim();
+      for (let i = 0; i < 2; i++) {
+        try { value = decodeURIComponent(value); } catch (_) { break; }
+      }
+      if (isMagnetLink(value)) return value;
+    }
+    return "";
+  }
+
+  function cleanMagnetUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("magnet");
+    const keepHash = window.location.hash && !window.location.hash.toLowerCase().includes("magnet") ? window.location.hash : "";
+    window.history.replaceState(null, null, url.pathname + url.search + keepHash);
+  }
+
+  function ingestUrlMagnet() {
+    const magnet = extractMagnetFromUrl();
+    if (!magnet) return false;
+    $("searchQuery").value = magnet;
+    setMagnetUiState(magnet);
+    cleanMagnetUrl();
+    maybeAutoAddMagnet(magnet, "url");
+    return true;
+  }
+
   async function search(keepPage, page) {
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
@@ -1363,7 +1499,7 @@
     $("suggestBox").classList.add("hidden");
     $("suggestBox").textContent = "";
 
-    if (/^magnet:\?xt=urn:btih:/i.test(q)) {
+    if (isMagnetLink(q)) {
       let magnetName = "Unknown Magnet";
       const dnMatch = q.match(/[?&]dn=([^&]+)/);
       if (dnMatch) {
@@ -1373,8 +1509,12 @@
       status($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
         await postJson("/api/add", { magnet: q });
+        rememberAutoAddedMagnet(q);
         status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+        else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
         $("searchQuery").value = "";
+        setMagnetUiState("");
       } catch (err) {
         status($("searchStatus"), err.message || "Failed to add magnet", "error");
       }
@@ -1719,20 +1859,19 @@
 
   if ($("pasteBtn")) {
     $("pasteBtn").addEventListener("click", async () => {
+      const added = typeof ingestClipboardMagnet === "function" ? await ingestClipboardMagnet(true) : false;
+      if (added) return;
       try {
         const text = await navigator.clipboard.readText();
         $("searchQuery").value = text;
         $("searchQuery").focus();
-        
-        // Auto-add if it's a magnet link
-        if (/^magnet:\?xt=urn:btih:/i.test(text)) {
-           search(false, 1);
-        }
+        if (typeof setMagnetUiState === "function") setMagnetUiState(text);
       } catch (err) {
         toast("Clipboard access denied");
       }
     });
   }
+
 
   // Allow dismissing login overlay (continue as guest)
   $("loginCloseBtn").addEventListener("click", () => {
@@ -1761,13 +1900,14 @@
   $("searchQuery").addEventListener("input", (e) => {
     getSuggestions();
     const q = e.target.value.trim();
-    if (/^magnet:\?xt=urn:btih:/i.test(q)) {
-      $("searchBtn").classList.add("hidden");
-      $("addMagnetBtn").classList.remove("hidden");
-    } else {
-      $("searchBtn").classList.remove("hidden");
-      $("addMagnetBtn").classList.add("hidden");
-    }
+    if (typeof maybeAutoAddMagnet === "function" && maybeAutoAddMagnet(q, "input")) return;
+    if (typeof setMagnetUiState === "function") setMagnetUiState(q);
+  });
+  $("searchQuery").addEventListener("paste", () => {
+    setTimeout(() => {
+      const q = $("searchQuery").value.trim();
+      if (typeof maybeAutoAddMagnet === "function") maybeAutoAddMagnet(q, "paste");
+    }, 0);
   });
 
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
@@ -1790,8 +1930,10 @@
     
     // Optimistically show header and search tab immediately
     showApp(null); 
+    const hadUrlMagnet = typeof ingestUrlMagnet === "function" && ingestUrlMagnet();
     if (initialTab === "search") {
       setTab("search");
+      if (!hadUrlMagnet && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
     }
 
     try {
@@ -1809,6 +1951,7 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
+        if (initialTab === "search" && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
         if (initialTab === "cloud") {
           setTab("cloud");
           await loadFolder(0);

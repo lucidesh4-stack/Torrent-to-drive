@@ -20,6 +20,9 @@
   let currentOrder = "asc";
   let currentPage = 1;
   let isAuthenticated = false;
+  let lastAutoAddedMagnet = "";
+  let autoAddTimer = null;
+  const AUTO_ADD_MAGNET_TTL_MS = 24 * 60 * 60 * 1000;
 
 
   const $ = (id) => document.getElementById(id);
