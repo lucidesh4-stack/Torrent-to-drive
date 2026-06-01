@@ -1553,7 +1553,10 @@
     }
 
     if (!keepPage) currentPage = page || 1;
-    status($("searchStatus"), "Searching providers: bitsearch → apibay → torrents-csv...", "");
+    const providerOrderText = (typeof seriesMode !== "undefined" && seriesMode)
+      ? "apibay → bitsearch → torrents-csv"
+      : "bitsearch → apibay → torrents-csv";
+    status($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
     try {
       const params = new URLSearchParams();
