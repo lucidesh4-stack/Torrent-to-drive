@@ -14,6 +14,7 @@ from ..search_service import (
     parse_release,
     matches_query,
     _normalize_encoder,
+    _quality_bucket,
 )
 
 search_bp = Blueprint("search", __name__)
@@ -67,17 +68,29 @@ def search_route():
     # unrelated junk providers return for loose substring matches
     # (e.g. searching "Daredevil" must not surface "Bones" / "The Red Green Show").
     locked = {"provider": None}
+    provider_attempts: list[dict] = []
 
     def _relevant(r):
         info = parse_release(str(r.get("name", "")))
         # Episode => exact title match (drops spin-offs); movie/pack => prefix match.
         return matches_query(q, info["series"], is_episode=info["episode"] is not None)
 
-    def round_search(query_text):
-        rows, winner = search.multi_search(query_text, prefer=locked["provider"])
+    def round_search(query_text, extra_filter=None):
+        def _combined(row):
+            if not _relevant(row):
+                return False
+            return bool(extra_filter(row)) if extra_filter else True
+
+        rows, winner, attempts = search.multi_search_filtered(
+            query_text,
+            _combined,
+            prefer=locked["provider"],
+            strict_prefer=locked["provider"] is not None,
+        )
+        provider_attempts.extend(attempts)
         if winner and locked["provider"] is None:
             locked["provider"] = winner
-        return [r for r in rows if _relevant(r)]
+        return rows
 
     # --- Series Mode v2: targeted queries (packs + per encoder×quality) ---
     if mode == "series":
@@ -96,18 +109,16 @@ def search_route():
                 "Reduce the number of qualities or encoders.",
             )
 
-        used = 0
-
         # --- Broad: a single <title>-only query first (catches releases the
         #     narrow per-quality/encoder queries miss). Merged into both packs
         #     and episodes below. ---
-        broad_rows = round_search(q); used += 1
+        broad_rows = round_search(q)
 
         # --- Season Packs: <title> <q> x265 + <title> <q> hevc ---
         pack_rows = list(broad_rows)
         for ql in qualities:
-            pack_rows += round_search(f"{q} {ql} x265"); used += 1
-            pack_rows += round_search(f"{q} {ql} hevc"); used += 1
+            pack_rows += round_search(f"{q} {ql} x265")
+            pack_rows += round_search(f"{q} {ql} hevc")
         pack_rows = _dedup_by_infohash(pack_rows)
         packs = build_packs(pack_rows)
 
@@ -115,7 +126,7 @@ def search_route():
         enc_rows = list(broad_rows)
         for enc in encoders:
             for ql in qualities:
-                enc_rows += round_search(f"{q} {ql} {enc}"); used += 1
+                enc_rows += round_search(f"{q} {ql} {enc}")
         enc_rows = _dedup_by_infohash(enc_rows)
 
         # Encoder filter: the broad query returns ALL release groups; if the user
@@ -143,26 +154,36 @@ def search_route():
             "packs": packs,
             "encoders": groups["encoders"],
             "stats": groups["stats"],
-            "requests_used": used,
+            "requests_used": len(provider_attempts),
+            "provider": locked["provider"],
+            "provider_attempts": provider_attempts,
             "qualities": qualities,
             "encoders_selected": encoders,
         })
 
     # --- Normal Mode: ONE broad query -> filter (quality + encoder) -> quality sections ---
-    # 1) Single broad search for the title (gets the provider's full result set,
-    #    relevance-filtered + deduped inside round_search). No per-quality queries.
-    all_rows = _dedup_by_infohash(round_search(q))
-
-    # 2) Encoder filter: keep only the ticked release groups (none ticked => all).
+    # Provider fallback is decided AFTER relevance/quality/encoder filters. If
+    # apibay returns raw rows but all are filtered out, bitsearch is tried, then
+    # torrents-csv.
     selected_encoders = {
         e for e in (_normalize_encoder(x) for x in _csv(request.args.get("encoders", "")))
         if e
     }
-    if selected_encoders:
-        all_rows = [r for r in all_rows if r.get("encoder_norm", "") in selected_encoders]
-
-    # 3) Quality filter = which sections to show (none ticked => all sections,
-    #    incl. Other). Within each section: size-ascending, no cap (keep all).
     qualities = [x for x in _csv(request.args.get("quality", "")) if x in ALLOWED_QUALITIES]
+    wanted_qualities = set(qualities)
+
+    def _normal_filter(row):
+        if selected_encoders and row.get("encoder_norm", "") not in selected_encoders:
+            return False
+        if wanted_qualities and _quality_bucket(str(row.get("name", ""))) not in wanted_qualities:
+            return False
+        return True
+
+    all_rows = _dedup_by_infohash(round_search(q, _normal_filter))
     quality_groups = group_by_quality(all_rows, only_qualities=qualities or None, cap=None)
-    return jsonify({"mode": "normal_grouped", "quality_groups": quality_groups})
+    return jsonify({
+        "mode": "normal_grouped",
+        "quality_groups": quality_groups,
+        "provider": locked["provider"],
+        "provider_attempts": provider_attempts,
+    })

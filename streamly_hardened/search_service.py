@@ -776,33 +776,55 @@ class SearchService:
             log.warning("provider %s failed: %s", name, exc)
         return []
 
-    def multi_search(self, q: str, prefer: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
-        """FAILOVER search: try providers in PRIORITY ORDER, return the FIRST that
-        yields results. Normal operation draws from a SINGLE source, so there is
-        no cross-source duplication.
-
-        - `prefer`: if given (e.g. the provider that won an earlier round of the
-          same series search), it is tried FIRST so a whole multi-round search
-          stays on one source for consistency.
-        - Returns (rows, winning_provider). `winning_provider` is None when every
-          provider was empty/unavailable.
-
-        Same-source duplicates are still collapsed by infohash (keeps highest-seeded).
-        """
+    def _provider_order(self, prefer: str | None = None, *, strict_prefer: bool = False) -> list[str]:
+        if prefer and prefer in self.config.search_providers and strict_prefer:
+            return [prefer]
         order: list[str] = []
         if prefer and prefer in self.config.search_providers:
             order.append(prefer)
         for name in self.config.search_providers:
             if name not in order:
                 order.append(name)
+        return order
 
-        for name in order:
+    def multi_search(self, q: str, prefer: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
+        """Raw FAILOVER search: first provider with raw rows wins.
+
+        Kept for compatibility. Routes that need fallback after relevance/filtering
+        should use `multi_search_filtered()`.
+        """
+        for name in self._provider_order(prefer):
             rows = self._run_provider(name, q)
             if rows:
-                log.info("provider %s returned %d rows for %r (failover stop)", name, len(rows), q)
+                log.info("provider %s returned %d rows for %r (raw failover stop)", name, len(rows), q)
                 return _dedup_by_infohash(rows), name
             log.info("provider %s empty for %r, trying next", name, q)
         return [], None
+
+    def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]]]:
+        """Filtered FAILOVER search: a provider only wins if rows remain AFTER
+        route-level relevance/filter checks.
+
+        This handles the important case where a provider returns raw rows, but all
+        of them are filtered out as unrelated/wrong quality/wrong encoder. In that
+        case the next provider is tried.
+        """
+        attempts: list[dict[str, Any]] = []
+        for name in self._provider_order(prefer, strict_prefer=strict_prefer):
+            raw_rows = _dedup_by_infohash(self._run_provider(name, q))
+            filtered_rows = [r for r in raw_rows if filter_fn(r)]
+            attempts.append({"provider": name, "raw": len(raw_rows), "filtered": len(filtered_rows)})
+            if filtered_rows:
+                log.info(
+                    "provider %s returned %d raw / %d filtered rows for %r (filtered failover stop)",
+                    name, len(raw_rows), len(filtered_rows), q,
+                )
+                return filtered_rows, name, attempts
+            if raw_rows:
+                log.info("provider %s had %d raw rows for %r but 0 after filters, trying next", name, len(raw_rows), q)
+            else:
+                log.info("provider %s empty for %r, trying next", name, q)
+        return [], None, attempts
 
 
 def _safe_name_local(value: Any) -> str:

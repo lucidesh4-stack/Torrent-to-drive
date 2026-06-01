@@ -29,9 +29,9 @@ class AppConfig:
     # Torrent search providers tried in PRIORITY ORDER (failover, not merge):
     # multi_search uses the FIRST provider that returns results, so normal
     # operation draws from a single source (no cross-source duplicates).
-    # apibay first (freshest/cleanest), bitsearch last (flaky). Configurable via
+    # apibay first, then bitsearch, then torrents-csv. Configurable via
     # SEARCH_PROVIDERS env (comma-separated, in priority order).
-    search_providers: tuple[str, ...] = ("apibay", "torrents-csv", "bitsearch")
+    search_providers: tuple[str, ...] = ("apibay", "bitsearch", "torrents-csv")
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
     upstash_redis_url: str = ""
     upstash_redis_token: str = ""
@@ -67,7 +67,7 @@ class AppConfig:
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             search_providers=tuple(
                 p.strip() for p in os.getenv(
-                    "SEARCH_PROVIDERS", "apibay,torrents-csv,bitsearch"
+                    "SEARCH_PROVIDERS", "apibay,bitsearch,torrents-csv"
                 ).split(",") if p.strip()
-            ) or ("apibay", "torrents-csv", "bitsearch"),
+            ) or ("apibay", "bitsearch", "torrents-csv"),
         )
