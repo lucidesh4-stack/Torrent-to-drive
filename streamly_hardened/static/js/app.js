@@ -1105,8 +1105,10 @@
 
     const packs = data.packs || [];
     const encoders = data.encoders || [];
+    const lessRelevant = data.less_relevant || [];
+    const otherRows = data.other || [];
 
-    if (!packs.length && !encoders.length) {
+    if (!packs.length && !encoders.length && !lessRelevant.length && !otherRows.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "No grouped results. Try different quality/encoder selections.";
@@ -1142,7 +1144,8 @@
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
-      for (const p of packsToShow) body.appendChild(seriesEpisodeRow(p, [p.name]));
+      const displayPacks = userSorted ? sortRows(packsToShow) : packsToShow;
+      for (const p of displayPacks) body.appendChild(seriesEpisodeRow(p, [p.name]));
       section.append(header, body);
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
@@ -1202,7 +1205,7 @@
             }
             body.appendChild(nav);
             const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
-            const eps = userSorted ? sortRows(activeSeason.episodes || []) : (activeSeason.episodes || []);
+            const eps = activeSeason.episodes || [];
             for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, enc.name, qg.label || qg.quality]));
           }
           continue;
@@ -1229,7 +1232,7 @@
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
           qBody.appendChild(slabel);
-          const eps = userSorted ? sortRows(s.episodes) : s.episodes;
+          const eps = s.episodes;
           for (const ep of eps) {
             qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, qg.label || qg.quality]));
           }
@@ -1242,6 +1245,27 @@
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
     }
+
+    function appendPlainSeriesSection(key, title, rows) {
+      if (!rows || !rows.length) return;
+      const section = document.createElement("div");
+      section.className = "encoder-section other collapsed";
+      applyOpenState(section, key, prevOpen);
+      const header = sectionHeader({
+        title,
+        sub: null,
+        count: rows.length + (rows.length === 1 ? " result" : " results"),
+      });
+      const body = document.createElement("div");
+      body.className = "encoder-body";
+      for (const row of rows) body.appendChild(plainRow(row));
+      section.append(header, body);
+      container.appendChild(section);
+      makeAccordion(section, header, container, ".encoder-section");
+    }
+
+    appendPlainSeriesSection("series:less_relevant", "Less relevant", lessRelevant);
+    appendPlainSeriesSection("series:other", "Other / Unparsed", otherRows);
   }
   async function saveToHistory(magnet, title) {
     try {
@@ -1517,6 +1541,7 @@
     let label = "via " + provider;
     if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
     if (data.provider_fallback === "less_relevant") label += " · showing less relevant matches";
+    if (data.provider_fallback === "other") label += " · showing other matches";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
@@ -1580,9 +1605,12 @@
         renderSeriesGrouped(data);
         const packs = (data.packs || []).length;
         const eps = (data.encoders || []).reduce((a, e) => a + (e.episode_count || 0), 0);
+        const less = (data.less_relevant || []).length;
+        const other = (data.other || []).length;
+        const extra = (less || other) ? " + " + (less + other) + " other" : "";
         if ($("resultCount")) $("resultCount").textContent = "";
         const providerText = providerStatusText(data);
-        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s) \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
+        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s)" + extra + " \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
         return;
       }
 

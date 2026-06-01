@@ -292,8 +292,10 @@
 
     const packs = data.packs || [];
     const encoders = data.encoders || [];
+    const lessRelevant = data.less_relevant || [];
+    const otherRows = data.other || [];
 
-    if (!packs.length && !encoders.length) {
+    if (!packs.length && !encoders.length && !lessRelevant.length && !otherRows.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "No grouped results. Try different quality/encoder selections.";
@@ -329,7 +331,8 @@
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
-      for (const p of packsToShow) body.appendChild(seriesEpisodeRow(p, [p.name]));
+      const displayPacks = userSorted ? sortRows(packsToShow) : packsToShow;
+      for (const p of displayPacks) body.appendChild(seriesEpisodeRow(p, [p.name]));
       section.append(header, body);
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
@@ -389,7 +392,7 @@
             }
             body.appendChild(nav);
             const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
-            const eps = userSorted ? sortRows(activeSeason.episodes || []) : (activeSeason.episodes || []);
+            const eps = activeSeason.episodes || [];
             for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, enc.name, qg.label || qg.quality]));
           }
           continue;
@@ -416,7 +419,7 @@
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
           qBody.appendChild(slabel);
-          const eps = userSorted ? sortRows(s.episodes) : s.episodes;
+          const eps = s.episodes;
           for (const ep of eps) {
             qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, qg.label || qg.quality]));
           }
@@ -429,4 +432,25 @@
       container.appendChild(section);
       makeAccordion(section, header, container, ".encoder-section");
     }
+
+    function appendPlainSeriesSection(key, title, rows) {
+      if (!rows || !rows.length) return;
+      const section = document.createElement("div");
+      section.className = "encoder-section other collapsed";
+      applyOpenState(section, key, prevOpen);
+      const header = sectionHeader({
+        title,
+        sub: null,
+        count: rows.length + (rows.length === 1 ? " result" : " results"),
+      });
+      const body = document.createElement("div");
+      body.className = "encoder-body";
+      for (const row of rows) body.appendChild(plainRow(row));
+      section.append(header, body);
+      container.appendChild(section);
+      makeAccordion(section, header, container, ".encoder-section");
+    }
+
+    appendPlainSeriesSection("series:less_relevant", "Less relevant", lessRelevant);
+    appendPlainSeriesSection("series:other", "Other / Unparsed", otherRows);
   }
