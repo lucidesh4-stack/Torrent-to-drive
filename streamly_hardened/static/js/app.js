@@ -856,10 +856,20 @@
       btn.type = "button";
       btn.className = "mobile-quality-tab" + (q === active ? " active" : "");
       btn.textContent = qualityLabel(q);
-      btn.addEventListener("click", () => onPick(q));
+      btn.addEventListener("click", (e) => { e.stopPropagation(); onPick(q); });
       nav.appendChild(btn);
     }
     return nav;
+  }
+
+  function openSectionKeys(container) {
+    if (!container) return new Set();
+    return new Set(Array.from(container.querySelectorAll(":scope > .encoder-section:not(.collapsed)[data-acc-key]")).map(el => el.dataset.accKey));
+  }
+
+  function applyOpenState(section, key, openKeys) {
+    section.dataset.accKey = key;
+    if (openKeys && openKeys.has(key)) section.classList.remove("collapsed");
   }
 
   function getSelectedQualities() {
@@ -925,7 +935,7 @@
       el.className = "sec-h " + c.cls + (c.key ? " sortable" : "");
       const mark = c.key && currentSort === c.key ? (currentOrder === "desc" ? " \u25BC" : " \u25B2") : "";
       el.textContent = c.label + mark;
-      if (c.key) el.addEventListener("click", () => cycleSort(c.key));
+      if (c.key) el.addEventListener("click", (e) => { e.stopPropagation(); cycleSort(c.key); });
       head.appendChild(el);
     }
     return head;
@@ -963,6 +973,7 @@
   function renderNormalGrouped(groups) {
     lastNormalGroups = groups || [];
     const container = $("seriesResults");
+    const prevOpen = openSectionKeys(container);
     container.textContent = "";
     if (!lastNormalGroups.length) {
       const empty = document.createElement("div");
@@ -990,6 +1001,7 @@
     for (const g of lastNormalGroups) {
       const section = document.createElement("div");
       section.className = "encoder-section collapsed";
+      applyOpenState(section, "normal:" + g.quality, prevOpen);
       const header = sectionHeader({
         title: g.label,
         sub: null,
@@ -1084,6 +1096,7 @@
   function renderSeriesGrouped(data) {
     lastSeriesData = data || null;
     const container = $("seriesResults");
+    const prevOpen = openSectionKeys(container);
     container.textContent = "";
     if (!data) return;
 
@@ -1118,6 +1131,7 @@
     if (packsToShow.length) {
       const section = document.createElement("div");
       section.className = "encoder-section packs collapsed";
+      applyOpenState(section, mobile ? "packs" : "packs:all", prevOpen);
       const header = sectionHeader({
         title: "📦 Season Packs",
         sub: mobile ? null : "complete seasons · smallest first",
@@ -1141,6 +1155,7 @@
 
       const section = document.createElement("div");
       section.className = "encoder-section collapsed";
+      applyOpenState(section, "enc:" + enc.encoder_norm, prevOpen);
       const header = sectionHeader({
         title: enc.name,
         sub: mobile ? null : qualityGroups.length + " quality group(s)",
@@ -1175,7 +1190,8 @@
               btn.type = "button";
               btn.className = "mobile-season-tab" + (season === activeSeriesSeason[skey] ? " active" : "");
               btn.textContent = "S" + season;
-              btn.addEventListener("click", () => {
+              btn.addEventListener("click", (e) => {
+                e.stopPropagation();
                 activeSeriesSeason[skey] = season;
                 renderSeriesGrouped(lastSeriesData);
               });
