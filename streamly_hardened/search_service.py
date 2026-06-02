@@ -788,20 +788,6 @@ class SearchService:
                 order.append(name)
         return order
 
-    def multi_search(self, q: str, prefer: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
-        """Raw FAILOVER search: first provider with raw rows wins.
-
-        Kept for compatibility. Routes that need fallback after relevance/filtering
-        should use `multi_search_filtered()`.
-        """
-        for name in self._provider_order(prefer):
-            rows = self._run_provider(name, q)
-            if rows:
-                log.info("provider %s returned %d rows for %r (raw failover stop)", name, len(rows), q)
-                return _dedup_by_infohash(rows), name
-            log.info("provider %s empty for %r, trying next", name, q)
-        return [], None
-
     def multi_search_filtered(self, q: str, filter_fn, prefer: str | None = None, *, strict_prefer: bool = False, allow_raw_fallback: bool = True, order_override: tuple[str, ...] | list[str] | None = None) -> tuple[list[dict[str, Any]], str | None, list[dict[str, Any]], str | None]:
         """Filtered FAILOVER search with raw fallback.
 

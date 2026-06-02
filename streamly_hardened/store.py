@@ -57,10 +57,6 @@ class TTLStore(Generic[T]):
         with self._lock:
             self._items.pop(key, None)
 
-    def prune(self) -> None:
-        with self._lock:
-            self._prune_locked(self.clock())
-
     def _prune_locked(self, now: float) -> None:
         for key, entry in list(self._items.items()):
             if entry.expires_at <= now:

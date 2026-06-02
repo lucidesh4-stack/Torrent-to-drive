@@ -180,12 +180,6 @@ class TokenBucketRateLimiter:
                 return True
             return False
 
-    def prune(self, older_than_seconds: float = 3600.0) -> None:
-        cutoff = self.clock() - older_than_seconds
-        with self._lock:
-            for key, bucket in list(self._buckets.items()):
-                if bucket.updated_at < cutoff:
-                    del self._buckets[key]
 
 
 def rate_limited(cost: float = 1.0):
@@ -227,6 +221,3 @@ def install_security_headers(app) -> None:
             response.headers.setdefault("Cache-Control", "no-store")
         return response
 
-
-def stable_json_dumps(obj: Any) -> str:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

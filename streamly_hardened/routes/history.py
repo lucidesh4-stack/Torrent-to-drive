@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from flask import Blueprint, jsonify, current_app, request
-from ..auth_utils import current_client
 from ..security import (
     csrf_required,
     rate_limited,

@@ -33,3 +33,5 @@ The Series search is a multi-round orchestration:
 - **Normal Mode**: Simplified to a single broad query $\rightarrow$ local quality filter $\rightarrow$ size-ascending display.
 - **Daily Meter**: Removed for better UX; now using raw provider counts for debugging.
 - **Log Access Hardening**: Restricted log download credentials checking to prevent blank login bypasses and timing attacks by validating configured credentials exist before doing `hmac.compare_digest` comparison.
+- **Wave 1 Cleanup**: Purged unused functions and imports (including legacy `multi_search`, rate limiter `prune`, `stable_json_dumps`, and redundant local imports) to reduce technical debt and codebase noise.
+
