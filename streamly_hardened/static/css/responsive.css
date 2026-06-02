@@ -332,8 +332,6 @@
   .season-label { padding-left: 14px; }
 }
 
-/* ===== Mobile Search V2 layout ===== */
-.mobile-filter-btn,
 .mobile-filter-sheet { display: none; }
 
 @media (max-width: 768px) {
