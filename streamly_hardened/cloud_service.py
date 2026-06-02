@@ -176,8 +176,24 @@ class CloudService:
     def list_items(self, client: SeedrClientProtocol, folder_id: int) -> dict[str, Any]:
         try:
             contents = client.list_contents(folder_id)
-            settings = client.get_settings()
-            account = getattr(settings, "account", None)
+            
+            space_used = getattr(contents, "space_used", None)
+            space_max = getattr(contents, "space_max", None)
+            
+            if space_used is None or space_max is None:
+                try:
+                    settings = client.get_settings()
+                    account = getattr(settings, "account", None)
+                    if space_used is None:
+                        space_used = getattr(account, "space_used", None)
+                    if space_max is None:
+                        space_max = getattr(account, "space_max", None)
+                except Exception:
+                    pass
+            
+            used_val = _safe_int(space_used) if space_used is not None else 0
+            max_val = _safe_int(space_max) if space_max is not None else 1
+
             transfers = [
                 self._serialize_transfer(client, torrent)
                 for torrent in list(getattr(contents, "torrents", []) or [])[:100]
@@ -203,8 +219,8 @@ class CloudService:
                     for file in list(getattr(contents, "files", []) or [])[:1000]
                 ],
                 "transfers": transfers,
-                "used": max(0, _safe_int(getattr(account, "space_used", getattr(contents, "space_used", 0)))),
-                "max": max(1, _safe_int(getattr(account, "space_max", getattr(contents, "space_max", 1)), 1)),
+                "used": max(0, used_val),
+                "max": max(1, max_val),
             }
         except Exception as e:
             log.exception("Error listing items for folder %s: %s", folder_id, e)

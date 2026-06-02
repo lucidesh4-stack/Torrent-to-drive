@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from functools import lru_cache
 import ipaddress
 import logging
 import re
@@ -186,6 +187,7 @@ def _clean_query_tokens(query: str) -> list[str]:
     return out
 
 
+@lru_cache(maxsize=1024)
 def parse_release(title: str) -> dict[str, Any]:
     """Extract structured info from a release name.
 
