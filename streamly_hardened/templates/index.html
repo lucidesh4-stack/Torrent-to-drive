@@ -150,23 +150,6 @@
               <div id="suggestBox" class="suggest-box hidden"></div>
             </div>
 
-            <!-- Series-only multi-select dropdowns (hidden in Normal mode) -->
-            <div id="qualityDd" class="ms-dd">
-              <button type="button" class="ms-dd-btn" id="qualityDdBtn">Quality: 1080p</button>
-              <div class="ms-dd-panel hidden">
-                <label><input type="checkbox" class="qualityOpt" value="2160p"> 4K</label>
-                <label><input type="checkbox" class="qualityOpt" value="1080p" checked> 1080p</label>
-                <label><input type="checkbox" class="qualityOpt" value="720p"> 720p</label>
-              </div>
-            </div>
-            <div id="encoderDd" class="ms-dd">
-              <button type="button" class="ms-dd-btn" id="encoderDdBtn">Encoders: none</button>
-              <div class="ms-dd-panel hidden">
-                <label><input type="checkbox" class="encoderOpt" value="ELiTE"> ELiTE</label>
-                <label><input type="checkbox" class="encoderOpt" value="PSA"> PSA</label>
-                <label><input type="checkbox" class="encoderOpt" value="MeGusta"> MeGusta</label>
-              </div>
-            </div>
             <button id="searchBtn" type="button" class="primary icon-btn" title="Search">🔍</button>
             <button id="addMagnetBtn" type="button" class="primary icon-btn hidden" title="Add Link">➕</button>
           </div>
@@ -203,7 +186,29 @@
             </div>
           </div>
         </div>
-        <div id="seriesResults" class="results hidden"></div>
+        <div class="search-layout">
+          <aside id="searchSidebar" class="search-sidebar collapsed">
+            <div class="sidebar-section">
+              <h4 class="sidebar-title">Quality</h4>
+              <div class="sidebar-options">
+                <label><input type="checkbox" class="qualityOpt" value="2160p"> 4K</label>
+                <label><input type="checkbox" class="qualityOpt" value="1080p" checked> 1080p</label>
+                <label><input type="checkbox" class="qualityOpt" value="720p"> 720p</label>
+              </div>
+            </div>
+            <div class="sidebar-section">
+              <h4 class="sidebar-title">Encoders</h4>
+              <div class="sidebar-options">
+                <label><input type="checkbox" class="encoderOpt" value="ELiTE"> ELiTE</label>
+                <label><input type="checkbox" class="encoderOpt" value="PSA"> PSA</label>
+                <label><input type="checkbox" class="encoderOpt" value="MeGusta"> MeGusta</label>
+              </div>
+            </div>
+          </aside>
+          <div class="search-content">
+            <div id="seriesResults" class="results hidden"></div>
+          </div>
+        </div>
       </section>
 
     </main>

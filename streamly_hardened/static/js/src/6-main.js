@@ -91,6 +91,9 @@
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
     el.addEventListener("change", () => {
       if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+      if (typeof search === "function" && $("searchQuery").value.trim()) {
+        search(false, 1);
+      }
     })
   );
 
@@ -124,6 +127,13 @@
     sheet.setAttribute("aria-hidden", "true");
   }
   function openMobileFilters() {
+    if (typeof isMobileSearchUi === "function" && !isMobileSearchUi()) {
+      const sidebar = $("searchSidebar");
+      if (sidebar) {
+        sidebar.classList.toggle("collapsed");
+      }
+      return;
+    }
     const sheet = $("mobileFilterSheet");
     if (!sheet) return;
     syncMobileFiltersFromDesktop();
@@ -135,6 +145,9 @@
   if ($("mobileFilterApply")) $("mobileFilterApply").addEventListener("click", () => {
     syncDesktopFiltersFromMobile();
     closeMobileFilters();
+    if (typeof search === "function" && $("searchQuery").value.trim()) {
+      search(false, 1);
+    }
   });
   if ($("mobileFilterSheet")) $("mobileFilterSheet").addEventListener("click", (e) => {
     if (e.target.dataset.close === "1") closeMobileFilters();

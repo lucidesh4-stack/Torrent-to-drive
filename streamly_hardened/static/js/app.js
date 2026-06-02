@@ -853,7 +853,7 @@
   }
 
   function mobileQualityNav(available, active, onPick) {
-    const qs = normalizeQualityList(available).filter(q => q !== "Other");
+    const qs = normalizeQualityList(available);
     if (!qs.length) return null;
     const nav = document.createElement("div");
     nav.className = "mobile-quality-nav";
@@ -929,6 +929,7 @@
     head.className = "sec-head";
     const cols = [
       { label: "Name", key: null, cls: "h-name" },
+      { label: "Encoder", key: null, cls: "h-encoder" },
       { label: "SE", key: "seeders", cls: "h-se" },
       { label: "Time", key: "date", cls: "h-time" },
       { label: "Size", key: "size", cls: "h-size" },
@@ -964,11 +965,17 @@
     name.className = "name truncate";
     name.textContent = row.name || "Untitled";
     name.title = row.name || "";
+    
+    const encoder = document.createElement("span");
+    encoder.className = "encoder truncate";
+    encoder.textContent = row.encoder || "-";
+    encoder.title = row.encoder || "";
+    
     const se = document.createElement("span"); se.className = "se"; se.textContent = row.seeds || 0;
     const time = document.createElement("span"); time.className = "time"; time.textContent = row.date || "-";
     const size = document.createElement("span"); size.className = "size"; size.textContent = row.size || "-";
     const add = document.createElement("span"); add.className = "add"; add.appendChild(makeAddButton(row));
-    wrap.append(name, se, time, size, add);
+    wrap.append(name, encoder, se, time, size, add);
     return wrap;
   }
 
@@ -987,55 +994,55 @@
       return;
     }
     syncSortControls();
-    container.appendChild(seriesHeaderRow());
 
-    if (isMobileSearchUi()) {
-      const primaryGroups = lastNormalGroups.filter(g => g.quality !== "less_relevant");
-      const lessGroup = lastNormalGroups.find(g => g.quality === "less_relevant");
-      const available = primaryGroups.map(g => g.quality);
-      activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
-      const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
-        activeNormalQuality = q;
-        renderNormalGrouped(lastNormalGroups);
-      });
-      if (nav) container.appendChild(nav);
-      const active = primaryGroups.find(g => g.quality === activeNormalQuality) || primaryGroups[0];
-      if (active) for (const r of sortRows(active.rows || [])) container.appendChild(plainRow(r));
-      if (lessGroup && (lessGroup.rows || []).length) {
-        const section = document.createElement("div");
-        section.className = "encoder-section collapsed";
-        applyOpenState(section, "normal:less_relevant", prevOpen);
-        const header = sectionHeader({
-          title: lessGroup.label || "Less relevant",
-          sub: null,
-          count: lessGroup.count + (lessGroup.count === 1 ? " result" : " results"),
-        });
-        const body = document.createElement("div");
-        body.className = "encoder-body";
-        for (const r of sortRows(lessGroup.rows || [])) body.appendChild(plainRow(r));
-        section.append(header, body);
-        container.appendChild(section);
-        makeAccordion(section, header, container, ".encoder-section");
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(seriesHeaderRow());
+
+    const primaryGroups = lastNormalGroups.filter(g => g.quality !== "less_relevant");
+    const lessGroup = lastNormalGroups.find(g => g.quality === "less_relevant");
+    const available = primaryGroups.map(g => g.quality);
+    activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
+    const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
+      activeNormalQuality = q;
+      renderNormalGrouped(lastNormalGroups);
+    });
+    if (nav) fragment.appendChild(nav);
+
+    const active = primaryGroups.find(g => g.quality === activeNormalQuality) || primaryGroups[0];
+    if (active) {
+      for (const r of sortRows(active.rows || [])) {
+        fragment.appendChild(plainRow(r));
       }
-      return;
     }
 
-    for (const g of lastNormalGroups) {
+    if (lessGroup && (lessGroup.rows || []).length) {
       const section = document.createElement("div");
       section.className = "encoder-section collapsed";
-      applyOpenState(section, "normal:" + g.quality, prevOpen);
+      applyOpenState(section, "normal:less_relevant", prevOpen);
       const header = sectionHeader({
-        title: g.label,
+        title: lessGroup.label || "Less relevant",
         sub: null,
-        count: g.count + (g.count === 1 ? " result" : " results"),
+        count: lessGroup.count + (lessGroup.count === 1 ? " result" : " results"),
       });
       const body = document.createElement("div");
       body.className = "encoder-body";
-      for (const r of sortRows(g.rows)) body.appendChild(plainRow(r));
+      for (const r of sortRows(lessGroup.rows || [])) {
+        body.appendChild(plainRow(r));
+      }
       section.append(header, body);
-      container.appendChild(section);
-      makeAccordion(section, header, container, ".encoder-section");
+      fragment.appendChild(section);
     }
+
+    container.appendChild(fragment);
+
+    // Call accordion wiring after container has the elements
+    const sections = container.querySelectorAll(".encoder-section");
+    sections.forEach(sec => {
+      const header = sec.querySelector(".encoder-header");
+      if (header) {
+        makeAccordion(sec, header, container, ".encoder-section");
+      }
+    });
   }
 
   function seriesEpisodeRow(row, labelParts) {
@@ -1046,6 +1053,11 @@
     name.className = "name truncate";
     name.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ");
     name.title = row.name || "";
+
+    const encoder = document.createElement("span");
+    encoder.className = "encoder truncate";
+    encoder.textContent = row.encoder || "-";
+    encoder.title = row.encoder || "";
 
     const se = document.createElement("span");
     se.className = "se";
@@ -1063,7 +1075,7 @@
     add.className = "add";
     add.appendChild(makeAddButton(row));
 
-    wrap.append(name, se, time, size, add);
+    wrap.append(name, encoder, se, time, size, add);
     return wrap;
   }
 
@@ -1117,22 +1129,25 @@
     }
 
     syncSortControls();
-    container.appendChild(seriesHeaderRow());
+
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(seriesHeaderRow());
 
     const mobile = isMobileSearchUi();
     const available = [];
     for (const p of packs) available.push(qualityBucketFromName(p.name));
     for (const enc of encoders) for (const qg of (enc.qualities || [])) available.push(qg.quality);
     activeSeriesQuality = chooseActiveQuality(available, activeSeriesQuality);
-    if (mobile) {
-      const nav = mobileQualityNav(available, activeSeriesQuality, (q) => {
-        activeSeriesQuality = q;
-        renderSeriesGrouped(lastSeriesData);
-      });
-      if (nav) container.appendChild(nav);
-    }
 
-    const packsToShow = mobile ? packs.filter(p => qualityBucketFromName(p.name) === activeSeriesQuality) : packs;
+    // Renders the global Quality chips on both desktop and mobile
+    const nav = mobileQualityNav(available, activeSeriesQuality, (q) => {
+      activeSeriesQuality = q;
+      renderSeriesGrouped(lastSeriesData);
+    });
+    if (nav) fragment.appendChild(nav);
+
+    // Both desktop and mobile now filter packs by the active quality chip
+    const packsToShow = packs.filter(p => qualityBucketFromName(p.name) === activeSeriesQuality);
     if (packsToShow.length) {
       const section = document.createElement("div");
       section.className = "encoder-section packs collapsed";
@@ -1147,14 +1162,12 @@
       const displayPacks = userSorted ? sortRows(packsToShow) : packsToShow;
       for (const p of displayPacks) body.appendChild(seriesEpisodeRow(p, [p.name]));
       section.append(header, body);
-      container.appendChild(section);
-      makeAccordion(section, header, container, ".encoder-section");
+      fragment.appendChild(section);
     }
 
     for (const enc of encoders) {
-      const qualityGroups = mobile
-        ? (enc.qualities || []).filter(qg => qg.quality === activeSeriesQuality)
-        : (enc.qualities || []);
+      // Both desktop and mobile now filter qualities by activeSeriesQuality
+      const qualityGroups = (enc.qualities || []).filter(qg => qg.quality === activeSeriesQuality);
       if (!qualityGroups.length) continue;
       const visibleCount = qualityGroups.reduce((a, qg) => a + (qg.episode_count || 0), 0);
       if (!visibleCount) continue;
@@ -1189,8 +1202,8 @@
             if (!activeSeriesSeason[skey] || !availableSeasons.includes(activeSeriesSeason[skey])) {
               activeSeriesSeason[skey] = availableSeasons[0];
             }
-            const nav = document.createElement("div");
-            nav.className = "mobile-season-nav";
+            const sNav = document.createElement("div");
+            sNav.className = "mobile-season-nav";
             for (const season of availableSeasons) {
               const btn = document.createElement("button");
               btn.type = "button";
@@ -1201,9 +1214,9 @@
                 activeSeriesSeason[skey] = season;
                 renderSeriesGrouped(lastSeriesData);
               });
-              nav.appendChild(btn);
+              sNav.appendChild(btn);
             }
-            body.appendChild(nav);
+            body.appendChild(sNav);
             const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
             const eps = activeSeason.episodes || [];
             for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, enc.name, qg.label || qg.quality]));
@@ -1211,8 +1224,9 @@
           continue;
         }
 
+        // Desktop
         const qGroup = document.createElement("div");
-        qGroup.className = "uploader-group collapsed";
+        qGroup.className = "uploader-group"; // Expanded by default
         const qlabel = document.createElement("div");
         qlabel.className = "uploader-label";
         const chev = document.createElement("span");
@@ -1239,11 +1253,9 @@
         }
         qGroup.appendChild(qBody);
         body.appendChild(qGroup);
-        makeAccordion(qGroup, qlabel, body, ".uploader-group");
       }
       section.append(header, body);
-      container.appendChild(section);
-      makeAccordion(section, header, container, ".encoder-section");
+      fragment.appendChild(section);
     }
 
     function appendPlainSeriesSection(key, title, rows) {
@@ -1260,12 +1272,33 @@
       body.className = "encoder-body";
       for (const row of rows) body.appendChild(plainRow(row));
       section.append(header, body);
-      container.appendChild(section);
-      makeAccordion(section, header, container, ".encoder-section");
+      fragment.appendChild(section);
     }
 
     appendPlainSeriesSection("series:less_relevant", "Less relevant", lessRelevant);
     appendPlainSeriesSection("series:other", "Other / Unparsed", otherRows);
+
+    container.appendChild(fragment);
+
+    // Call accordion wiring after container has the elements
+    const sections = container.querySelectorAll(".encoder-section");
+    sections.forEach(sec => {
+      const header = sec.querySelector(".encoder-header");
+      if (header) {
+        makeAccordion(sec, header, container, ".encoder-section");
+      }
+
+      // Wire internal uploader-group accordion on desktop
+      if (!mobile) {
+        const uploaderGroups = sec.querySelectorAll(".uploader-group");
+        uploaderGroups.forEach(ug => {
+          const uLabel = ug.querySelector(".uploader-label");
+          if (uLabel) {
+            makeAccordion(ug, uLabel, ug.parentNode, ".uploader-group");
+          }
+        });
+      }
+    });
   }
   async function saveToHistory(magnet, title) {
     try {
@@ -1748,6 +1781,9 @@
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
     el.addEventListener("change", () => {
       if (typeof updateDropdownLabels === "function") updateDropdownLabels();
+      if (typeof search === "function" && $("searchQuery").value.trim()) {
+        search(false, 1);
+      }
     })
   );
 
@@ -1781,6 +1817,13 @@
     sheet.setAttribute("aria-hidden", "true");
   }
   function openMobileFilters() {
+    if (typeof isMobileSearchUi === "function" && !isMobileSearchUi()) {
+      const sidebar = $("searchSidebar");
+      if (sidebar) {
+        sidebar.classList.toggle("collapsed");
+      }
+      return;
+    }
     const sheet = $("mobileFilterSheet");
     if (!sheet) return;
     syncMobileFiltersFromDesktop();
@@ -1792,6 +1835,9 @@
   if ($("mobileFilterApply")) $("mobileFilterApply").addEventListener("click", () => {
     syncDesktopFiltersFromMobile();
     closeMobileFilters();
+    if (typeof search === "function" && $("searchQuery").value.trim()) {
+      search(false, 1);
+    }
   });
   if ($("mobileFilterSheet")) $("mobileFilterSheet").addEventListener("click", (e) => {
     if (e.target.dataset.close === "1") closeMobileFilters();

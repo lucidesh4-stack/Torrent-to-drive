@@ -337,6 +337,11 @@
 .mobile-filter-sheet { display: none; }
 
 @media (max-width: 768px) {
+  #searchSidebar { display: none !important; }
+  .search-layout { display: block; margin-top: 0; }
+  .sec-head .h-encoder { display: none !important; }
+  .episode-row .encoder { display: none !important; }
+
   /* Remove wasted title/subtitle area; search starts immediately. */
   #searchView.panel { border-radius: 14px; overflow: hidden; }
   #searchView .panel-head { display: none !important; }
