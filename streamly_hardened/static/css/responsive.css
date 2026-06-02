@@ -324,7 +324,7 @@
   .episode-row .size { order: 2; flex: 0 0 auto; text-align: left; }
   .episode-row .time { order: 3; flex: 1 1 auto; text-align: left; }
   .episode-row .add  { order: 4; flex: 0 0 auto; margin-left: auto; text-align: right; }
-  .episode-row .add .add-btn { padding: 7px 14px; font-size: 13px; }
+  .episode-row .add .add-btn { width: 32px; height: 32px; padding: 0; }
 
   /* Uploader sub-row wraps too */
   .uploader-label { flex-wrap: wrap; padding: 8px 12px 8px 14px; }
