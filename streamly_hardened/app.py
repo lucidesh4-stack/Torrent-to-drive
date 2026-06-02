@@ -198,12 +198,11 @@ def create_app(
     @app.get("/")
     def index():
         ensure_sid()
-        import os as _os
-        static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
         try:
             asset_ver = int(max(
-                _os.path.getmtime(_os.path.join(root, f))
-                for root, _dirs, files in _os.walk(static_dir)
+                os.path.getmtime(os.path.join(root, f))
+                for root, _dirs, files in os.walk(static_dir)
                 for f in files
             ))
         except ValueError:
