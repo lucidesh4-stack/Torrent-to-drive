@@ -372,6 +372,9 @@
     margin-top: 7px;
     align-items: center;
   }
+  #searchView .controls-group {
+    display: contents;
+  }
   #searchView #resultCount { display: none; }
   #searchView .mobile-filter-btn {
     display: block;
@@ -412,6 +415,7 @@
     padding: 10px 12px 8px;
     margin: 0;
     background: #0b111c;
+    border: 1px solid transparent;
     border-top: 1px solid rgba(148,163,184,.08);
     border-bottom: 1px solid var(--line);
     color: #c7d2e3;

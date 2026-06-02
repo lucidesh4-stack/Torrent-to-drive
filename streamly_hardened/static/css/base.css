@@ -122,7 +122,7 @@
     #cloudView .side-card #clearSelBtn { width: auto !important; }
     #cloudView .side-card .status { margin-top: 10px; min-height: 18px; font-size: 13px; }
     .search-grid { grid-template-columns: minmax(260px, 1fr) 190px; }
-    .results { padding: 0 16px 16px; overflow-x: auto; overflow-y: visible; }
+    .results { padding: 0 0 16px; overflow-x: auto; overflow-y: visible; }
     .search-box-wrap { position: relative; min-width: 260px; }
     /* icons embedded inside the search input */
     .search-box-wrap > input { padding-left: 42px; padding-right: 40px; }
@@ -159,6 +159,7 @@
     /* ===== Series Mode ===== */
     .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
     #resultCount { font-size: 13px; }
+    .controls-group { display: flex; align-items: center; gap: 12px; }
     .mode-toggle { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 3px; gap: 2px; }
     .mode-toggle button { padding: 7px 16px; background: transparent; color: var(--muted); border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; }
     .mode-toggle button:hover { transform: none; background: #1b2230; color: var(--text); }
@@ -182,10 +183,10 @@
       background: #1b2536;
       border-color: var(--blue);
     }
-    #seriesResults { padding: 0 16px 16px; }
+    #seriesResults { padding: 0 0 16px; }
     /* Clickable header row for sectioned views (Normal + Series) */
     /* Clickable header row for sectioned views (Normal + Series) */
-    .sec-head { display: grid; grid-template-columns: 1fr 100px 80px 110px 100px 60px; gap: 12px; align-items: center; padding: 10px 16px; margin-bottom: 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .sec-head { display: grid; grid-template-columns: 1fr 100px 80px 110px 100px 60px; gap: 12px; align-items: center; padding: 10px 16px; margin-bottom: 8px; border: 1px solid transparent; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
     .sec-head .sec-h { white-space: nowrap; }
     .sec-head .h-se, .sec-head .h-time, .sec-head .h-size { text-align: right; }
     .sec-head .h-add { text-align: right; }
