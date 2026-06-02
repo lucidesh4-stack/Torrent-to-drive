@@ -1616,6 +1616,29 @@
       : "bitsearch → apibay → torrents-csv";
     status($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
+
+    const resultsContainer = $("seriesResults");
+    if (resultsContainer) {
+      resultsContainer.classList.remove("hidden");
+      resultsContainer.textContent = "";
+      resultsContainer.appendChild(seriesHeaderRow());
+      
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < 5; i++) {
+        const row = document.createElement("div");
+        row.className = "episode-row skeleton";
+        row.innerHTML = `
+          <span class="skeleton-bar name skeleton-title"></span>
+          <span class="skeleton-bar encoder skeleton-encoder"></span>
+          <span class="skeleton-bar se skeleton-se"></span>
+          <span class="skeleton-bar time skeleton-time"></span>
+          <span class="skeleton-bar size skeleton-size"></span>
+          <span class="skeleton-bar add skeleton-add"></span>
+        `;
+        frag.appendChild(row);
+      }
+      resultsContainer.appendChild(frag);
+    }
     try {
       const params = new URLSearchParams();
       params.set("q", q);
@@ -1665,24 +1688,34 @@
     const add = document.createElement("button");
     add.type = "button";
     add.className = "add-btn";
-    add.dataset.state = "idle";
-    add.textContent = "+";
+    
+    function setButtonState(state) {
+      add.dataset.state = state;
+      add.textContent = "";
+      if (state === "idle") {
+        add.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
+      } else if (state === "adding") {
+        add.innerHTML = `<svg class="btn-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/><path d="M12 2a10 10 0 0 1 10 10" class="spin-path"/></svg>`;
+      } else if (state === "done") {
+        add.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+      }
+    }
+    
+    setButtonState("idle");
+    
     add.addEventListener("click", async () => {
       saveToHistory(result.magnet, result.name);
       add.disabled = true;
-      add.dataset.state = "adding";
-      add.textContent = "Adding...";
+      setButtonState("adding");
       try {
         await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
         toast("Added to Seedr: " + (result.name || "torrent"));
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
         else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
-        add.dataset.state = "done";
-        add.textContent = "\u2713";
+        setButtonState("done");
       } catch (err) {
         toast(err.message || "Failed to add");
-        add.dataset.state = "idle";
-        add.textContent = "+";
+        setButtonState("idle");
         add.disabled = false;
       }
     });
