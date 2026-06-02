@@ -286,21 +286,23 @@
     
     setButtonState("idle");
     
-    add.addEventListener("click", async () => {
-      saveToHistory(result.magnet, result.name);
+    add.addEventListener("click", () => {
       add.disabled = true;
       setButtonState("adding");
-      try {
-        await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
-        toast("Added to Seedr: " + (result.name || "torrent"));
-        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
-        else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
-        setButtonState("done");
-      } catch (err) {
-        toast(err.message || "Failed to add");
-        setButtonState("idle");
-        add.disabled = false;
-      }
+      setTimeout(async () => {
+        saveToHistory(result.magnet, result.name);
+        try {
+          await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
+          toast("Added to Seedr: " + (result.name || "torrent"));
+          if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+          else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
+          setButtonState("done");
+        } catch (err) {
+          toast(err.message || "Failed to add");
+          setButtonState("idle");
+          add.disabled = false;
+        }
+      }, 0);
     });
     return add;
   }

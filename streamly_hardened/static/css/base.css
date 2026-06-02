@@ -39,7 +39,8 @@
       color: white;
       font-weight: 800;
       cursor: pointer;
-      transition: .14s ease;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     button:hover { background: var(--blue-2); transform: translateY(-1px); }
     button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
@@ -186,7 +187,8 @@
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     .mobile-filter-btn:hover {
       background: #1b2536;
@@ -224,7 +226,8 @@
       border-radius: var(--radius-md);
       margin-bottom: 6px;
       font-size: 13.5px;
-      transition: all 0.15s ease-in-out;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     .episode-row:hover {
       background: #1b2536;
@@ -304,7 +307,8 @@
       letter-spacing: 0;
       cursor: pointer;
       user-select: none;
-      transition: background 0.1s ease;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     .sidebar-options label:hover {
       background: rgba(148, 163, 184, 0.08);
@@ -345,7 +349,8 @@
       text-transform: uppercase;
       border: none;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     .mobile-quality-tab:hover {
       color: var(--text);
@@ -413,8 +418,9 @@ button.icon-btn {
       background: var(--panel-2);
       color: var(--text);
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.1s ease-out;
       flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
     }
     .add-btn:hover {
       background: var(--line-soft);
@@ -499,9 +505,10 @@ button.icon-btn {
       background: var(--panel-2);
       color: var(--text);
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.1s ease-out;
       min-width: 0;
       flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
     }
     #historyBody .hist-icon:hover {
       background: var(--line-soft);
@@ -534,7 +541,8 @@ button.icon-btn {
       background: var(--panel-2);
       color: var(--muted);
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
     }
     .panel-head button.ghost:hover {
       background: var(--line-soft);
@@ -559,4 +567,28 @@ button.icon-btn {
     }
     .results:not(.hidden), #seriesResults:not(.hidden) {
       animation: fade-in-up 0.2s ease-out forwards;
+    }
+
+    /* Tactile Press Effect */
+    button:active,
+    .btn:active,
+    .add-btn:active,
+    .mobile-filter-btn:active,
+    .mobile-quality-tab:active,
+    .filter-item:active,
+    .sidebar-options label:active,
+    .search-opt:active,
+    .episode-row:active,
+    .cm-row:active,
+    .cm-tbtn:active,
+    .cm-kebab:active,
+    .cm-ctx-item:active,
+    .cm-bulk button:active,
+    #cloudBody tr:active,
+    #historyBody .hist-icon:active,
+    .panel-head button.ghost:active,
+    .login-close:active,
+    .mfs-field label:active {
+      transform: scale(0.98) !important;
+      filter: brightness(0.9) !important;
     }

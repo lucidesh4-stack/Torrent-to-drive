@@ -112,7 +112,7 @@
   font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.1s ease-out;
 }
 .login-close:hover {
   background: rgba(239, 68, 68, 0.15);
@@ -212,7 +212,7 @@
     padding: 7px 12px;
     font-size: 13px;
     font-weight: 700;
-    transition: all 0.15s ease;
+    transition: all 0.1s ease-out;
   }
   .cm-tbtn svg { flex-shrink: 0; }
   .cm-tbtn:hover:not(:disabled) {
@@ -234,7 +234,7 @@
     display: flex; align-items: center; gap: 11px;
     padding: 13px 12px; border-bottom: 1px solid var(--line-soft);
     cursor: pointer; -webkit-tap-highlight-color: transparent;
-    transition: background 0.12s ease;
+    transition: all 0.1s ease-out;
   }
   .cm-row:last-child { border-bottom: 0; }
   .cm-row:active { background: #111d2b; }
@@ -271,7 +271,7 @@
     border: 0;
     padding: 0;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.1s ease-out;
   }
   .cm-kebab:active { background: #1b2230; color: var(--text); }
   .cm-kebab svg { flex-shrink: 0; }
@@ -299,7 +299,7 @@
     background: transparent; border: 0; border-bottom: 1px solid var(--line-soft);
     text-align: left; border-radius: 0;
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition: all 0.1s ease-out;
   }
   .cm-ctx-item svg {
     flex-shrink: 0;
@@ -337,7 +337,7 @@
     font-weight: 800;
     color: #fff;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.1s ease-out;
   }
   .cm-bulk button svg { flex-shrink: 0; }
   .cm-bulk .b-dl { background: var(--blue); }
@@ -641,7 +641,7 @@
     font-weight: 800;
     cursor: pointer;
     user-select: none;
-    transition: all 0.15s ease-in-out;
+    transition: all 0.1s ease-out;
   }
   .mfs-field label:hover {
     border-color: var(--blue);

@@ -49,7 +49,13 @@
       btn.type = "button";
       btn.className = "mobile-quality-tab" + (q === active ? " active" : "");
       btn.textContent = qualityLabel(q);
-      btn.addEventListener("click", (e) => { e.stopPropagation(); onPick(q); });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (btn.classList.contains("active")) return;
+        nav.querySelectorAll(".mobile-quality-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        onPick(q);
+      });
       nav.appendChild(btn);
     }
     return nav;
@@ -196,7 +202,9 @@
     activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
     const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
       activeNormalQuality = q;
-      renderNormalGrouped(lastNormalGroups);
+      setTimeout(() => {
+        renderNormalGrouped(lastNormalGroups);
+      }, 0);
     });
     if (nav) fragment.appendChild(nav);
 
@@ -337,7 +345,9 @@
     // Renders the global Quality chips on both desktop and mobile
     const nav = mobileQualityNav(available, activeSeriesQuality, (q) => {
       activeSeriesQuality = q;
-      renderSeriesGrouped(lastSeriesData);
+      setTimeout(() => {
+        renderSeriesGrouped(lastSeriesData);
+      }, 0);
     });
     if (nav) fragment.appendChild(nav);
 

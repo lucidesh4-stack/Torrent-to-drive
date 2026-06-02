@@ -300,3 +300,6 @@
   }
 
   init();
+
+  // Enable instant touch active states on mobile (iOS/Android Safari/Chrome)
+  document.addEventListener("touchstart", () => {}, { passive: true });

@@ -870,7 +870,13 @@
       btn.type = "button";
       btn.className = "mobile-quality-tab" + (q === active ? " active" : "");
       btn.textContent = qualityLabel(q);
-      btn.addEventListener("click", (e) => { e.stopPropagation(); onPick(q); });
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (btn.classList.contains("active")) return;
+        nav.querySelectorAll(".mobile-quality-tab").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        onPick(q);
+      });
       nav.appendChild(btn);
     }
     return nav;
@@ -1017,7 +1023,9 @@
     activeNormalQuality = chooseActiveQuality(available, activeNormalQuality);
     const nav = mobileQualityNav(available, activeNormalQuality, (q) => {
       activeNormalQuality = q;
-      renderNormalGrouped(lastNormalGroups);
+      setTimeout(() => {
+        renderNormalGrouped(lastNormalGroups);
+      }, 0);
     });
     if (nav) fragment.appendChild(nav);
 
@@ -1158,7 +1166,9 @@
     // Renders the global Quality chips on both desktop and mobile
     const nav = mobileQualityNav(available, activeSeriesQuality, (q) => {
       activeSeriesQuality = q;
-      renderSeriesGrouped(lastSeriesData);
+      setTimeout(() => {
+        renderSeriesGrouped(lastSeriesData);
+      }, 0);
     });
     if (nav) fragment.appendChild(nav);
 
@@ -1720,21 +1730,23 @@
     
     setButtonState("idle");
     
-    add.addEventListener("click", async () => {
-      saveToHistory(result.magnet, result.name);
+    add.addEventListener("click", () => {
       add.disabled = true;
       setButtonState("adding");
-      try {
-        await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
-        toast("Added to Seedr: " + (result.name || "torrent"));
-        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
-        else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
-        setButtonState("done");
-      } catch (err) {
-        toast(err.message || "Failed to add");
-        setButtonState("idle");
-        add.disabled = false;
-      }
+      setTimeout(async () => {
+        saveToHistory(result.magnet, result.name);
+        try {
+          await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
+          toast("Added to Seedr: " + (result.name || "torrent"));
+          if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+          else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
+          setButtonState("done");
+        } catch (err) {
+          toast(err.message || "Failed to add");
+          setButtonState("idle");
+          add.disabled = false;
+        }
+      }, 0);
     });
     return add;
   }
@@ -2040,4 +2052,7 @@
   }
 
   init();
+
+  // Enable instant touch active states on mobile (iOS/Android Safari/Chrome)
+  document.addEventListener("touchstart", () => {}, { passive: true });
 })();
