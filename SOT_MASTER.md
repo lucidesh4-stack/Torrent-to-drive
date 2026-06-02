@@ -34,4 +34,5 @@ The Series search is a multi-round orchestration:
 - **Daily Meter**: Removed for better UX; now using raw provider counts for debugging.
 - **Log Access Hardening**: Restricted log download credentials checking to prevent blank login bypasses and timing attacks by validating configured credentials exist before doing `hmac.compare_digest` comparison.
 - **Wave 1 Cleanup**: Purged unused functions and imports (including legacy `multi_search`, rate limiter `prune`, `stable_json_dumps`, and redundant local imports) to reduce technical debt and codebase noise.
+- **Wave 2 Performance**: Added `@lru_cache` to `parse_release` (avoiding redundant regex calculations during sorting/grouping) and optimized `list_items` to pull storage quota data directly from `list_contents` (saving a redundant `get_settings` API call to Seedr).
 
