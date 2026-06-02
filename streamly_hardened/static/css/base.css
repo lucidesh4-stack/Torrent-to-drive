@@ -374,3 +374,19 @@ button.icon-btn {
 .transfer-bar { height: 6px; width: min(360px, 100%); background: #263241; border-radius: 999px; overflow: hidden; }
 .transfer-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .25s ease; }
 .transfer-cancel-btn { padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px; }
+
+    /* Sleek Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--line);
+      border-radius: var(--radius-sm);
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+    }

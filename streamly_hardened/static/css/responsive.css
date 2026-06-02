@@ -578,21 +578,21 @@
     flex: 0 0 auto;
     height: auto;
     min-width: 52px;
-    border: 1px solid rgba(148,163,184,.08);
+    border: 1px solid var(--line);
     border-radius: 999px;
-    background: #171f2d;
-    color: #adbbcf;
+    background: var(--panel-2);
+    color: var(--muted);
     padding: 6px 10px;
     font-size: 11px;
     font-weight: 950;
     letter-spacing: 0;
     text-transform: none;
   }
-  .mobile-quality-tab:last-child { border-right: 1px solid rgba(148,163,184,.08); }
+  .mobile-quality-tab:last-child { border-right: 1px solid var(--line); }
   .mobile-quality-tab.active {
-    background: #223a5b;
-    color: #d9ebff;
-    border-color: rgba(86,160,255,.45);
+    background: var(--blue);
+    color: #fff;
+    border-color: var(--blue);
     box-shadow: none;
   }
 
