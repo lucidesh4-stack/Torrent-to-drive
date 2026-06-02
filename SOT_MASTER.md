@@ -32,3 +32,4 @@ The Series search is a multi-round orchestration:
 - **Provider Failover**: We moved from "Merge all" to "First-provider-to-yield-results" to kill cross-source duplicates.
 - **Normal Mode**: Simplified to a single broad query $\rightarrow$ local quality filter $\rightarrow$ size-ascending display.
 - **Daily Meter**: Removed for better UX; now using raw provider counts for debugging.
+- **Log Access Hardening**: Restricted log download credentials checking to prevent blank login bypasses and timing attacks by validating configured credentials exist before doing `hmac.compare_digest` comparison.
