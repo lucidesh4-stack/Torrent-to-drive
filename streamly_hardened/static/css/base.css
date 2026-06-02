@@ -62,7 +62,7 @@
     label { display: block; margin: 14px 0 7px; color: var(--muted); font-size: 12px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .hidden { display: none !important; }
     .app { min-height: 100vh; }
-    .login-wrap { position: fixed; inset: 0; z-index: 100; background: rgba(7, 10, 15, 0.65); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 24px; }
+    .login-wrap { position: fixed; inset: 0; z-index: 2000; background: rgba(7, 10, 15, 0.65); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 24px; }
     .login-card { width: min(430px, 100%); background: rgba(22, 27, 34, .97); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 28px; box-shadow: 0 30px 90px rgba(0,0,0,.42); }
     .brand { display: flex; align-items: center; gap: 13px; margin-bottom: 20px; }
     .logo { width: 48px; height: 48px; border-radius: var(--radius-md); display: grid; place-items: center; background: linear-gradient(135deg, #4a90e2, #7c3aed); font-weight: 1000; font-size: 22px; }
@@ -156,7 +156,7 @@
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .seed { color: #86efac; font-weight: 900; }
     .empty { padding: 42px 16px; color: var(--muted); text-align: center; }
-    .overlay { position: fixed; inset: 0; z-index: 30; background: rgba(7, 10, 15, 0.75); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 20px; }
+    .overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(7, 10, 15, 0.75); backdrop-filter: blur(12px); display: grid; place-items: center; padding: 20px; }
     .player-box { width: min(1100px, 96vw); }
     .player-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
     video { width: 100%; max-height: 78vh; background: black; border-radius: var(--radius-md); outline: none; }

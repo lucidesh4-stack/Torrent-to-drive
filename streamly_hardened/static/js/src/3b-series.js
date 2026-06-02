@@ -159,7 +159,12 @@
     encoder.title = row.encoder || "";
     
     const se = document.createElement("span"); se.className = "se"; se.textContent = row.seeds || 0;
-    const time = document.createElement("span"); time.className = "time"; time.textContent = row.date || "-";
+    const time = document.createElement("span");
+    time.className = "time";
+    time.textContent = row.date || "-";
+    if (!row.date || row.date === "-") {
+      time.classList.add("hidden");
+    }
     const size = document.createElement("span"); size.className = "size"; size.textContent = row.size || "-";
     const add = document.createElement("span"); add.className = "add"; add.appendChild(makeAddButton(row));
     wrap.append(name, encoder, se, time, size, add);
@@ -253,6 +258,9 @@
     const time = document.createElement("span");
     time.className = "time";
     time.textContent = row.date || "-";
+    if (!row.date || row.date === "-") {
+      time.classList.add("hidden");
+    }
 
     const size = document.createElement("span");
     size.className = "size";

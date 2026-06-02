@@ -95,9 +95,9 @@
           <div class="cm-top">
             <div class="cm-top-left">
               <input type="checkbox" id="cmSelectAll" class="cm-selall" title="Select all">
-              <button type="button" id="cmUpBtn" class="cm-tbtn" title="Up">⬆️ Up</button>
+              <button type="button" id="cmUpBtn" class="cm-tbtn" title="Up"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up"><path d="m5 12 7-7 7 7M12 5v14"/></svg> Up</button>
             </div>
-            <button type="button" id="cmRefreshBtn" class="cm-tbtn cm-tbtn-blue" title="Refresh">🔄 Refresh</button>
+            <button type="button" id="cmRefreshBtn" class="cm-tbtn" title="Refresh"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.72 2.78L21 8"/><path d="M21 3v5h-5"/></svg> Refresh</button>
           </div>
           <div class="cm-hint">
             <span>Tap = select · Double-tap = open</span>
@@ -108,17 +108,28 @@
 
           <!-- per-item context menu -->
           <div id="cloudCtxMenu" class="cm-ctx hidden">
-            <button type="button" class="cm-ctx-item" data-act="download"><span class="mi">⬇️</span> Download</button>
-            <button type="button" class="cm-ctx-item" data-act="copy"><span class="mi">🔗</span> Copy Link</button>
-            <button type="button" class="cm-ctx-item del" data-act="delete"><span class="mi">🗑️</span> Delete</button>
+            <button type="button" class="cm-ctx-item" data-act="download">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+              Download
+            </button>
+            <button type="button" class="cm-ctx-item" data-act="copy">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              Copy Link
+            </button>
+            <button type="button" class="cm-ctx-item del" data-act="delete">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>
+              Delete
+            </button>
           </div>
 
           <!-- multi-select bulk bar -->
           <div id="cloudBulkBar" class="cm-bulk hidden">
             <span id="cmBulkCount" class="cnt">0 selected</span>
-            <button type="button" id="cmBulkDownload" class="b-dl">⬇ Download</button>
-            <button type="button" id="cmBulkDelete" class="b-del">🗑 Delete</button>
-            <button type="button" id="cmBulkClear" class="b-x">✕</button>
+            <div class="cm-bulk-actions">
+              <button type="button" id="cmBulkDownload" class="b-dl"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-download"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Download</button>
+              <button type="button" id="cmBulkDelete" class="b-del"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg> Delete</button>
+            </div>
+            <button type="button" id="cmBulkClear" class="b-x" aria-label="Clear selection"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
           </div>
 
           <!-- bottom toolbar -->
@@ -219,9 +230,9 @@
   <section id="videoOverlay" class="overlay hidden">
     <div class="player-box">
       <div class="player-head">
-        <strong id="videoTitle" class="truncate" style="flex:1">Video</strong>
-        <button id="nativePlayerBtn" class="secondary" type="button" title="Open in VLC/MX Player">🖥️ External Player</button>
-        <button id="closeVideoBtn" class="danger" type="button">Close</button>
+        <strong id="videoTitle" class="truncate">Video</strong>
+        <button id="nativePlayerBtn" class="secondary" type="button" title="Open in VLC/MX Player"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-external-link"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg> External Player</button>
+        <button id="closeVideoBtn" class="ghost" type="button" aria-label="Close player"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
       <video id="videoPlayer" controls playsinline style="width: 100%; max-height: 78vh; background: #000; outline: none; border: none;"></video>
     </div>
