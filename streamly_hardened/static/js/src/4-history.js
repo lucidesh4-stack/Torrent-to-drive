@@ -38,14 +38,16 @@
         
         const copyBtn = document.createElement("button");
         copyBtn.className = "secondary hist-icon";
-        copyBtn.textContent = "📋";
+        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
         copyBtn.title = "Copy magnet link";
         copyBtn.onclick = async () => {
           try {
             await navigator.clipboard.writeText(item.magnet);
-            copyBtn.textContent = "✓";
+            copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
             toast("Magnet copied");
-            setTimeout(() => { copyBtn.textContent = "📋"; }, 1500);
+            setTimeout(() => {
+              copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+            }, 1500);
           } catch (e) {
             toast("Copy failed");
           }
@@ -53,27 +55,26 @@
 
         const addBtn = document.createElement("button");
         addBtn.className = "hist-icon";
-        addBtn.textContent = "+";
+        addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
         addBtn.title = "Add to Destination";
         addBtn.onclick = async () => {
           addBtn.disabled = true;
-          addBtn.textContent = "\u2026";
+          addBtn.innerHTML = `<svg class="btn-spinner" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/><path d="M12 2a10 10 0 0 1 10 10" class="spin-path"/></svg>`;
           try {
             await postJson("/api/add", { magnet: item.magnet });
             toast("Added from history: " + item.title);
             await saveToHistory(item.magnet, item.title); // Update timestamp
-            addBtn.textContent = "✓";
+            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
           } catch (e) {
             toast("Failed: " + e.message);
             addBtn.disabled = false;
-            addBtn.textContent = "+";
+            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
           }
         };
         
         const delBtn = document.createElement("button");
-        delBtn.className = "danger ghost";
-        delBtn.textContent = "✕";
-        delBtn.style.padding = "6px 10px";
+        delBtn.className = "danger ghost hist-icon";
+        delBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
         delBtn.title = "Remove from history";
         delBtn.onclick = async () => {
           delBtn.disabled = true;

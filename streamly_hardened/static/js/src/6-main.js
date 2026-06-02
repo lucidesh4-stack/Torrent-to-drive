@@ -122,9 +122,23 @@
   }
   function closeMobileFilters() {
     const sheet = $("mobileFilterSheet");
-    if (!sheet) return;
-    sheet.classList.add("hidden");
-    sheet.setAttribute("aria-hidden", "true");
+    if (!sheet || sheet.classList.contains("hidden")) return;
+    
+    sheet.classList.add("mfs-closing");
+    const panel = sheet.querySelector(".mfs-panel");
+    const onEnd = () => {
+      sheet.classList.remove("mfs-closing");
+      sheet.classList.add("hidden");
+      sheet.setAttribute("aria-hidden", "true");
+      panel.removeEventListener("animationend", onEnd);
+    };
+    panel.addEventListener("animationend", onEnd);
+    
+    setTimeout(() => {
+      if (sheet.classList.contains("mfs-closing")) {
+        onEnd();
+      }
+    }, 350);
   }
   function openMobileFilters() {
     if (typeof isMobileSearchUi === "function" && !isMobileSearchUi()) {
