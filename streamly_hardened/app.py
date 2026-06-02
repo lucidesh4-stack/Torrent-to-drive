@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import hmac
 import os
 import uuid
 from typing import Any
@@ -257,7 +258,15 @@ def create_app(
         email = request.form.get("email")
         password = request.form.get("password")
 
-        if email == app.config.get("SEEDR_EMAIL") and password == app.config.get("SEEDR_PASSWORD"):
+        cfg_email = app.config.get("SEEDR_EMAIL")
+        cfg_password = app.config.get("SEEDR_PASSWORD")
+
+        if (
+            email and password and
+            cfg_email and cfg_password and
+            hmac.compare_digest(email, cfg_email) and
+            hmac.compare_digest(password, cfg_password)
+        ):
             rs = getattr(app, "rs", None)
             if rs is None:
                 log.warning("Log download requested but Redis log persistence is unavailable")
