@@ -143,9 +143,16 @@ def create_app(
             rs.get("streamly:health_check_test")
             log.info("Upstash Redis reachable — history, token & log persistence active")
             try:
-                rs._execute("DEL", "streamly:active_transfer_global")
-                from .routes.telegram import trigger_next_transfer
-                trigger_next_transfer(rs)
+                # Use a startup lock to ensure only one worker clears the global active lock
+                # and triggers the next transfer when the container boots up.
+                acquired = rs._execute("SET", "streamly:startup_init_lock", "1", "EX", "15", "NX")
+                if acquired == "OK":
+                    log.info("Startup lock acquired. Initializing active transfer state and triggering next transfer.")
+                    rs._execute("DEL", "streamly:active_transfer_global")
+                    from .routes.telegram import trigger_next_transfer
+                    trigger_next_transfer(rs)
+                else:
+                    log.info("Startup lock already held by another worker process. Skipping initialization.")
             except Exception as queue_err:
                 log.warning("Failed to initialize sequential queue on startup: %s", queue_err)
         except Exception:

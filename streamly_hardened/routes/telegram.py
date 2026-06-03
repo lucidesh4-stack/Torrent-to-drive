@@ -12,6 +12,7 @@ import secrets
 from flask import Blueprint, jsonify, current_app, request, Response
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
+from telethon.network import ConnectionTcpIntermediate
 from telethon.tl.types import Channel, Chat
 from ..auth_utils import current_client
 from ..security import csrf_required, rate_limited, require_json_body, validate_positive_int, ensure_sid
@@ -63,34 +64,40 @@ async def producer(response_stream, queue):
         await queue.put(pe)
 
 class ProgressTracker:
-    def __init__(self, rs, task_id, filename, total_bytes):
+    def __init__(self, rs, task_id, filename, total_bytes, loop, cancel_flag):
         self.rs = rs
         self.task_id = task_id
         self.filename = filename
         self.total_bytes = total_bytes
+        self.loop = loop
+        self.cancel_flag = cancel_flag
         self.last_pct = 0.0
         self.last_bandwidth_sent_bytes = 0
         self.last_write_time = time.time()
         self.last_write_bytes = 0
 
     def __call__(self, sent_bytes, total_bytes):
-        # Check for cancel request
-        if self.rs.get(f"streamly:cancel_request:{self.task_id}"):
+        # Check for cancel request via the non-blocking shared list flag
+        if self.cancel_flag and self.cancel_flag[0]:
             raise ValueError("Cancelled by user")
 
         diff = sent_bytes - self.last_bandwidth_sent_bytes
         if diff > 0:
             self.last_bandwidth_sent_bytes = sent_bytes
-            try:
-                import datetime
+            # Perform incremental bandwidth update in a thread executor
+            def update_bandwidth(d):
                 try:
-                    ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
-                except AttributeError:
-                    ym = datetime.datetime.utcnow().strftime("%Y-%m")
-                self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(diff))
-                self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000") # 60 days
-            except Exception as e:
-                log.warning("Failed to increment monthly bandwidth: %s", e)
+                    import datetime
+                    try:
+                        ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
+                    except AttributeError:
+                        ym = datetime.datetime.utcnow().strftime("%Y-%m")
+                    self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(d))
+                    self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000") # 60 days
+                except Exception as e:
+                    log.warning("Failed to increment monthly bandwidth in background: %s", e)
+            
+            self.loop.run_in_executor(None, update_bandwidth, diff)
 
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
@@ -111,23 +118,31 @@ class ProgressTracker:
             self.last_pct = pct
             
             status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
-            self.rs._execute(
-                "SET",
-                f"streamly:transfer_status:{self.task_id}",
-                _json.dumps({
-                    "progress": pct,
-                    "status": status,
-                    "filename": self.filename,
-                    "sent_bytes": sent_bytes,
-                    "total_bytes": tot,
-                    "speed_mb": speed_mb,
-                    "error": None
-                }),
-                "EX",
-                "3600"
-            )
+            
+            # Perform status update in a thread executor to prevent blocking
+            def update_status(st, p, sb, smb):
+                try:
+                    self.rs._execute(
+                        "SET",
+                        f"streamly:transfer_status:{self.task_id}",
+                        _json.dumps({
+                            "progress": p,
+                            "status": st,
+                            "filename": self.filename,
+                            "sent_bytes": sb,
+                            "total_bytes": tot,
+                            "speed_mb": smb,
+                            "error": None
+                        }),
+                        "EX",
+                        "3600"
+                    )
+                except Exception as e:
+                    log.warning("Failed to write transfer status in background: %s", e)
+            
+            self.loop.run_in_executor(None, update_status, status, pct, sent_bytes, speed_mb)
 
-async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=3):
+async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=8):
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
@@ -188,7 +203,12 @@ def get_telegram_client(session_str):
     api_hash = current_app.config.get("TELEGRAM_API_HASH")
     if not api_id or not api_hash:
         raise ValueError("Telegram credentials missing in configuration")
-    return TelegramClient(StringSession(session_str), api_id, api_hash)
+    return TelegramClient(
+        StringSession(session_str),
+        api_id,
+        api_hash,
+        connection=ConnectionTcpIntermediate
+    )
 
 async def validate_telegram_target(client, target_chat):
     try:
@@ -275,8 +295,28 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
     asyncio.set_event_loop(loop)
     
     async def upload():
+        cancel_flag = [False]
+        
+        async def poll_cancel_request():
+            while not cancel_flag[0]:
+                try:
+                    res = await loop.run_in_executor(None, rs.get, f"streamly:cancel_request:{task_id}")
+                    if res:
+                        cancel_flag[0] = True
+                        break
+                except Exception:
+                    pass
+                await asyncio.sleep(2.0)
+                
+        cancel_poller = asyncio.create_task(poll_cancel_request())
+        
         try:
-            client = TelegramClient(StringSession(session_str), api_id, api_hash)
+            client = TelegramClient(
+                StringSession(session_str),
+                api_id,
+                api_hash,
+                connection=ConnectionTcpIntermediate
+            )
             await client.connect()
             
             try:
@@ -318,7 +358,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     wrapper = AsyncQueueStreamWrapper(queue)
                     wrapper.name = filename
                     
-                    tracker = ProgressTracker(rs, task_id, filename, exact_size)
+                    tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
                     
                     uploaded = await parallel_upload_file(
                         client,
@@ -326,7 +366,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         file_size=exact_size,
                         filename=filename,
                         progress_callback=tracker,
-                        concurrency=3
+                        concurrency=8
                     )
                     
                     await producer_task
@@ -364,6 +404,9 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "3600"
             )
         finally:
+            cancel_flag[0] = True
+            if not cancel_poller.done():
+                cancel_poller.cancel()
             await client.disconnect()
             rs._execute("DEL", "streamly:active_transfer_global")
             rs._execute("DEL", f"streamly:task_args:{task_id}")
@@ -431,7 +474,12 @@ def send_code():
         asyncio.set_event_loop(loop)
         
         async def req_code():
-            client = TelegramClient(StringSession(), api_id, api_hash)
+            client = TelegramClient(
+                StringSession(),
+                api_id,
+                api_hash,
+                connection=ConnectionTcpIntermediate
+            )
             await client.connect()
             res = await client.send_code_request(phone)
             temp_session = client.session.save()
@@ -488,7 +536,12 @@ def verify_code():
         asyncio.set_event_loop(loop)
         
         async def sign_in_user():
-            client = TelegramClient(StringSession(temp_session), api_id, api_hash)
+            client = TelegramClient(
+                StringSession(temp_session),
+                api_id,
+                api_hash,
+                connection=ConnectionTcpIntermediate
+            )
             await client.connect()
             await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
             final_session = client.session.save()

@@ -1719,3 +1719,386 @@ TypeError: RedisStore.set() got an unexpected keyword argument 'ex'
 2026-06-03 04:57:03,186 | INFO | [fb3a75b5] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
 2026-06-03 04:57:03,858 | INFO | [e6c048ae] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
 2026-06-03 04:57:05,516 | INFO | [961c85e1] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:22:07,646 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 05:22:07,780 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:25:08,163 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:25:08,262 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:25:08,890 | INFO | [system] | streamly_hardened.routes.telegram:190 | Queue check: no tasks in queue.
+2026-06-03 05:25:09,161 | INFO | [system] | streamly_hardened.routes.telegram:190 | Queue check: no tasks in queue.
+2026-06-03 05:36:53,844 | INFO | [3022ccac] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:36:54,086 | INFO | [3022ccac] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 05:36:54,804 | INFO | [8b84a3f7] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:37:10,661 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:37:10,832 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:37:11,532 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:37:11,660 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:37:57,516 | INFO | [02764524] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:37:57,659 | INFO | [02764524] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 05:37:58,752 | INFO | [39d7136f] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:37:59,405 | INFO | [98056748] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:38:01,823 | INFO | [9cc9e96a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:38:05,878 | INFO | [4f574815] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 05:38:06,254 | INFO | [4f574815] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:38:07,403 | INFO | [4f574815] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 05:38:07,471 | INFO | [4f574815] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:38:36,731 | INFO | [d0300bb8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 05:38:37,662 | INFO | [d0300bb8] | streamly_hardened.routes.telegram:236 | Queue check: started transfer thread for task bc7c299a
+2026-06-03 05:38:37,664 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 05:38:38,226 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:38:39,598 | ERROR | [system] | streamly_hardened.routes.telegram:316 | Telegram background upload failed
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 562, in _get_entity_from_string
+    result = await self(
+             ^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 30, in __call__
+    return await self._call(self._sender, request, ordered=ordered)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 92, in _call
+    result = await future
+             ^^^^^^^^^^^^
+telethon.errors.rpcerrorlist.UsernameNotOccupiedError: The username is not in use by anyone else yet (caused by ResolveUsernameRequest)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 175, in validate_telegram_target
+    entity = await client.get_entity(resolved_chat)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 343, in get_entity
+    result.append(await self._get_entity_from_string(x))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 565, in _get_entity_from_string
+    raise ValueError('No user has "{}" as username'
+ValueError: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 248, in upload
+    resolved_chat = await validate_telegram_target(client, chat_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/streamly_hardened/routes/telegram.py", line 177, in validate_telegram_target
+    raise ValueError(f"Could not find or access target chat/channel: {e}")
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 250, in upload
+    raise ValueError(str(pe))
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+2026-06-03 05:38:39,832 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 05:38:39,965 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:38:40,631 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:40:18,638 | INFO | [71a04ab3] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 05:40:18,956 | INFO | [71a04ab3] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:40:20,169 | INFO | [71a04ab3] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 05:40:20,265 | INFO | [71a04ab3] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:44:07,864 | INFO | [bf863389] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:44:08,054 | INFO | [bf863389] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 05:44:08,383 | INFO | [bf863389] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:45:45,782 | INFO | [83d0afa4] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:45:46,336 | INFO | [0067e0e0] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:46:30,136 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:46:30,211 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:46:30,932 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:46:31,211 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:47:49,683 | INFO | [29b24e92] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:47:49,839 | INFO | [29b24e92] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 05:47:50,562 | INFO | [fa802209] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:47:51,105 | INFO | [499a6eb7] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:47:55,633 | INFO | [6cb33296] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:47:59,592 | INFO | [9bfba2ec] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 05:48:00,439 | INFO | [9bfba2ec] | streamly_hardened.routes.telegram:236 | Queue check: started transfer thread for task 1478e080
+2026-06-03 05:48:00,441 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 05:48:01,035 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 05:48:03,415 | INFO | [system] | httpx:1740 | HTTP Request: GET https://nw33.seedr.cc/ff_get/5930961990/Captain.America.The.First.Avenger.2011.REMASTERED.1080p.BluRay.DDP5.1.x265.10bit-GalaxyRG265.mkv?st=Oo9B9S-s0WwdF0xG9jfYfg&e=1780552079 "HTTP/1.1 200 OK"
+2026-06-03 05:48:36,827 | INFO | [9d7763a2] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:52:14,984 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:52:15,083 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 05:52:15,785 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:52:15,906 | INFO | [system] | streamly_hardened.routes.telegram:203 | Queue check: no tasks in queue.
+2026-06-03 05:53:06,858 | INFO | [dffffd4c] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:53:07,011 | INFO | [dffffd4c] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 05:53:08,708 | INFO | [bb1be42a] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 05:53:08,918 | INFO | [bb1be42a] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 05:53:09,294 | INFO | [bb1be42a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 05:53:09,878 | INFO | [765eb166] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:03:33,969 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:03:34,290 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:03:34,767 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:03:35,167 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:05:04,827 | INFO | [5b491c36] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:05:05,090 | INFO | [5b491c36] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:05:06,712 | INFO | [e08764dc] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:05:06,970 | INFO | [e08764dc] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:05:07,435 | INFO | [e08764dc] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:05:08,036 | INFO | [074e91bb] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:05:19,393 | INFO | [7db7b1e0] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:05:19,567 | INFO | [7db7b1e0] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:05:20,589 | INFO | [00837ef8] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:05:20,793 | INFO | [00837ef8] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:05:21,178 | INFO | [00837ef8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:05:36,361 | INFO | [ff2247a5] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:05:53,600 | INFO | [fed91829] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:06:06,819 | INFO | [8d7a3bfb] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:06:10,718 | INFO | [56bdb069] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:06:18,139 | INFO | [088740e9] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:06:20,035 | INFO | [c10f3391] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:06:23,057 | INFO | [ed00a788] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:06:23,893 | INFO | [ed00a788] | streamly_hardened.routes.telegram:257 | Queue check: started transfer thread for task 34baa8d0
+2026-06-03 06:06:23,895 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:06:24,469 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:06:26,330 | ERROR | [system] | streamly_hardened.routes.telegram:337 | Telegram background upload failed
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 562, in _get_entity_from_string
+    result = await self(
+             ^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 30, in __call__
+    return await self._call(self._sender, request, ordered=ordered)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 92, in _call
+    result = await future
+             ^^^^^^^^^^^^
+telethon.errors.rpcerrorlist.UsernameNotOccupiedError: The username is not in use by anyone else yet (caused by ResolveUsernameRequest)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 196, in validate_telegram_target
+    entity = await client.get_entity(resolved_chat)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 343, in get_entity
+    result.append(await self._get_entity_from_string(x))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 565, in _get_entity_from_string
+    raise ValueError('No user has "{}" as username'
+ValueError: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 269, in upload
+    resolved_chat = await validate_telegram_target(client, chat_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/streamly_hardened/routes/telegram.py", line 198, in validate_telegram_target
+    raise ValueError(f"Could not find or access target chat/channel: {e}")
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 271, in upload
+    raise ValueError(str(pe))
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+2026-06-03 06:06:26,469 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 06:06:26,595 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:06:27,468 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:06:33,821 | INFO | [61f4252b] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:06:34,894 | INFO | [61f4252b] | streamly_hardened.routes.telegram:257 | Queue check: started transfer thread for task 42cb3856
+2026-06-03 06:06:34,896 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:06:35,395 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:06:37,141 | ERROR | [system] | streamly_hardened.routes.telegram:337 | Telegram background upload failed
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 562, in _get_entity_from_string
+    result = await self(
+             ^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 30, in __call__
+    return await self._call(self._sender, request, ordered=ordered)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 92, in _call
+    result = await future
+             ^^^^^^^^^^^^
+telethon.errors.rpcerrorlist.UsernameNotOccupiedError: The username is not in use by anyone else yet (caused by ResolveUsernameRequest)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 196, in validate_telegram_target
+    entity = await client.get_entity(resolved_chat)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 343, in get_entity
+    result.append(await self._get_entity_from_string(x))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/telethon/client/users.py", line 565, in _get_entity_from_string
+    raise ValueError('No user has "{}" as username'
+ValueError: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 269, in upload
+    resolved_chat = await validate_telegram_target(client, chat_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/streamly_hardened/routes/telegram.py", line 198, in validate_telegram_target
+    raise ValueError(f"Could not find or access target chat/channel: {e}")
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 271, in upload
+    raise ValueError(str(pe))
+ValueError: Could not find or access target chat/channel: No user has "my_private_storage" as username
+2026-06-03 06:06:37,392 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 06:06:37,568 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:06:38,022 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:08:39,095 | INFO | [9e02202f] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:15:57,613 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:15:57,614 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:15:58,414 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:15:58,613 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:16:58,002 | INFO | [d87e908b] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:16:58,221 | INFO | [d87e908b] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:16:59,903 | INFO | [0e70c525] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:17:00,289 | INFO | [0e70c525] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:17:00,922 | INFO | [0e70c525] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:17:01,611 | INFO | [edbba8ed] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:17:04,703 | INFO | [ce57c03c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:17:09,194 | INFO | [8f166ddb] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:17:10,122 | INFO | [8f166ddb] | streamly_hardened.routes.telegram:257 | Queue check: started transfer thread for task 66117ec7
+2026-06-03 06:17:10,124 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:17:10,710 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:17:13,146 | ERROR | [system] | streamly_hardened.routes.telegram:337 | Telegram background upload failed
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 269, in upload
+    resolved_chat = await validate_telegram_target(client, chat_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/streamly_hardened/routes/telegram.py", line 203, in validate_telegram_target
+    if not (permissions.is_admin or permissions.is_creator):
+            ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'is_admin'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 271, in upload
+    raise ValueError(str(pe))
+ValueError: 'NoneType' object has no attribute 'is_admin'
+2026-06-03 06:17:13,311 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 06:17:13,618 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:17:14,115 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:18:54,930 | INFO | [0196db19] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:18:55,118 | INFO | [0196db19] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:18:55,793 | INFO | [6dd13ea8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:18:56,421 | INFO | [d9eaa906] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:19:02,919 | INFO | [83b9a9b2] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:19:07,118 | INFO | [221b9499] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:19:08,215 | INFO | [221b9499] | streamly_hardened.routes.telegram:257 | Queue check: started transfer thread for task 0bf43628
+2026-06-03 06:19:08,217 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:19:09,009 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:19:11,245 | ERROR | [system] | streamly_hardened.routes.telegram:337 | Telegram background upload failed
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 269, in upload
+    resolved_chat = await validate_telegram_target(client, chat_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/streamly_hardened/routes/telegram.py", line 203, in validate_telegram_target
+    if not (permissions.is_admin or permissions.is_creator):
+            ^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'is_admin'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/streamly_hardened/routes/telegram.py", line 271, in upload
+    raise ValueError(str(pe))
+ValueError: 'NoneType' object has no attribute 'is_admin'
+2026-06-03 06:19:11,616 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpFull...
+2026-06-03 06:19:11,815 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:19:12,512 | INFO | [system] | streamly_hardened.routes.telegram:224 | Queue check: no tasks in queue.
+2026-06-03 06:21:53,774 | INFO | [ee4bf7aa] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:22:14,856 | INFO | [a7c03376] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=delete "HTTP/1.1 200 OK"
+2026-06-03 06:22:15,815 | INFO | [5f829fd5] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:01,930 | INFO | [57fdb5b1] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:23:02,114 | INFO | [57fdb5b1] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:23:02,544 | INFO | [57fdb5b1] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:02,972 | INFO | [57fdb5b1] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=add_torrent "HTTP/1.1 200 OK"
+2026-06-03 06:23:03,522 | INFO | [e822cfbf] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:04,379 | INFO | [e822cfbf] | httpx:1025 | HTTP Request: GET https://nw27.seedr.cc/subnode_actions.php?action=torrent_progress&torrent_id=189771974&c=IhB-7rx6Y7H2Edkiarpz8g&t=1780474983 "HTTP/1.1 200 OK"
+2026-06-03 06:23:09,982 | INFO | [745b3864] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:10,425 | INFO | [745b3864] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=add_torrent "HTTP/1.1 200 OK"
+2026-06-03 06:23:11,007 | INFO | [4a854166] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:11,949 | INFO | [4a854166] | httpx:1025 | HTTP Request: GET https://rd16.seedr.cc/subnode_actions.php?action=torrent_progress&torrent_id=189771977&c=rIEe_cPbz_98zFGDX9hafQ&t=1780474990 "HTTP/1.1 200 OK"
+2026-06-03 06:23:13,412 | INFO | [a14ebae9] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:13,674 | INFO | [a14ebae9] | httpx:1025 | HTTP Request: GET https://rd16.seedr.cc/subnode_actions.php?action=torrent_progress&torrent_id=189771977&c=zfu8bV-pg9t4yOqglpgrcQ&t=1780474993 "HTTP/1.1 200 OK"
+2026-06-03 06:23:14,098 | INFO | [a14ebae9] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=add_torrent "HTTP/1.1 200 OK"
+2026-06-03 06:23:14,698 | INFO | [a97c9b7c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:15,712 | INFO | [a97c9b7c] | httpx:1025 | HTTP Request: GET https://rd6.seedr.cc/subnode_actions.php?action=torrent_progress&torrent_id=189771979&c=OxCN10jv-MO9d5CGC76Zdg&t=1780474994 "HTTP/1.1 200 OK"
+2026-06-03 06:23:16,255 | INFO | [0e5f20c8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:16,497 | INFO | [0e5f20c8] | httpx:1025 | HTTP Request: GET https://rd6.seedr.cc/subnode_actions.php?action=torrent_progress&torrent_id=189771979&c=04VzNjaVsP3pbQsA-VwOoQ&t=1780474996 "HTTP/1.1 200 OK"
+2026-06-03 06:23:19,433 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:23:19,556 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:23:20,332 | INFO | [system] | streamly_hardened.routes.telegram:238 | Queue check: no tasks in queue.
+2026-06-03 06:23:20,354 | INFO | [system] | streamly_hardened.routes.telegram:238 | Queue check: no tasks in queue.
+2026-06-03 06:23:20,881 | INFO | [b0de7c90] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:27,899 | INFO | [0b858972] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:23:28,066 | INFO | [0b858972] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:23:28,486 | INFO | [0b858972] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=delete "HTTP/1.1 200 OK"
+2026-06-03 06:23:29,026 | INFO | [d4931d1c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:37,821 | INFO | [e83b9784] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:38,202 | INFO | [e83b9784] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=add_torrent "HTTP/1.1 200 OK"
+2026-06-03 06:23:38,740 | INFO | [d7d920b6] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:41,196 | INFO | [ba971dea] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:41,603 | INFO | [ba971dea] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=add_torrent "HTTP/1.1 200 OK"
+2026-06-03 06:23:42,255 | INFO | [b8ab177c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:46,586 | INFO | [5944255a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:23:54,691 | INFO | [fa62895f] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:23:54,858 | INFO | [fa62895f] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:23:55,196 | INFO | [fa62895f] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:24:02,337 | INFO | [e41be3cc] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:24:06,206 | INFO | [a8f2a671] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:02,922 | INFO | [7a400aa2] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:07,341 | INFO | [10fd4044] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:13,303 | INFO | [d9bc490c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:18,987 | INFO | [a30586ae] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:25:19,858 | INFO | [a30586ae] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task 4cac2560
+2026-06-03 06:25:19,860 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:25:20,432 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:25:23,620 | INFO | [system] | httpx:1740 | HTTP Request: GET https://nw27.seedr.cc/ff_get/5931033218/Euphoria.US.S03E01.Andale.1080p.HEVC.x265-MeGusta.mkv?st=FvcaW-tggm9e0qemHVIA7A&e=1780554318 "HTTP/1.1 200 OK"
+2026-06-03 06:25:43,071 | INFO | [3a344c0c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:45,744 | INFO | [f5875671] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:51,932 | INFO | [561dd6a8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:25:53,732 | INFO | [561dd6a8] | streamly_hardened.routes.telegram:232 | Queue check: transfer 4cac2560 is active. Skipping.
+2026-06-03 06:25:55,962 | INFO | [f355e816] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:25:58,533 | INFO | [ec6bfaee] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:26:03,815 | INFO | [ef7f9e7e] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:26:05,856 | INFO | [ef7f9e7e] | streamly_hardened.routes.telegram:232 | Queue check: transfer 4cac2560 is active. Skipping.
+2026-06-03 06:26:08,277 | INFO | [27778857] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:26:13,432 | INFO | [21196b78] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:26:20,229 | INFO | [3ffb6da5] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:26:21,744 | INFO | [612b8dcc] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:26:22,335 | INFO | [3ffb6da5] | streamly_hardened.routes.telegram:232 | Queue check: transfer 4cac2560 is active. Skipping.
+2026-06-03 06:26:24,448 | INFO | [701103de] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:26:30,838 | INFO | [11fc0f9d] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:26:32,953 | INFO | [11fc0f9d] | streamly_hardened.routes.telegram:232 | Queue check: transfer 4cac2560 is active. Skipping.
+2026-06-03 06:26:34,842 | INFO | [ceabffaa] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:31:07,957 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:31:08,129 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:31:09,431 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task baafe114
+2026-06-03 06:31:09,630 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task 5b408937
+2026-06-03 06:31:09,432 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:31:09,631 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:31:10,752 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:31:10,848 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:31:14,406 | INFO | [system] | httpx:1740 | HTTP Request: GET https://rd16.seedr.cc/ff_get/5931033238/Euphoria.US.S03E02.1080p.HEVC.x265-MeGusta.mkv?st=2tz4Q-vc1_DXqIpfwL0iOg&e=1780554351 "HTTP/1.1 200 OK"
+2026-06-03 06:31:14,689 | INFO | [system] | httpx:1740 | HTTP Request: GET https://rd4.seedr.cc/ff_get/5931033246/Euphoria.US.S03E03.1080p.HEVC.x265-MeGusta.mkv?st=552yo9gsuJsWkHlhLUG75w&e=1780554363 "HTTP/1.1 200 OK"
+2026-06-03 06:31:28,430 | INFO | [9264d7bf] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:31:29,653 | INFO | [9264d7bf] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:31:32,536 | INFO | [5984165c] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:31:33,458 | INFO | [5984165c] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:31:34,454 | INFO | [5984165c] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:31:36,045 | INFO | [0f335b9a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:32:06,539 | INFO | [a6696199] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:32:07,730 | INFO | [a6696199] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:32:09,052 | INFO | [95e221f0] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:32:10,448 | INFO | [e45e4d9d] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:32:35,531 | INFO | [c19bc954] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:32:46,431 | INFO | [bbf61b1f] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:32:49,429 | INFO | [bbf61b1f] | streamly_hardened.routes.telegram:232 | Queue check: transfer 5b408937 is active. Skipping.
+2026-06-03 06:32:54,230 | INFO | [51b709e3] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:32:55,232 | INFO | [51b709e3] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:32:55,945 | INFO | [51b709e3] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:33:03,430 | INFO | [30fa9045] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:33:14,510 | INFO | [f334b5ac] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 06:33:16,242 | INFO | [1728ff3a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:33:17,854 | INFO | [f334b5ac] | streamly_hardened.routes.telegram:232 | Queue check: transfer 5b408937 is active. Skipping.
