@@ -23,9 +23,9 @@
       .topbar-inner h2 { font-size: 14px; }
       .topbar-inner .brand { gap: 8px; }
       /* Reclaim wasted space: tighter outer margin + gap between panels */
-      .main { width: calc(100% - 16px); margin: 12px auto 32px; }
-      .grid { gap: 10px; }
-      .cloud-layout { gap: 10px; }
+      .main { width: calc(100% - 16px); margin: 16px auto 32px; }
+      .grid { gap: 16px; }
+      .cloud-layout { gap: 16px; }
       .panel { border-radius: var(--radius-md); }
       #cloudView .table td { padding: 10px 10px; }
       #cloudView .table th { padding: 10px 10px; font-size: 11px; }
@@ -436,8 +436,8 @@
     order: 2;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 7px;
-    margin-top: 7px;
+    gap: 8px;
+    margin-top: 8px;
     align-items: center;
   }
   #searchView .controls-group {
@@ -558,7 +558,16 @@
     gap: 8px;
     padding: 11px 12px;
   }
-  .episode-row .name { grid-column: 1 / 2; flex: none; font-size: 13.5px; line-height: 1.28; }
+  .episode-row .name {
+    grid-column: 1 / 2;
+    flex: none;
+    font-size: 13.5px;
+    line-height: 1.28;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .episode-row .se { grid-column: 1; order: initial; flex: none; display: inline; text-align: left; }
   .episode-row .size { grid-column: 1; order: initial; flex: none; display: inline; text-align: left; }
   .episode-row .time { grid-column: 1; order: initial; flex: none; display: inline; text-align: left; }
@@ -591,8 +600,8 @@
     box-shadow: 0 -20px 50px rgba(0,0,0,.6);
     transform: translateY(100%);
   }
-  .mfs-grab { width: 42px; height: 4px; border-radius: 99px; background: #3b4556; margin: 0 auto 12px; }
-  .mfs-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .mfs-grab { width: 42px; height: 4px; border-radius: 99px; background: #3b4556; margin: 0 auto 16px; }
+  .mfs-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
   .mfs-head h3 { margin: 0; font-size: 17px; }
   .mfs-close {
     width: 32px;
