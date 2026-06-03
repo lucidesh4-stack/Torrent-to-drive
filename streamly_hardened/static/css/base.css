@@ -251,7 +251,7 @@
     video:fullscreen { border: none; border-radius: 0; max-height: 100vh; }
     video:-webkit-full-screen { border: none; border-radius: 0; max-height: 100vh; }
     video::-webkit-media-controls-enclosure { outline: none; }
-    .toast { position: fixed; right: 18px; bottom: 90px; z-index: 2100; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-md); padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+    .toast { position: fixed; right: 18px; bottom: calc(100px + env(safe-area-inset-bottom)); z-index: 9999; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-md); padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 
     /* ===== Series Mode ===== */
     .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
@@ -684,15 +684,15 @@ button.icon-btn {
     /* Bottom Navigation Bar */
     .bottom-nav {
       position: fixed;
-      bottom: 16px;
+      bottom: calc(16px + env(safe-area-inset-bottom));
       left: 50%;
       transform: translateX(-50%);
       width: min(480px, calc(100% - 32px));
       height: 64px;
       border-radius: 28px;
-      background: rgba(16, 20, 30, 0.82);
-      backdrop-filter: blur(24px) saturate(160%);
-      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      background: rgba(16, 20, 30, 0.7);
+      backdrop-filter: blur(30px) saturate(180%);
+      -webkit-backdrop-filter: blur(30px) saturate(180%);
       border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
       z-index: 999;
@@ -700,7 +700,6 @@ button.icon-btn {
       align-items: center;
       justify-content: space-around;
       padding: 0 12px;
-      padding-bottom: env(safe-area-inset-bottom);
       box-sizing: border-box;
       overflow: hidden;
     }
@@ -712,7 +711,9 @@ button.icon-btn {
       height: 48px;
       width: calc((100% - 24px) / 4);
       border-radius: 20px;
-      background: var(--blue);
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0.15) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.35);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.15);
       z-index: 1;
       transition: transform var(--transition-slide);
       pointer-events: none;
@@ -750,7 +751,7 @@ button.icon-btn {
     .bottom-tab-label {
       font-size: 11px;
       font-weight: 500;
-      margin-top: 3px;
+      margin-top: 4px;
       transition: font-weight 0.2s, color 0.2s;
     }
     
@@ -759,20 +760,25 @@ button.icon-btn {
     }
     
     .tab-icon-svg {
-      fill: none;
-      stroke: currentColor;
-      transition: fill 0.2s, stroke 0.2s;
       width: 22px;
       height: 22px;
+      transition: color 0.2s;
     }
     
-    .bottom-tab-item.active .tab-icon-svg {
-      fill: currentColor;
-      stroke: currentColor;
+    .bottom-tab-item .tab-icon-svg.filled {
+      display: none;
     }
     
-    .bottom-tab-item.active .tab-icon-svg.clock-icon polyline {
-      stroke: var(--blue) !important;
+    .bottom-tab-item .tab-icon-svg.outline {
+      display: inline-block;
+    }
+    
+    .bottom-tab-item.active .tab-icon-svg.filled {
+      display: inline-block;
+    }
+    
+    .bottom-tab-item.active .tab-icon-svg.outline {
+      display: none;
     }
     
     /* Decorative Grabber Handle */
