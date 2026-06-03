@@ -81,24 +81,6 @@ class ProgressTracker:
         if self.cancel_flag and self.cancel_flag[0]:
             raise ValueError("Cancelled by user")
 
-        diff = sent_bytes - self.last_bandwidth_sent_bytes
-        if diff > 0:
-            self.last_bandwidth_sent_bytes = sent_bytes
-            # Perform incremental bandwidth update in a thread executor
-            def update_bandwidth(d):
-                try:
-                    import datetime
-                    try:
-                        ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
-                    except AttributeError:
-                        ym = datetime.datetime.utcnow().strftime("%Y-%m")
-                    self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(d))
-                    self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000") # 60 days
-                except Exception as e:
-                    log.warning("Failed to increment monthly bandwidth in background: %s", e)
-            
-            self.loop.run_in_executor(None, update_bandwidth, diff)
-
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
         pct = round((sent_bytes / tot) * 100, 1)
@@ -117,11 +99,26 @@ class ProgressTracker:
             self.last_write_bytes = sent_bytes
             self.last_pct = pct
             
+            # Accumulate bandwidth diff since last throttled write
+            bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
+            if bw_diff > 0:
+                self.last_bandwidth_sent_bytes = sent_bytes
+
             status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
             
-            # Perform status update in a thread executor to prevent blocking
-            def update_status(st, p, sb, smb):
+            # Perform both bandwidth tracking and status update in a single
+            # thread executor call to keep Redis commands minimal (throttled to
+            # every 2 seconds instead of every 512 KB chunk).
+            def update_redis(st, p, sb, smb, bw):
                 try:
+                    import datetime
+                    try:
+                        ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
+                    except AttributeError:
+                        ym = datetime.datetime.utcnow().strftime("%Y-%m")
+                    if bw > 0:
+                        self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(bw))
+                        self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000")
                     self.rs._execute(
                         "SET",
                         f"streamly:transfer_status:{self.task_id}",
@@ -140,7 +137,7 @@ class ProgressTracker:
                 except Exception as e:
                     log.warning("Failed to write transfer status in background: %s", e)
             
-            self.loop.run_in_executor(None, update_status, status, pct, sent_bytes, speed_mb)
+            self.loop.run_in_executor(None, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
 
 async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=8):
     part_size = 512 * 1024
@@ -306,7 +303,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         break
                 except Exception:
                     pass
-                await asyncio.sleep(2.0)
+                await asyncio.sleep(5.0)
                 
         cancel_poller = asyncio.create_task(poll_cancel_request())
         
