@@ -41,8 +41,10 @@ class RedisStore:
         result = self._execute("GET", key)
         return result if isinstance(result, str) else None
 
-    def set(self, key: str, value: str) -> bool:
+    def set(self, key: str, value: str, ex: int | None = None) -> bool:
         cleaned = self._strip_wrapping_quotes(value)
+        if ex is not None:
+            return self._execute("SET", key, cleaned, "EX", str(ex)) == "OK"
         return self._execute("SET", key, cleaned) == "OK"
 
     @staticmethod
