@@ -660,18 +660,14 @@
       if (response.ok) {
         const data = await response.json();
         
-        if (data.status === "QUEUED") {
-          status($("cloudStatus"), `Telegram: Queued transfer for ${data.filename || "file"}...`, "ok");
-          telegramPollTimer = setTimeout(pollActiveTransfer, 2000);
-        } else if (data.status === "UPLOADING") {
-          const progress = data.progress !== undefined ? Number(data.progress).toFixed(1) : "0.0";
-          status($("cloudStatus"), `Telegram: Uploading ${data.filename || "file"} (${progress}%)...`, "ok");
+        if (data.status === "QUEUED" || data.status === "UPLOADING") {
+          status($("cloudStatus"), "", "");
           telegramPollTimer = setTimeout(pollActiveTransfer, 2000);
         } else if (data.status === "COMPLETED") {
-          status($("cloudStatus"), `Telegram: Successfully sent ${data.filename || "file"}!`, "ok");
+          status($("cloudStatus"), "", "");
           toast(`Sent to Telegram: ${data.filename}`);
         } else if (data.status === "FAILED") {
-          status($("cloudStatus"), `Telegram: Upload failed: ${data.error || "unknown error"}`, "error");
+          status($("cloudStatus"), `Telegram upload failed: ${data.error || "unknown error"}`, "error");
           toast(`Telegram upload failed: ${data.error || "unknown error"}`);
         }
       }
