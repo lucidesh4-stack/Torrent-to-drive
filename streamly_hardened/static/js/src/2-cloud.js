@@ -662,7 +662,7 @@
         
         if (data.status === "QUEUED" || data.status === "UPLOADING") {
           status($("cloudStatus"), "", "");
-          telegramPollTimer = setTimeout(pollActiveTransfer, 2000);
+          telegramPollTimer = setTimeout(pollActiveTransfer, 5000);
         } else if (data.status === "COMPLETED") {
           status($("cloudStatus"), "", "");
           toast(`Sent to Telegram: ${data.filename}`);
@@ -673,7 +673,7 @@
       }
     } catch (err) {
       console.error("Error polling Telegram task status:", err);
-      telegramPollTimer = setTimeout(pollActiveTransfer, 3000);
+      telegramPollTimer = setTimeout(pollActiveTransfer, 8000);
     }
   }
 

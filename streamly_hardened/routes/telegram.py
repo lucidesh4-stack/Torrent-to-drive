@@ -9,6 +9,11 @@ import requests
 import asyncio
 import httpx
 import secrets
+from concurrent.futures import ThreadPoolExecutor
+
+# Dedicated thread pool for all Redis operations so they never
+# share the default executor with other background tasks.
+_REDIS_EXECUTOR = ThreadPoolExecutor(max_workers=6, thread_name_prefix="redis-io")
 from flask import Blueprint, jsonify, current_app, request, Response
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
@@ -56,7 +61,9 @@ class AsyncQueueStreamWrapper:
 
 async def producer(response_stream, queue):
     try:
-        async for chunk in response_stream.aiter_bytes(chunk_size=1 * 1024 * 1024):
+        # Use 512 KB chunks to exactly match upload part size — eliminates
+        # internal buffering/splitting inside AsyncQueueStreamWrapper.
+        async for chunk in response_stream.aiter_bytes(chunk_size=512 * 1024):
             await queue.put(chunk)
         await queue.put(None)
     except Exception as pe:
@@ -137,60 +144,71 @@ class ProgressTracker:
                 except Exception as e:
                     log.warning("Failed to write transfer status in background: %s", e)
             
-            self.loop.run_in_executor(None, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
+            self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
 
 async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=8):
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
-    
-    sem = asyncio.Semaphore(concurrency)
-    tasks = []
-    uploaded_bytes = 0
-    
-    async def upload_part(part_index, data):
-        async with sem:
-            try:
-                is_big = file_size > 10 * 1024 * 1024
-                if is_big:
-                    req = functions.upload.SaveBigFilePartRequest(
-                        file_id=file_id,
-                        file_part=part_index,
-                        file_total_parts=parts_count,
-                        bytes=data
-                    )
-                else:
-                    req = functions.upload.SaveFilePartRequest(
-                        file_id=file_id,
-                        file_part=part_index,
-                        bytes=data
-                    )
-                await client(req)
-                nonlocal uploaded_bytes
-                uploaded_bytes += len(data)
-                if progress_callback:
-                    progress_callback(uploaded_bytes, file_size)
-            except Exception as e:
-                log.warning("Failed to upload part %d: %s", part_index, e)
-                raise e
+    is_big = file_size > 10 * 1024 * 1024
 
-    for part_index in range(parts_count):
+    uploaded_bytes = 0
+    failed = False
+
+    async def upload_part(part_index, data):
+        nonlocal uploaded_bytes
+        try:
+            if is_big:
+                req = functions.upload.SaveBigFilePartRequest(
+                    file_id=file_id,
+                    file_part=part_index,
+                    file_total_parts=parts_count,
+                    bytes=data
+                )
+            else:
+                req = functions.upload.SaveFilePartRequest(
+                    file_id=file_id,
+                    file_part=part_index,
+                    bytes=data
+                )
+            await client(req)
+            uploaded_bytes += len(data)
+            if progress_callback:
+                progress_callback(uploaded_bytes, file_size)
+        except Exception as e:
+            log.warning("Failed to upload part %d: %s", part_index, e)
+            raise e
+
+    # Sliding window: keep exactly `concurrency` tasks in-flight at a time.
+    # This prevents pre-creating thousands of tasks for large files, which
+    # congests the asyncio scheduler and causes event-loop stalls.
+    sem = asyncio.Semaphore(concurrency)
+    active_tasks: list[asyncio.Task] = []
+
+    async def bounded_upload(part_index, data):
+        async with sem:
+            await upload_part(part_index, data)
+
+    part_index = 0
+    while True:
         chunk = await file_wrapper.read(part_size)
         if not chunk:
             break
-        task = asyncio.create_task(upload_part(part_index, chunk))
-        tasks.append(task)
-        
-    try:
-        await asyncio.gather(*tasks)
-    except Exception as gather_exc:
-        # Cancel all pending tasks to prevent hangs on error
-        for t in tasks:
-            if not t.done():
-                t.cancel()
-        raise gather_exc
-        
-    if file_size > 10 * 1024 * 1024:
+        task = asyncio.create_task(bounded_upload(part_index, chunk))
+        active_tasks.append(task)
+        part_index += 1
+
+        # Prune completed tasks from the list to keep memory usage flat
+        active_tasks = [t for t in active_tasks if not t.done()]
+
+    # Wait for all remaining in-flight tasks
+    if active_tasks:
+        results = await asyncio.gather(*active_tasks, return_exceptions=True)
+        errors = [r for r in results if isinstance(r, Exception)]
+        if errors:
+            raise errors[0]
+
+    if is_big:
         return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
     else:
         return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
@@ -297,7 +315,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
         async def poll_cancel_request():
             while not cancel_flag[0]:
                 try:
-                    res = await loop.run_in_executor(None, rs.get, f"streamly:cancel_request:{task_id}")
+                    res = await loop.run_in_executor(_REDIS_EXECUTOR, rs.get, f"streamly:cancel_request:{task_id}")
                     if res:
                         cancel_flag[0] = True
                         break
@@ -336,8 +354,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "3600"
             )
             
-            limits = httpx.Limits(max_keepalive_connections=2, max_connections=5)
-            async with httpx.AsyncClient(limits=limits, timeout=60.0) as httpx_client:
+            limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
+            async with httpx.AsyncClient(limits=limits, timeout=120.0, follow_redirects=True) as httpx_client:
                 async with httpx_client.stream("GET", file_url) as r:
                     r.raise_for_status()
                     
@@ -349,7 +367,10 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         except ValueError:
                             pass
                     
-                    queue = asyncio.Queue(maxsize=5)
+                    # Larger buffer (16 × 512 KB = 8 MB) prevents upload
+                    # workers from stalling while waiting for the next
+                    # Seedr chunk to arrive.
+                    queue = asyncio.Queue(maxsize=16)
                     producer_task = asyncio.create_task(producer(r, queue))
                     
                     wrapper = AsyncQueueStreamWrapper(queue)

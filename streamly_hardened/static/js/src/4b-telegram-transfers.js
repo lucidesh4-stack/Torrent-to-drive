@@ -117,14 +117,14 @@
         const hasWork = data.active || (data.queue && data.queue.length > 0);
         if (isOverlayOpen || hasWork) {
           if (pollTimer) clearTimeout(pollTimer);
-          pollTimer = setTimeout(refreshQueueStatus, 2000);
+          pollTimer = setTimeout(refreshQueueStatus, 5000);
         }
       }
     } catch (e) {
       console.error("Error refreshing Telegram queue status:", e);
       if (isOverlayOpen) {
         if (pollTimer) clearTimeout(pollTimer);
-        pollTimer = setTimeout(refreshQueueStatus, 4000);
+        pollTimer = setTimeout(refreshQueueStatus, 8000);
       }
     }
   }
