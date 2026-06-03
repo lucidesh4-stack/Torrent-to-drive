@@ -57,6 +57,14 @@
   function maybeAutoAddMagnet(value, source = "input") {
     const magnet = String(value || "").trim();
     if (!setMagnetUiState(magnet)) return false;
+
+    if (source === "clipboard" || source === "url") {
+      $("searchQuery").value = magnet;
+      setMagnetUiState(magnet);
+      toast("Magnet detected! Tap [+] to add to Seedr.");
+      return true;
+    }
+
     if (lastAutoAddedMagnet === magnet) return true;
     if (wasAutoAddedRecently(magnet)) {
       showRecentMagnetSkip();

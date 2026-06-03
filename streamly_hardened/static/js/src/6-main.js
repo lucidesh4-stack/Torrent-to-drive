@@ -250,12 +250,6 @@
   window.addEventListener("focus", () => {
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("focus");
   });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("visible");
-  });
-  document.addEventListener("pointerdown", () => {
-    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("pointer");
-  }, { passive: true });
 
   // Initialization Sequence
   async function init() {

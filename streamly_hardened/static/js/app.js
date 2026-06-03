@@ -1501,6 +1501,14 @@
   function maybeAutoAddMagnet(value, source = "input") {
     const magnet = String(value || "").trim();
     if (!setMagnetUiState(magnet)) return false;
+
+    if (source === "clipboard" || source === "url") {
+      $("searchQuery").value = magnet;
+      setMagnetUiState(magnet);
+      toast("Magnet detected! Tap [+] to add to Seedr.");
+      return true;
+    }
+
     if (lastAutoAddedMagnet === magnet) return true;
     if (wasAutoAddedRecently(magnet)) {
       showRecentMagnetSkip();
@@ -2002,12 +2010,6 @@
   window.addEventListener("focus", () => {
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("focus");
   });
-  document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("visible");
-  });
-  document.addEventListener("pointerdown", () => {
-    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("pointer");
-  }, { passive: true });
 
   // Initialization Sequence
   async function init() {
