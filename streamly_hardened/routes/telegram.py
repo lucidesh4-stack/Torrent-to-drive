@@ -85,10 +85,20 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             with requests.get(file_url, stream=True) as r:
                 r.raise_for_status()
+                
+                # Resolve the exact file size from Content-Length header
+                exact_size = size
+                content_len_header = r.headers.get("content-length")
+                if content_len_header:
+                    try:
+                        exact_size = int(content_len_header)
+                    except ValueError:
+                        pass
+                
                 wrapper = RequestsStreamWrapper(r)
                 wrapper.name = filename
                 
-                tracker = ProgressTracker(rs, task_id, filename, size)
+                tracker = ProgressTracker(rs, task_id, filename, exact_size)
                 
                 # Pre-set status to uploading
                 rs._execute(
@@ -99,7 +109,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         "status": "uploading",
                         "filename": filename,
                         "sent": 0,
-                        "total": size
+                        "total": exact_size
                     }),
                     "EX",
                     "3600"
@@ -108,7 +118,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 uploaded = await client.upload_file(
                     wrapper,
                     file_name=filename,
-                    file_size=size,
+                    file_size=exact_size,
                     progress_callback=tracker
                 )
                 
