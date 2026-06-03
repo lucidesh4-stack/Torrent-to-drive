@@ -93,6 +93,10 @@ def create_app(
         # Export env vars for easier access in blueprints
         SEEDR_EMAIL=config.seedr_email,
         SEEDR_PASSWORD=config.seedr_password,
+        TELEGRAM_API_ID=config.telegram_api_id,
+        TELEGRAM_API_HASH=config.telegram_api_hash,
+        TELEGRAM_PHONE=config.telegram_phone,
+        TELEGRAM_CHAT_ID=config.telegram_chat_id,
         # Validation limits
         max_folder_id=config.max_folder_id,
         max_file_id=config.max_file_id,

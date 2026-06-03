@@ -37,6 +37,10 @@ class AppConfig:
     upstash_redis_token: str = ""
     seedr_email: str = ""
     seedr_password: str = ""
+    telegram_api_id: int | None = None
+    telegram_api_hash: str = ""
+    telegram_phone: str = ""
+    telegram_chat_id: str = ""
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -54,6 +58,10 @@ class AppConfig:
             else:
                 import secrets as _secrets
                 secret = _secrets.token_hex(32)
+        
+        tg_id_raw = os.getenv("TELEGRAM_API_ID", "")
+        tg_id = int(tg_id_raw) if tg_id_raw.isdigit() else None
+        
         return AppConfig(
             secret_key=secret or "test-only-not-for-production",
             environment=env,
@@ -64,6 +72,10 @@ class AppConfig:
             upstash_redis_token=upstash_token,
             seedr_email=os.getenv("SEEDR_EMAIL", ""),
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
+            telegram_api_id=tg_id,
+            telegram_api_hash=os.getenv("TELEGRAM_API_HASH", ""),
+            telegram_phone=os.getenv("TELEGRAM_PHONE", ""),
+            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             search_providers=tuple(
                 p.strip() for p in os.getenv(

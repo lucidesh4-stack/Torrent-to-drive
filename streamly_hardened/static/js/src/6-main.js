@@ -55,6 +55,9 @@
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
+  if ($("telegramBtn")) $("telegramBtn").addEventListener("click", () => {
+    if (typeof sendSelectedToTelegram === "function") sendSelectedToTelegram();
+  });
   $("deleteBtn").addEventListener("click", deleteSelected);
   $("selectAllCheck").addEventListener("change", (e) => {
     if (e.target.checked) {
@@ -203,11 +206,59 @@
     $("appScreen").classList.remove("hidden");
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("loginScreen").classList.contains("hidden")) {
-      $("loginScreen").classList.add("hidden");
-      $("appScreen").classList.remove("hidden");
+    if (e.key === "Escape") {
+      if (!$("loginScreen").classList.contains("hidden")) {
+        $("loginScreen").classList.add("hidden");
+        $("appScreen").classList.remove("hidden");
+      }
+      if (!$("telegramAuthOverlay").classList.contains("hidden")) {
+        $("telegramAuthOverlay").classList.add("hidden");
+      }
     }
   });
+
+  // Telegram auth controls
+  if ($("closeTelegramAuthBtn")) {
+    $("closeTelegramAuthBtn").addEventListener("click", () => {
+      $("telegramAuthOverlay").classList.add("hidden");
+    });
+  }
+
+  if ($("tgSendCodeBtn")) {
+    $("tgSendCodeBtn").addEventListener("click", async () => {
+      const phone = $("tgPhone").value.trim();
+      if (!phone) return status($("tgAuthStatus"), "Enter your phone number", "error");
+      status($("tgAuthStatus"), "Requesting code...", "");
+      try {
+        await postJson("/api/telegram/setup/send-code", { phone });
+        status($("tgAuthStatus"), "Verification code sent to Telegram app", "ok");
+        $("tgPhoneStep").classList.add("hidden");
+        $("tgCodeStep").classList.remove("hidden");
+        $("tgCode").focus();
+      } catch (err) {
+        status($("tgAuthStatus"), err.message || "Failed to send code", "error");
+      }
+    });
+  }
+
+  if ($("tgVerifyCodeBtn")) {
+    $("tgVerifyCodeBtn").addEventListener("click", async () => {
+      const code = $("tgCode").value.trim();
+      if (!code) return status($("tgAuthStatus"), "Enter the verification code", "error");
+      status($("tgAuthStatus"), "Verifying...", "");
+      try {
+        await postJson("/api/telegram/setup/verify-code", { code });
+        status($("tgAuthStatus"), "Telegram successfully linked!", "ok");
+        toast("Telegram account linked successfully!");
+        setTimeout(() => {
+          $("telegramAuthOverlay").classList.add("hidden");
+          if (typeof sendSelectedToTelegram === "function") sendSelectedToTelegram();
+        }, 1500);
+      } catch (err) {
+        status($("tgAuthStatus"), err.message || "Verification failed", "error");
+      }
+    });
+  }
 
     $("clearSearchBtn").addEventListener("click", () => {
       // Clear only the search text (and hide stale suggestions); keep results on screen
