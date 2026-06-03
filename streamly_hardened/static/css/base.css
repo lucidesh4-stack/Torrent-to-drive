@@ -690,7 +690,7 @@ button.icon-btn {
       width: min(480px, calc(100% - 32px));
       height: 64px;
       border-radius: 28px;
-      background: rgba(16, 20, 30, 0.7);
+      background: rgba(20, 24, 33, 0.7);
       backdrop-filter: blur(30px) saturate(180%);
       -webkit-backdrop-filter: blur(30px) saturate(180%);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -711,12 +711,14 @@ button.icon-btn {
       height: 48px;
       width: calc((100% - 24px) / 4);
       border-radius: 20px;
-      background: linear-gradient(135deg, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0.15) 100%);
-      border: 1px solid rgba(59, 130, 246, 0.35);
-      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.15);
+      background: rgba(47, 156, 240, 0.08);
+      border: 1px solid rgba(47, 156, 240, 0.12);
+      box-shadow: 0 0 16px rgba(47, 156, 240, 0.15);
       z-index: 1;
       transition: transform var(--transition-slide);
       pointer-events: none;
+      backdrop-filter: brightness(1.15) saturate(130%);
+      -webkit-backdrop-filter: brightness(1.15) saturate(130%);
     }
     
     .bottom-tab-item {
@@ -745,13 +747,13 @@ button.icon-btn {
     }
     
     .bottom-tab-item.active {
-      color: #fff !important;
+      color: #2f9cf0 !important;
     }
     
     .bottom-tab-label {
       font-size: 11px;
       font-weight: 500;
-      margin-top: 4px;
+      margin-top: 8px;
       transition: font-weight 0.2s, color 0.2s;
     }
     
