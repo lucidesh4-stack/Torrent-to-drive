@@ -70,8 +70,20 @@ class ProgressTracker:
         self.total_bytes = total_bytes
         self.last_update_time = 0.0
         self.last_pct = 0.0
+        self.last_sent_bytes = 0
 
     def __call__(self, sent_bytes, total_bytes):
+        diff = sent_bytes - self.last_sent_bytes
+        if diff > 0:
+            self.last_sent_bytes = sent_bytes
+            try:
+                import datetime
+                ym = datetime.datetime.utcnow().strftime("%Y-%m")
+                self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(diff))
+                self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000") # 60 days
+            except Exception as e:
+                log.warning("Failed to increment monthly bandwidth: %s", e)
+
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
         pct = round((sent_bytes / tot) * 100, 1)
@@ -185,32 +197,32 @@ def trigger_next_transfer(rs):
         log.info("Queue check: transfer %s is active. Skipping.", active)
         return
         
-    task_id = rs._execute("RPOP", "streamly:transfer_queue")
-    if not task_id:
-        log.info("Queue check: no tasks in queue.")
-        return
-        
-    args_raw = rs.get(f"streamly:task_args:{task_id}")
-    if not args_raw:
-        log.warning("Queue check: task %s has no arguments in Redis. Skipping.", task_id)
-        trigger_next_transfer(rs)
-        return
-        
-    try:
-        args = _json.loads(args_raw)
-        session_str = args["session_str"]
-        api_id = args["api_id"]
-        api_hash = args["api_hash"]
-        file_url = args["file_url"]
-        chat_id = args["chat_id"]
-        filename = args["filename"]
-        size = args["size"]
-        sid = args["sid"]
-    except Exception as e:
-        log.error("Queue check: failed to parse task args for %s: %s", task_id, e)
-        rs._execute("DEL", f"streamly:task_args:{task_id}")
-        trigger_next_transfer(rs)
-        return
+    while True:
+        task_id = rs._execute("RPOP", "streamly:transfer_queue")
+        if not task_id:
+            log.info("Queue check: no tasks in queue.")
+            return
+            
+        args_raw = rs.get(f"streamly:task_args:{task_id}")
+        if not args_raw:
+            log.warning("Queue check: task %s has no arguments in Redis. Skipping.", task_id)
+            continue
+            
+        try:
+            args = _json.loads(args_raw)
+            session_str = args["session_str"]
+            api_id = args["api_id"]
+            api_hash = args["api_hash"]
+            file_url = args["file_url"]
+            chat_id = args["chat_id"]
+            filename = args["filename"]
+            size = args["size"]
+            sid = args["sid"]
+            break  # Successfully parsed a valid task
+        except Exception as e:
+            log.error("Queue check: failed to parse task args for %s: %s", task_id, e)
+            rs._execute("DEL", f"streamly:task_args:{task_id}")
+            continue
         
     rs.set("streamly:active_transfer_global", task_id, ex=3600)
     rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
@@ -476,7 +488,15 @@ def telegram_send_file():
     config = current_app.config
     data = require_json_body(config)
     file_id = validate_positive_int(data.get("file_id"), name="file_id", maximum=config.get("max_file_id", 1_000_000_000))
-    chat_id = data.get("chat_id") or config.get("TELEGRAM_CHAT_ID") or "me"
+    
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    
+    chat_id = data.get("chat_id")
+    if not chat_id:
+        chat_id = rs.get(f"streamly:settings:{sid}:telegram_chat_id")
+    if not chat_id:
+        chat_id = config.get("TELEGRAM_CHAT_ID") or "me"
     
     cloud = getattr(current_app, "cloud", None)
     try:
@@ -494,6 +514,18 @@ def telegram_send_file():
         log.warning("Failed to fetch file details from Seedr: %s", e)
         from ..security import json_error
         return json_error(502, "provider_error", "Failed to retrieve file from Seedr")
+        
+    # Bandwidth limit check (99 GB)
+    import datetime
+    ym = datetime.datetime.utcnow().strftime("%Y-%m")
+    raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
+    bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
+    limit_bytes = 99 * 1024 * 1024 * 1024
+    if bw_bytes + size > limit_bytes:
+        from ..security import json_error
+        bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
+        return json_error(400, "bandwidth_limit_exceeded", 
+                          f"This transfer would exceed your monthly server transfer limit of 99 GB. (Current usage: {bw_gb} GB)")
         
     api_id = config.get("TELEGRAM_API_ID")
     api_hash = config.get("TELEGRAM_API_HASH")
@@ -567,4 +599,69 @@ def transfer_status_route():
     if not raw:
         return jsonify({"status": "IDLE"})
     return Response(raw, mimetype="application/json")
+
+
+@telegram_bp.get("/api/telegram/config")
+@rate_limited(cost=0.5)
+def get_telegram_config():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    
+    chat_id = rs.get(f"streamly:settings:{sid}:telegram_chat_id") or ""
+    
+    import datetime
+    ym = datetime.datetime.utcnow().strftime("%Y-%m")
+    raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
+    bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
+    bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
+    
+    return jsonify({
+        "chat_id": chat_id,
+        "bandwidth_usage_gb": bw_gb,
+        "bandwidth_limit_gb": 99.0
+    })
+
+
+@telegram_bp.post("/api/telegram/config")
+@rate_limited(cost=1.0)
+@csrf_required
+def set_telegram_config():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    
+    data = require_json_body(current_app.config)
+    chat_id = data.get("chat_id")
+    if chat_id is None:
+        from ..security import json_error
+        return json_error(400, "bad_request", "chat_id is required")
+        
+    chat_id_str = str(chat_id).strip()
+    
+    rs.set(f"streamly:settings:{sid}:telegram_chat_id", chat_id_str, ex=30 * 24 * 3600)
+    return jsonify({"success": True, "chat_id": chat_id_str})
+
+
+@telegram_bp.post("/api/telegram/logout")
+@rate_limited(cost=1.0)
+@csrf_required
+def telegram_logout():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    rs._execute("DEL", "streamly:telegram_session")
+    return jsonify({"success": True})
+
+
 

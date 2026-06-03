@@ -217,10 +217,50 @@
     }
   });
 
-  // Telegram auth controls
+  // Telegram auth and settings controls
   if ($("closeTelegramAuthBtn")) {
     $("closeTelegramAuthBtn").addEventListener("click", () => {
       $("telegramAuthOverlay").classList.add("hidden");
+    });
+  }
+
+  if ($("telegramSettingsBtn")) {
+    $("telegramSettingsBtn").addEventListener("click", () => {
+      if (typeof openTelegramSettings === "function") {
+        openTelegramSettings();
+      }
+    });
+  }
+
+  if ($("tgSaveChatBtn")) {
+    $("tgSaveChatBtn").addEventListener("click", async () => {
+      const chatVal = $("tgTargetChat").value.trim();
+      status($("tgAuthStatus"), "Saving chat target...", "");
+      try {
+        await postJson("/api/telegram/config", { chat_id: chatVal });
+        status($("tgAuthStatus"), "Destination chat updated!", "ok");
+        toast("Telegram destination updated successfully!");
+      } catch (err) {
+        status($("tgAuthStatus"), err.message || "Failed to update destination", "error");
+      }
+    });
+  }
+
+  if ($("tgUnlinkBtn")) {
+    $("tgUnlinkBtn").addEventListener("click", async () => {
+      if (!confirm("Are you sure you want to unlink your Telegram account?")) return;
+      status($("tgAuthStatus"), "Unlinking account...", "");
+      try {
+        await postJson("/api/telegram/logout", {});
+        status($("tgAuthStatus"), "Account unlinked!", "ok");
+        toast("Telegram account unlinked.");
+        $("tgLinkedStep").classList.add("hidden");
+        $("tgUnlinkedStep").classList.remove("hidden");
+        $("tgPhoneStep").classList.remove("hidden");
+        $("tgCodeStep").classList.add("hidden");
+      } catch (err) {
+        status($("tgAuthStatus"), err.message || "Failed to unlink account", "error");
+      }
     });
   }
 
