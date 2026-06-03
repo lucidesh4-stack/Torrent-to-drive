@@ -5,4 +5,6 @@ gunicorn>=21.2,<23
 pytest>=8,<9
 hypothesis>=6,<7
 telethon>=1.35.0
+cryptg>=0.4.0
+
 

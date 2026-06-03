@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps (curl for healthcheck, build-essential only if a wheel is missing)
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends curl gcc python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first (better layer caching)
