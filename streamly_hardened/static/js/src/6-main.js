@@ -330,6 +330,7 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
+        if (typeof pollActiveTransfer === "function") pollActiveTransfer();
         if (initialTab === "search" && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
         if (initialTab === "cloud") {
           setTab("cloud");

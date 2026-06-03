@@ -624,9 +624,9 @@
     
     try {
       const data = await postJson("/api/telegram/send", { file_id: item.id });
-      if (data.success && data.task_id) {
+      if (data.success) {
         toast("Telegram transfer started!");
-        pollTelegramTask(data.task_id);
+        pollActiveTransfer();
       }
     } catch (err) {
       if ((err.message || "").includes("Telegram is not authenticated") || (err.message || "").includes("telegram_not_authenticated")) {
@@ -641,34 +641,33 @@
 
   let telegramPollTimer = null;
 
-  function pollTelegramTask(taskId) {
+  async function pollActiveTransfer() {
     if (telegramPollTimer) clearTimeout(telegramPollTimer);
     
-    telegramPollTimer = setTimeout(async function poll() {
-      try {
-        const response = await fetch(`/api/telegram/task/${taskId}`, { credentials: "same-origin" });
-        if (response.status === 404) {
-          status($("cloudStatus"), "Telegram transfer task not found", "error");
-          return;
-        }
+    try {
+      const response = await fetch("/api/transfer/status", { credentials: "same-origin" });
+      if (response.ok) {
         const data = await response.json();
         
-        if (data.status === "uploading" || data.status === "starting") {
-          const progress = data.progress !== undefined ? data.progress.toFixed(1) : "0.0";
+        if (data.status === "QUEUED") {
+          status($("cloudStatus"), `Telegram: Queued transfer for ${data.filename || "file"}...`, "ok");
+          telegramPollTimer = setTimeout(pollActiveTransfer, 2000);
+        } else if (data.status === "UPLOADING") {
+          const progress = data.progress !== undefined ? Number(data.progress).toFixed(1) : "0.0";
           status($("cloudStatus"), `Telegram: Uploading ${data.filename || "file"} (${progress}%)...`, "ok");
-          telegramPollTimer = setTimeout(poll, 2000);
-        } else if (data.status === "completed") {
-          status($("cloudStatus"), `Telegram: Successfully sent ${data.filename}!`, "ok");
+          telegramPollTimer = setTimeout(pollActiveTransfer, 2000);
+        } else if (data.status === "COMPLETED") {
+          status($("cloudStatus"), `Telegram: Successfully sent ${data.filename || "file"}!`, "ok");
           toast(`Sent to Telegram: ${data.filename}`);
-        } else if (data.status === "failed") {
+        } else if (data.status === "FAILED") {
           status($("cloudStatus"), `Telegram: Upload failed: ${data.error || "unknown error"}`, "error");
           toast(`Telegram upload failed: ${data.error || "unknown error"}`);
         }
-      } catch (err) {
-        console.error("Error polling Telegram task status:", err);
-        telegramPollTimer = setTimeout(poll, 3000);
       }
-    }, 2000);
+    } catch (err) {
+      console.error("Error polling Telegram task status:", err);
+      telegramPollTimer = setTimeout(pollActiveTransfer, 3000);
+    }
   }
 
   function showTelegramAuthModal() {

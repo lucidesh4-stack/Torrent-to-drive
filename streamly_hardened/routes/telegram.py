@@ -7,29 +7,31 @@ import json as _json
 import threading
 import requests
 import asyncio
+import httpx
 from flask import Blueprint, jsonify, current_app, request, Response
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.tl.types import Channel, Chat
 from ..auth_utils import current_client
-from ..security import csrf_required, rate_limited, require_json_body, validate_positive_int
+from ..security import csrf_required, rate_limited, require_json_body, validate_positive_int, ensure_sid
 
 log = logging.getLogger(__name__)
 
 telegram_bp = Blueprint("telegram", __name__)
 
-class RequestsStreamWrapper:
-    def __init__(self, response):
-        self.response = response
-        self.iterator = response.iter_content(chunk_size=512 * 1024)
+class AsyncStreamWrapper:
+    def __init__(self, response_stream, chunk_size=1 * 1024 * 1024):
+        self.stream = response_stream
+        self.iterator = response_stream.aiter_bytes(chunk_size=chunk_size)
         self.buffer = b""
         self.name = "file"
 
-    def read(self, n):
+    async def read(self, n):
         while len(self.buffer) < n:
             try:
-                chunk = next(self.iterator)
+                chunk = await self.iterator.__anext__()
                 self.buffer += chunk
-            except StopIteration:
+            except StopAsyncIteration:
                 break
         data = self.buffer[:n]
         self.buffer = self.buffer[n:]
@@ -51,16 +53,17 @@ class ProgressTracker:
         if now - self.last_update_time >= 2.0 or pct >= 100.0 or pct - self.last_pct >= 5.0:
             self.last_update_time = now
             self.last_pct = pct
-            status = "completed" if pct >= 100.0 else "uploading"
+            status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
             self.rs._execute(
                 "SET",
-                f"streamly:telegram_task:{self.task_id}",
+                f"streamly:transfer_status:{self.task_id}",
                 _json.dumps({
                     "progress": pct,
                     "status": status,
                     "filename": self.filename,
-                    "sent": sent_bytes,
-                    "total": tot
+                    "sent_bytes": sent_bytes,
+                    "total_bytes": tot,
+                    "error": None
                 }),
                 "EX",
                 "3600"
@@ -73,8 +76,29 @@ def get_telegram_client(session_str):
         raise ValueError("Telegram credentials missing in configuration")
     return TelegramClient(StringSession(session_str), api_id, api_hash)
 
+async def validate_telegram_target(client, target_chat):
+    try:
+        resolved_chat = int(target_chat) if str(target_chat).lstrip("-").isdigit() else target_chat
+        entity = await client.get_entity(resolved_chat)
+    except Exception as e:
+        raise ValueError(f"Could not find or access target chat/channel: {e}")
+
+    if isinstance(entity, Channel):
+        permissions = await client.get_permissions(entity)
+        if entity.broadcast:
+            if not (permissions.is_admin or permissions.is_creator):
+                raise ValueError("You do not have permission to post in this broadcast channel (admin rights required).")
+        else:
+            if not permissions.send_messages:
+                raise ValueError("You do not have permission to send messages here.")
+    elif isinstance(entity, Chat):
+        permissions = await client.get_permissions(entity)
+        if not permissions.send_messages:
+            raise ValueError("You do not have permission to send messages in this group.")
+
+    return resolved_chat
+
 def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id):
-    # Establish distinct event loop for background thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -83,56 +107,62 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             client = TelegramClient(StringSession(session_str), api_id, api_hash)
             await client.connect()
             
-            with requests.get(file_url, stream=True) as r:
-                r.raise_for_status()
-                
-                # Resolve the exact file size from Content-Length header
-                exact_size = size
-                content_len_header = r.headers.get("content-length")
-                if content_len_header:
-                    try:
-                        exact_size = int(content_len_header)
-                    except ValueError:
-                        pass
-                
-                wrapper = RequestsStreamWrapper(r)
-                wrapper.name = filename
-                
-                tracker = ProgressTracker(rs, task_id, filename, exact_size)
-                
-                # Pre-set status to uploading
-                rs._execute(
-                    "SET",
-                    f"streamly:telegram_task:{task_id}",
-                    _json.dumps({
-                        "progress": 0.0,
-                        "status": "uploading",
-                        "filename": filename,
-                        "sent": 0,
-                        "total": exact_size
-                    }),
-                    "EX",
-                    "3600"
-                )
-                
-                uploaded = await client.upload_file(
-                    wrapper,
-                    file_name=filename,
-                    file_size=exact_size,
-                    progress_callback=tracker
-                )
-                
-                # Explicitly cast chat_id to int if numeric
-                target_chat = int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id
-                await client.send_file(target_chat, uploaded, caption=f"File transferred: {filename}")
-                
+            try:
+                resolved_chat = await validate_telegram_target(client, chat_id)
+            except Exception as pe:
+                raise ValueError(str(pe))
+            
             rs._execute(
                 "SET",
-                f"streamly:telegram_task:{task_id}",
+                f"streamly:transfer_status:{task_id}",
+                _json.dumps({
+                    "progress": 0.0,
+                    "status": "UPLOADING",
+                    "filename": filename,
+                    "sent_bytes": 0,
+                    "total_bytes": size,
+                    "error": None
+                }),
+                "EX",
+                "3600"
+            )
+            
+            async with httpx.AsyncClient(timeout=30.0) as httpx_client:
+                async with httpx_client.stream("GET", file_url) as r:
+                    r.raise_for_status()
+                    
+                    exact_size = size
+                    content_len_header = r.headers.get("content-length")
+                    if content_len_header:
+                        try:
+                            exact_size = int(content_len_header)
+                        except ValueError:
+                            pass
+                    
+                    wrapper = AsyncStreamWrapper(r, chunk_size=1 * 1024 * 1024)
+                    wrapper.name = filename
+                    
+                    tracker = ProgressTracker(rs, task_id, filename, exact_size)
+                    
+                    uploaded = await client.upload_file(
+                        wrapper,
+                        file_name=filename,
+                        file_size=exact_size,
+                        progress_callback=tracker
+                    )
+                    
+                    await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
+                    
+            rs._execute(
+                "SET",
+                f"streamly:transfer_status:{task_id}",
                 _json.dumps({
                     "progress": 100.0,
-                    "status": "completed",
-                    "filename": filename
+                    "status": "COMPLETED",
+                    "filename": filename,
+                    "sent_bytes": exact_size,
+                    "total_bytes": exact_size,
+                    "error": None
                 }),
                 "EX",
                 "3600"
@@ -142,12 +172,14 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             log.exception("Telegram background upload failed")
             rs._execute(
                 "SET",
-                f"streamly:telegram_task:{task_id}",
+                f"streamly:transfer_status:{task_id}",
                 _json.dumps({
                     "progress": 0.0,
-                    "status": "failed",
+                    "status": "FAILED",
                     "error": str(e),
-                    "filename": filename
+                    "filename": filename,
+                    "sent_bytes": 0,
+                    "total_bytes": size
                 }),
                 "EX",
                 "3600"
@@ -160,11 +192,14 @@ def start_telegram_upload(rs, session_str, api_id, api_hash, file_url, chat_id, 
     task_id = str(uuid.uuid4())[:8]
     rs._execute(
         "SET",
-        f"streamly:telegram_task:{task_id}",
+        f"streamly:transfer_status:{task_id}",
         _json.dumps({
             "progress": 0.0,
-            "status": "starting",
-            "filename": filename
+            "status": "QUEUED",
+            "filename": filename,
+            "sent_bytes": 0,
+            "total_bytes": size,
+            "error": None
         }),
         "EX",
         "3600"
@@ -176,6 +211,7 @@ def start_telegram_upload(rs, session_str, api_id, api_hash, file_url, chat_id, 
     t.daemon = True
     t.start()
     return task_id
+
 
 @telegram_bp.get("/api/telegram/status")
 @rate_limited(cost=1.0)
@@ -349,6 +385,11 @@ def telegram_send_file():
     api_hash = config.get("TELEGRAM_API_HASH")
     
     task_id = start_telegram_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size)
+    
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
+    
     return jsonify({"success": True, "task_id": task_id})
 
 @telegram_bp.get("/api/telegram/task/<task_id>")
@@ -358,8 +399,28 @@ def telegram_task_status(task_id):
     if not rs:
         from ..security import json_error
         return json_error(503, "redis_unavailable", "Redis is required")
-    raw = rs.get(f"streamly:telegram_task:{task_id}")
+    raw = rs.get(f"streamly:transfer_status:{task_id}")
+    if not raw:
+        raw = rs.get(f"streamly:telegram_task:{task_id}")
     if not raw:
         from ..security import json_error
         return json_error(404, "not_found", "Task not found")
     return Response(raw, mimetype="application/json")
+
+@telegram_bp.get("/api/transfer/status")
+@rate_limited(cost=0.5)
+def transfer_status_route():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    task_id = rs.get(f"streamly:active_transfer:{sid}")
+    if not task_id:
+        return jsonify({"status": "IDLE"})
+    raw = rs.get(f"streamly:transfer_status:{task_id}")
+    if not raw:
+        return jsonify({"status": "IDLE"})
+    return Response(raw, mimetype="application/json")
+
