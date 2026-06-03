@@ -421,8 +421,7 @@
             }
             body.appendChild(sNav);
             const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
-            const eps = activeSeason.episodes || [];
-            for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, enc.name, qg.label || qg.quality]));
+            for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, qg.label || qg.quality]));
           }
           continue;
         }
@@ -451,7 +450,7 @@
           qBody.appendChild(slabel);
           const eps = s.episodes;
           for (const ep of eps) {
-            qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, enc.name, qg.label || qg.quality]));
+            qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, qg.label || qg.quality]));
           }
         }
         qGroup.appendChild(qBody);

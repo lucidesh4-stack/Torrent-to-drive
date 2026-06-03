@@ -170,7 +170,7 @@
     video:fullscreen { border: none; border-radius: 0; max-height: 100vh; }
     video:-webkit-full-screen { border: none; border-radius: 0; max-height: 100vh; }
     video::-webkit-media-controls-enclosure { outline: none; }
-    .toast { position: fixed; right: 18px; bottom: 18px; z-index: 50; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-md); padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+    .toast { position: fixed; right: 18px; bottom: 90px; z-index: 2100; max-width: 420px; background: #111827; border: 1px solid var(--line); color: var(--text); border-radius: var(--radius-md); padding: 13px 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); }
 
     /* ===== Series Mode ===== */
     .mode-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }

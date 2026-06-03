@@ -53,6 +53,16 @@
     <main class="main">
       <section id="cloudView" class="grid cloud-layout hidden">
         <div class="panel">
+          <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+            <div>
+              <h2 style="margin: 0; font-size: 1.25rem;">Cloud Drive</h2>
+              <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">Browse your saved files and folders</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="upBtn" class="secondary" type="button" style="padding: 6px 12px; font-size: 13px;">Up</button>
+              <button id="refreshBtn" type="button" style="padding: 6px 12px; font-size: 13px;">Refresh</button>
+            </div>
+          </div>
           <div style="overflow:auto;">
             <table class="table">
               <thead>
@@ -65,12 +75,8 @@
         </div>
 
         <aside class="panel side-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <div style="margin-bottom: 14px;">
             <h2 id="selectionHeading" style="margin: 0;">Selected Item</h2>
-            <div style="display: flex; gap: 8px;">
-              <button id="upBtn" class="secondary" type="button" style="padding: 6px 12px; font-size: 13px;">Up</button>
-              <button id="refreshBtn" type="button" style="padding: 6px 12px; font-size: 13px;">Refresh</button>
-            </div>
           </div>
           <div class="metric" style="padding-top: 0;"><span class="muted">Name</span><strong id="selName">None</strong></div>
           <div class="metric"><span class="muted">Type</span><strong id="selType">-</strong></div>
@@ -132,16 +138,6 @@
             <button type="button" id="cmBulkClear" class="b-x" aria-label="Clear selection"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
           </div>
 
-          <!-- bottom toolbar -->
-          <div class="cm-bottom">
-            <div class="cm-account">
-              <div id="cmAccount" class="cm-acct-mail">Connected</div>
-            </div>
-            <div class="stor">
-              <div id="cmStorageText" class="nums">Unknown</div>
-              <div class="mini-meter"><div id="cmStorageMeter"></div></div>
-            </div>
-          </div>
         </div>
       </section>
 
