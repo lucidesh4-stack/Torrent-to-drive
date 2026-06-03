@@ -170,11 +170,13 @@ def create_app(
     config = config or AppConfig.from_env()
     app = Flask(__name__)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+    
+    is_hf = "SPACE_ID" in os.environ
     app.config.update(
         SECRET_KEY=config.secret_key,
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
-        SESSION_COOKIE_SECURE=config.environment == "production",
+        SESSION_COOKIE_SAMESITE="None" if is_hf else "Lax",
+        SESSION_COOKIE_SECURE=True if is_hf else (config.environment == "production"),
         MAX_CONTENT_LENGTH=config.max_json_bytes,
         JSON_SORT_KEYS=False,
         PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=365),
