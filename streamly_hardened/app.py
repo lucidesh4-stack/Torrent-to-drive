@@ -138,11 +138,16 @@ def create_app(
         root_log.addHandler(redis_handler)
     # ----------------------------
 
-    # Redis health check (logged after handlers are attached so it is captured).
     if rs is not None:
         try:
             rs.get("streamly:health_check_test")
             log.info("Upstash Redis reachable — history, token & log persistence active")
+            try:
+                rs._execute("DEL", "streamly:active_transfer_global")
+                from .routes.telegram import trigger_next_transfer
+                trigger_next_transfer(rs)
+            except Exception as queue_err:
+                log.warning("Failed to initialize sequential queue on startup: %s", queue_err)
         except Exception:
             log.warning(
                 "Upstash Redis unreachable — history, token & log persistence disabled. "

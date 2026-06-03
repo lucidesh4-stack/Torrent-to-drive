@@ -8,8 +8,9 @@ import threading
 import requests
 import asyncio
 import httpx
+import secrets
 from flask import Blueprint, jsonify, current_app, request, Response
-from telethon import TelegramClient
+from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
 from telethon.tl.types import Channel, Chat
 from ..auth_utils import current_client
@@ -93,6 +94,62 @@ class ProgressTracker:
                 "3600"
             )
 
+async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=3):
+    part_size = 512 * 1024
+    parts_count = (file_size + part_size - 1) // part_size
+    file_id = secrets.randbits(63)
+    
+    sem = asyncio.Semaphore(concurrency)
+    tasks = []
+    uploaded_bytes = 0
+    
+    async def upload_part(part_index, data):
+        async with sem:
+            try:
+                is_big = file_size > 10 * 1024 * 1024
+                if is_big:
+                    req = functions.upload.SaveBigFilePartRequest(
+                        file_id=file_id,
+                        file_part=part_index,
+                        file_total_parts=parts_count,
+                        bytes=data
+                    )
+                else:
+                    req = functions.upload.SaveFilePartRequest(
+                        file_id=file_id,
+                        file_part=part_index,
+                        bytes=data
+                    )
+                await client(req)
+                nonlocal uploaded_bytes
+                uploaded_bytes += len(data)
+                if progress_callback:
+                    progress_callback(uploaded_bytes, file_size)
+            except Exception as e:
+                log.warning("Failed to upload part %d: %s", part_index, e)
+                raise e
+
+    for part_index in range(parts_count):
+        chunk = await file_wrapper.read(part_size)
+        if not chunk:
+            break
+        task = asyncio.create_task(upload_part(part_index, chunk))
+        tasks.append(task)
+        
+    try:
+        await asyncio.gather(*tasks)
+    except Exception as gather_exc:
+        # Cancel all pending tasks to prevent hangs on error
+        for t in tasks:
+            if not t.done():
+                t.cancel()
+        raise gather_exc
+        
+    if file_size > 10 * 1024 * 1024:
+        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
+    else:
+        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
+
 def get_telegram_client(session_str):
     api_id = current_app.config.get("TELEGRAM_API_ID")
     api_hash = current_app.config.get("TELEGRAM_API_HASH")
@@ -121,6 +178,50 @@ async def validate_telegram_target(client, target_chat):
             raise ValueError("You do not have permission to send messages in this group.")
 
     return resolved_chat
+
+def trigger_next_transfer(rs):
+    active = rs.get("streamly:active_transfer_global")
+    if active:
+        log.info("Queue check: transfer %s is active. Skipping.", active)
+        return
+        
+    task_id = rs._execute("RPOP", "streamly:transfer_queue")
+    if not task_id:
+        log.info("Queue check: no tasks in queue.")
+        return
+        
+    args_raw = rs.get(f"streamly:task_args:{task_id}")
+    if not args_raw:
+        log.warning("Queue check: task %s has no arguments in Redis. Skipping.", task_id)
+        trigger_next_transfer(rs)
+        return
+        
+    try:
+        args = _json.loads(args_raw)
+        session_str = args["session_str"]
+        api_id = args["api_id"]
+        api_hash = args["api_hash"]
+        file_url = args["file_url"]
+        chat_id = args["chat_id"]
+        filename = args["filename"]
+        size = args["size"]
+        sid = args["sid"]
+    except Exception as e:
+        log.error("Queue check: failed to parse task args for %s: %s", task_id, e)
+        rs._execute("DEL", f"streamly:task_args:{task_id}")
+        trigger_next_transfer(rs)
+        return
+        
+    rs.set("streamly:active_transfer_global", task_id, ex=3600)
+    rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
+    
+    t = threading.Thread(
+        target=run_telethon_upload,
+        args=(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id)
+    )
+    t.daemon = True
+    t.start()
+    log.info("Queue check: started transfer thread for task %s", task_id)
 
 def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id):
     loop = asyncio.new_event_loop()
@@ -172,11 +273,13 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     
                     tracker = ProgressTracker(rs, task_id, filename, exact_size)
                     
-                    uploaded = await client.upload_file(
+                    uploaded = await parallel_upload_file(
+                        client,
                         wrapper,
-                        file_name=filename,
                         file_size=exact_size,
-                        progress_callback=tracker
+                        filename=filename,
+                        progress_callback=tracker,
+                        concurrency=3
                     )
                     
                     await producer_task
@@ -197,7 +300,6 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "EX",
                 "3600"
             )
-            await client.disconnect()
         except Exception as e:
             log.exception("Telegram background upload failed")
             rs._execute(
@@ -214,33 +316,15 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "EX",
                 "3600"
             )
+        finally:
+            await client.disconnect()
+            rs._execute("DEL", "streamly:active_transfer_global")
+            rs._execute("DEL", f"streamly:task_args:{task_id}")
+            trigger_next_transfer(rs)
             
     loop.run_until_complete(upload())
     loop.close()
 
-def start_telegram_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size):
-    task_id = str(uuid.uuid4())[:8]
-    rs._execute(
-        "SET",
-        f"streamly:transfer_status:{task_id}",
-        _json.dumps({
-            "progress": 0.0,
-            "status": "QUEUED",
-            "filename": filename,
-            "sent_bytes": 0,
-            "total_bytes": size,
-            "error": None
-        }),
-        "EX",
-        "3600"
-    )
-    t = threading.Thread(
-        target=run_telethon_upload,
-        args=(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id)
-    )
-    t.daemon = True
-    t.start()
-    return task_id
 
 
 @telegram_bp.get("/api/telegram/status")
@@ -414,11 +498,41 @@ def telegram_send_file():
     api_id = config.get("TELEGRAM_API_ID")
     api_hash = config.get("TELEGRAM_API_HASH")
     
-    task_id = start_telegram_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size)
-    
+    task_id = str(uuid.uuid4())[:8]
     from flask import session
     sid = session.get("sid") or ensure_sid()
+    
+    rs._execute(
+        "SET",
+        f"streamly:transfer_status:{task_id}",
+        _json.dumps({
+            "progress": 0.0,
+            "status": "QUEUED",
+            "filename": filename,
+            "sent_bytes": 0,
+            "total_bytes": size,
+            "error": None
+        }),
+        "EX",
+        "3600"
+    )
+    
+    args = {
+        "session_str": session_str,
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "file_url": file_url,
+        "chat_id": chat_id,
+        "filename": filename,
+        "size": size,
+        "sid": sid
+    }
+    rs.set(f"streamly:task_args:{task_id}", _json.dumps(args), ex=3600)
+    
     rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
+    rs._execute("LPUSH", "streamly:transfer_queue", task_id)
+    
+    trigger_next_transfer(rs)
     
     return jsonify({"success": True, "task_id": task_id})
 
