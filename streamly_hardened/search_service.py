@@ -61,9 +61,6 @@ _PACK_RE = re.compile(
     r"\b(?:S(\d{1,2})\.?COMPLETE|SEASON[\s._-]?(\d{1,2})|COMPLETE[\s._-]?SEASON)\b",
     re.IGNORECASE,
 )
-# Encoder: trailing "-GROUP" (optionally before a file ext / site tag) or "[GROUP]"
-_ENCODER_DASH_RE = re.compile(r"-([A-Za-z0-9]{2,})(?:\[[^\]]*\])?(?:\.[a-z0-9]{2,4})?\s*$")
-_ENCODER_BRACKET_RE = re.compile(r"\[([A-Za-z0-9][A-Za-z0-9 ._-]{1,})\]")
 # Quality tokens
 _RES_RE = re.compile(r"\b(2160p|1080p|720p|480p)\b", re.IGNORECASE)
 _CODEC_RE = re.compile(r"\b(x265|x264|h\.?265|h\.?264|hevc|av1)\b", re.IGNORECASE)
@@ -75,9 +72,36 @@ _SITE_TAGS = {
     "MKV", "MP4", "AVI", "TO", "RE", "AG", "COM", "ETHD",
 }
 
+_KNOWN_ENCODERS = {
+    "PSA", "ELITE", "MEGUSTA", "TGX", "QXR", "TIGOLE", "SILENCE", "VYTO", "UTR",
+    "GALAXYRG", "GZR", "YIFY", "PAHE", "NTB", "FLUX", "DON", "CTRLHD", "WIKI",
+    "ECLIPSE", "SARTRE", "CAKES", "BOB", "KINGS", "TOMBDOC", "ION10", "MINX",
+    "VENGEANCE", "NOGRP", "TEPES", "TAAP", "TELLY", "JYK", "FUM", "MSD", "RMTEAM",
+    "AFG", "RBG", "SUNSCREEN", "IFT", "POED", "BETA", "SWTYBLZ", "ANONYMOUS",
+    "BATMAN", "KARTZ", "SMURF", "GETI", "MKVCAGE", "MAXIMUS", "TERA", "TKO",
+    "SHASHA", "BONE", "HEVCBAY", "SHIT2BIT", "RARBG", "YTS", "EZTV"
+}
+
+_METADATA_EXCLUSIONS = {
+    # Resolutions & Qualities
+    "2160P", "1080P", "720P", "480P", "4K", "2K", "UHD", "HD", "FHD", "SD", "10BIT", "8BIT", "HDR", "HDR10", "DV", "HDR10PLUS",
+    # Codecs
+    "X265", "X264", "H265", "H264", "HEVC", "AV1", "XVID", "DIVX", "MP4", "MKV", "AVI", "MPEG", "TS",
+    # Sources
+    "WEBDL", "WEB", "WEBRIP", "BLURAY", "BDRIP", "BRRIP", "HDTV", "DVDRIP", "DVD", "REMUX", "HD", "SATRIP", "TVRIP", "DSNP", "NF", "AMZN", "HMAX", "NFLX",
+    # Audio
+    "AAC", "AC3", "DTS", "ATMOS", "TRUEHD", "EAC3", "DD51", "DD20", "DDP51", "DDP20", "MP3", "DDP5", "DD", "DDP",
+    # Language / Subs
+    "SUB", "SUBS", "SUBBED", "DUB", "DUBBED", "MULTISUBS", "ENG", "ITA", "FRE", "SPA", "GER", "FRA", "JPN",
+    # Release Type / Tags
+    "SEASON", "COMPLETE", "PACK", "EPISODE", "REPACK", "PROPER", "INTERNAL", "UNCUT", "EXTENDED", "RERIP", "BATCH", "TEMP",
+    # Common site tags that are NOT encoders
+    "EZTV", "EZTVRE", "EZTVX", "TGX", "RARBG", "YTS", "YIFY", "ETTV", "TO", "RE", "AG", "COM", "ETHD", "GLODLS",
+}
+
 
 def _normalize_encoder(s: str) -> str:
-    """Loose normalization: uppercase + strip non-alphanumeric. No fuzzy matching."""
+    """Clean of all symbols and converted to uppercase."""
     return re.sub(r"[^A-Za-z0-9]", "", s or "").upper()
 
 
@@ -100,18 +124,62 @@ def _extract_quality(title: str) -> str:
 
 
 def _extract_encoder(title: str) -> str:
-    """Best-effort release-group extraction. Returns '' if none found/usable."""
-    base = re.sub(r"\.(mkv|mp4|avi|srt)\s*$", "", title, flags=re.IGNORECASE)
-    m = _ENCODER_DASH_RE.search(base)
-    if m:
-        cand = m.group(1)
-        if _normalize_encoder(cand) not in _SITE_TAGS and not cand.isdigit():
+    """Best-effort tiered release-group extraction."""
+    if not title:
+        return ""
+
+    base = re.sub(r"\.(mkv|mp4|avi|srt|ts)\s*$", "", title, flags=re.IGNORECASE).strip(" .-_")
+
+    # Tier 1: Bracket Detection at the end of the filename
+    bracket_match = re.search(r"[\[\(]([A-Za-z0-9 ._-]{2,15})[\]\)]\s*$", base)
+    if bracket_match:
+        cand = bracket_match.group(1).strip()
+        norm = _normalize_encoder(cand)
+        if norm and norm not in _METADATA_EXCLUSIONS and not norm.isdigit():
             return cand
-    for b in _ENCODER_BRACKET_RE.findall(title):
-        norm = _normalize_encoder(b)
-        if norm and norm not in _SITE_TAGS and not norm.isdigit():
-            return b.strip()
+
+    # Tokenize base for Tier 2 and Tier 3
+    tokens = [t for t in re.split(r"[\s._\-–—\[\]\(\)]+", base) if t]
+
+    # Find the last season/episode marker position to scope Tier 3 search
+    last_marker_idx = -1
+    for i, t in enumerate(tokens):
+        t_norm = _normalize_encoder(t)
+        if re.match(r"^S\d{1,2}(E\d{1,3})?$", t_norm) or re.match(r"^E\d{1,3}$", t_norm) or t_norm in ("SEASON", "EPISODE", "COMPLETE"):
+            last_marker_idx = i
+
+    # Tier 2: Check for known standalone encoder tokens (scanned right-to-left)
+    for t in reversed(tokens):
+        norm = _normalize_encoder(t)
+        if norm in _KNOWN_ENCODERS:
+            return t
+
+    # Dash Group Check: E.g., -GROUP suffix
+    dash_match = re.search(r"-([A-Za-z0-9]{2,15})\s*$", base)
+    if dash_match:
+        cand = dash_match.group(1)
+        norm = _normalize_encoder(cand)
+        if norm and norm not in _METADATA_EXCLUSIONS and not norm.isdigit():
+            return cand
+
+    # Tier 3: Position-Based Fallback (tokens to the right of the season/episode marker)
+    start_idx = last_marker_idx + 1 if last_marker_idx != -1 else 0
+    candidate_tokens = tokens[start_idx:]
+
+    for t in reversed(candidate_tokens):
+        norm = _normalize_encoder(t)
+        if not norm:
+            continue
+        if norm in _METADATA_EXCLUSIONS:
+            continue
+        if norm.isdigit():
+            continue
+        if re.match(r"^S\d{1,2}(E\d{1,3})?$", norm) or re.match(r"^E\d{1,3}$", norm):
+            continue
+        return t
+
     return ""
+
 
 
 def _norm_tokens(s: str) -> list[str]:
@@ -213,6 +281,9 @@ def parse_release(title: str) -> dict[str, Any]:
 
     encoder = _extract_encoder(title)
     encoder_norm = _normalize_encoder(encoder)
+    if not encoder_norm:
+        encoder = "Other Encoders"
+        encoder_norm = "OTHERENCODERS"
     quality = _extract_quality(title)
 
     series = title
@@ -224,7 +295,7 @@ def parse_release(title: str) -> dict[str, Any]:
             series = title[: pm.start()].strip(" .-_")
     series = re.sub(r"^www\.[^ ]+\s*-\s*", "", series).strip(" .-_") or "Unknown"
 
-    parsed = bool(encoder_norm) and (episode is not None or is_pack)
+    parsed = (episode is not None or is_pack)
     return {
         "series": series,
         "season": season,
