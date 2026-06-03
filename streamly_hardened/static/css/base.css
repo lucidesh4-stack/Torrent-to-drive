@@ -796,3 +796,61 @@ button.icon-btn {
     .episode-row, #cloudBody tr, .bottom-tab-item {
       transition: transform 0.1s ease-out, background 0.1s ease-out, color 0.1s ease-out;
     }
+
+    /* Embedded Search Query Box Input Buttons (clipboard/clear) styling & alignment */
+    #pasteBtn, #clearSearchBtn {
+      position: absolute !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      width: 30px !important;
+      height: 30px !important;
+      padding: 0 !important;
+      background: transparent !important;
+      background-color: transparent !important;
+      color: var(--muted) !important;
+      border: 0 !important;
+      border-radius: var(--radius-sm) !important;
+      display: grid !important;
+      place-items: center !important;
+      z-index: 5 !important;
+      cursor: pointer !important;
+      box-shadow: none !important;
+      transition: opacity 0.15s ease, color 0.1s ease-out, background-color 0.1s ease-out !important;
+      min-height: 0 !important;
+      margin: 0 !important;
+    }
+
+    #pasteBtn:hover, #clearSearchBtn:hover {
+      background: rgba(255, 255, 255, 0.08) !important;
+      color: var(--text) !important;
+      transform: translateY(-50%) !important;
+    }
+
+    #pasteBtn:active, #clearSearchBtn:active {
+      transform: translateY(-50%) scale(0.9) !important;
+    }
+
+    #pasteBtn {
+      left: 8px !important;
+    }
+
+    #clearSearchBtn {
+      right: 8px !important;
+    }
+
+    /* Input padding override to make sure text does not overlap with search buttons */
+    .search-box-wrap > input {
+      padding-left: 42px !important;
+      padding-right: 40px !important;
+    }
+
+    /* CSS sibling selectors for dynamic show/hide behavior on empty/non-empty states */
+    .search-box-wrap > input:placeholder-shown ~ #clearSearchBtn {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    .search-box-wrap > input:not(:placeholder-shown) ~ #pasteBtn {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
