@@ -290,7 +290,7 @@ def create_app(
         if request.method == "POST":
             site_password = os.getenv("SITE_PASSWORD")
             password = request.form.get("password")
-            if site_password and password == site_password:
+            if site_password and password and password.strip() == site_password.strip():
                 session.permanent = True
                 session["site_auth"] = True
                 from flask import redirect
