@@ -28,6 +28,92 @@ from . import extensions
 
 log = logging.getLogger(__name__)
 
+SITE_LOGIN_HTML = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Cloudflow | Protected Space</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --bg: #0d1117;
+            --panel: rgba(22, 27, 34, 0.85);
+            --line: rgba(255, 255, 255, 0.08);
+            --accent: #2f9cf0;
+            --text: #f0f6fc;
+            --muted: #8b949e;
+        }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .card {
+            background: var(--panel);
+            backdrop-filter: blur(24px) saturate(160%);
+            -webkit-backdrop-filter: blur(24px) saturate(160%);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 32px;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+            text-align: center;
+        }
+        h2 { margin: 0 0 8px 0; font-size: 24px; font-weight: 700; }
+        p { color: var(--muted); font-size: 14px; margin: 0 0 24px 0; }
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            color: var(--text);
+            box-sizing: border-box;
+            font-size: 15px;
+            margin-bottom: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+        button {
+            width: 100%;
+            padding: 12px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 0.2s, transform 0.1s;
+        }
+        button:hover { filter: brightness(1.1); }
+        button:active { transform: scale(0.98); }
+        .error { color: #ff7b72; font-size: 13px; margin-bottom: 16px; text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Protected Space</h2>
+        <p>Enter the site password to access Cloudflow</p>
+        <form method="POST" action="/site-login">
+            {% if error %}
+            <div class="error">{{ error }}</div>
+            {% endif %}
+            <input type="password" name="password" placeholder="Password" autofocus required>
+            <button type="submit">Unlock</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
 
 class RequestIDFilter(logging.Filter):
     """Injects the current request ID into every log record."""
@@ -181,6 +267,33 @@ def create_app(
     @app.before_request
     def set_request_id():
         g.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
+
+    @app.before_request
+    def check_site_auth():
+        exempt_routes = ["static", "healthz", "site_login"]
+        if request.endpoint in exempt_routes:
+            return
+            
+        site_password = os.getenv("SITE_PASSWORD")
+        if not site_password:
+            return
+            
+        if not session.get("site_auth"):
+            if request.path.startswith("/api/") or request.path.startswith("/fs/"):
+                return json_error(401, "site_auth_required", "Site password required")
+            return render_template_string(SITE_LOGIN_HTML)
+
+    @app.route("/site-login", methods=["GET", "POST"])
+    def site_login():
+        if request.method == "POST":
+            site_password = os.getenv("SITE_PASSWORD")
+            password = request.form.get("password")
+            if site_password and password == site_password:
+                session["site_auth"] = True
+                from flask import redirect
+                return redirect("/")
+            return render_template_string(SITE_LOGIN_HTML, error="Incorrect site password")
+        return render_template_string(SITE_LOGIN_HTML)
 
     @app.errorhandler(ValidationError)
     def handle_validation(exc: ValidationError):
