@@ -5,6 +5,7 @@ import secrets
 import hmac
 import os
 import uuid
+import datetime
 from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request, g, render_template_string
@@ -176,6 +177,7 @@ def create_app(
         SESSION_COOKIE_SECURE=config.environment == "production",
         MAX_CONTENT_LENGTH=config.max_json_bytes,
         JSON_SORT_KEYS=False,
+        PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=365),
         # Export env vars for easier access in blueprints
         SEEDR_EMAIL=config.seedr_email,
         SEEDR_PASSWORD=config.seedr_password,
@@ -289,6 +291,7 @@ def create_app(
             site_password = os.getenv("SITE_PASSWORD")
             password = request.form.get("password")
             if site_password and password == site_password:
+                session.permanent = True
                 session["site_auth"] = True
                 from flask import redirect
                 return redirect("/")
