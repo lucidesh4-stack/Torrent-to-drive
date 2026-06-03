@@ -84,10 +84,7 @@
             <button id="openBtn" type="button">Open</button>
             <button id="downloadBtn" class="secondary" type="button" title="Folders are automatically zipped">Download</button>
             <button id="copyLinkBtn" class="secondary" type="button" title="Copy file link or zip link">Copy Link</button>
-            <div style="display: flex; gap: 8px; width: 100%;">
-              <button id="telegramBtn" class="secondary" type="button" style="flex: 1;" title="Send file directly to your Telegram Saved Messages / Chat">Send to Telegram</button>
-              <button id="telegramSettingsBtn" class="secondary" type="button" style="width: 42px; display: flex; align-items: center; justify-content: center; padding: 0; font-size: 16px;" title="Telegram Settings (Target Chat / Channel)">⚙️</button>
-            </div>
+            <button id="telegramBtn" class="secondary" type="button" title="Send file directly to your Telegram Saved Messages / Chat">Send to Telegram</button>
             <button id="deleteBtn" class="danger" type="button">Delete</button>
             <button id="clearSelBtn" class="ghost" type="button" style="display:none; width: 100%;">Clear Selection</button>
           </div>
@@ -280,32 +277,9 @@
   <section id="telegramAuthOverlay" class="overlay hidden">
     <div class="player-box" style="max-width: 420px; padding: 24px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); display: grid; gap: 16px;">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; color: var(--text);">Telegram Settings</h3>
+        <h3 style="margin: 0; color: var(--text);">Link Telegram</h3>
         <button id="closeTelegramAuthBtn" class="ghost" type="button" aria-label="Close" style="font-size: 20px; padding: 0; line-height: 1;">×</button>
       </div>
-      
-      <!-- Bandwidth Guard display -->
-      <div class="panel" style="padding: 12px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm);">
-        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px;">
-          <span class="muted">Monthly Bandwidth Guard</span>
-          <strong id="tgBandwidthText">0.0 GB / 99.0 GB</strong>
-        </div>
-        <div style="width: 100%; height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden;">
-          <div id="tgBandwidthBar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
-        </div>
-      </div>
-
-      <!-- Default Target Chat settings -->
-      <div style="display: grid; gap: 6px;">
-        <label for="tgTargetChat" style="font-size: 13px; font-weight: 600; color: var(--text);">Destination Chat / Channel ID</label>
-        <div style="display: flex; gap: 8px;">
-          <input id="tgTargetChat" type="text" placeholder="e.g. me, @private_channel, or -100123456" style="flex: 1; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 14px;">
-          <button id="tgSaveChatBtn" class="primary" type="button" style="padding: 8px 16px; font-size: 13px;">Save</button>
-        </div>
-        <span class="muted" style="font-size: 11px;">Use <strong>me</strong> for Saved Messages, a channel username (e.g. <strong>@my_channel</strong>), or a chat ID.</span>
-      </div>
-
-      <hr style="border: 0; border-top: 1px solid var(--line); margin: 4px 0;">
 
       <!-- Authentication Section -->
       <div id="tgAuthSection">

@@ -492,11 +492,7 @@ def telegram_send_file():
     from flask import session
     sid = session.get("sid") or ensure_sid()
     
-    chat_id = data.get("chat_id")
-    if not chat_id:
-        chat_id = rs.get(f"streamly:settings:{sid}:telegram_chat_id")
-    if not chat_id:
-        chat_id = config.get("TELEGRAM_CHAT_ID") or "me"
+    chat_id = config.get("TELEGRAM_CHAT_ID") or "me"
     
     cloud = getattr(current_app, "cloud", None)
     try:
@@ -515,17 +511,27 @@ def telegram_send_file():
         from ..security import json_error
         return json_error(502, "provider_error", "Failed to retrieve file from Seedr")
         
-    # Bandwidth limit check (99 GB)
+    # Bandwidth limit check (warning at 90 GB, block at 99 GB)
     import datetime
-    ym = datetime.datetime.utcnow().strftime("%Y-%m")
+    try:
+        ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
+    except AttributeError:
+        ym = datetime.datetime.utcnow().strftime("%Y-%m")
+        
     raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
+    
     limit_bytes = 99 * 1024 * 1024 * 1024
-    if bw_bytes + size > limit_bytes:
+    warning_bytes = 90 * 1024 * 1024 * 1024
+    
+    if bw_bytes >= limit_bytes or bw_bytes + size > limit_bytes:
         from ..security import json_error
-        bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
         return json_error(400, "bandwidth_limit_exceeded", 
-                          f"This transfer would exceed your monthly server transfer limit of 99 GB. (Current usage: {bw_gb} GB)")
+                          "100% of monthly bandwidth (99 GB) has been consumed. Transfer blocked.")
+                          
+    warning_message = None
+    if bw_bytes >= warning_bytes or bw_bytes + size >= warning_bytes:
+        warning_message = "90% of monthly bandwidth (90 GB) has been consumed."
         
     api_id = config.get("TELEGRAM_API_ID")
     api_hash = config.get("TELEGRAM_API_HASH")
@@ -566,7 +572,10 @@ def telegram_send_file():
     
     trigger_next_transfer(rs)
     
-    return jsonify({"success": True, "task_id": task_id})
+    res_data = {"success": True, "task_id": task_id}
+    if warning_message:
+        res_data["warning"] = warning_message
+    return jsonify(res_data)
 
 @telegram_bp.get("/api/telegram/task/<task_id>")
 @rate_limited(cost=0.5)
@@ -601,54 +610,7 @@ def transfer_status_route():
     return Response(raw, mimetype="application/json")
 
 
-@telegram_bp.get("/api/telegram/config")
-@rate_limited(cost=0.5)
-def get_telegram_config():
-    rs = getattr(current_app, "rs", None)
-    if not rs:
-        from ..security import json_error
-        return json_error(503, "redis_unavailable", "Redis is required")
-        
-    from flask import session
-    sid = session.get("sid") or ensure_sid()
-    
-    chat_id = rs.get(f"streamly:settings:{sid}:telegram_chat_id") or ""
-    
-    import datetime
-    ym = datetime.datetime.utcnow().strftime("%Y-%m")
-    raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
-    bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
-    bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
-    
-    return jsonify({
-        "chat_id": chat_id,
-        "bandwidth_usage_gb": bw_gb,
-        "bandwidth_limit_gb": 99.0
-    })
 
-
-@telegram_bp.post("/api/telegram/config")
-@rate_limited(cost=1.0)
-@csrf_required
-def set_telegram_config():
-    rs = getattr(current_app, "rs", None)
-    if not rs:
-        from ..security import json_error
-        return json_error(503, "redis_unavailable", "Redis is required")
-        
-    from flask import session
-    sid = session.get("sid") or ensure_sid()
-    
-    data = require_json_body(current_app.config)
-    chat_id = data.get("chat_id")
-    if chat_id is None:
-        from ..security import json_error
-        return json_error(400, "bad_request", "chat_id is required")
-        
-    chat_id_str = str(chat_id).strip()
-    
-    rs.set(f"streamly:settings:{sid}:telegram_chat_id", chat_id_str, ex=30 * 24 * 3600)
-    return jsonify({"success": True, "chat_id": chat_id_str})
 
 
 @telegram_bp.post("/api/telegram/logout")

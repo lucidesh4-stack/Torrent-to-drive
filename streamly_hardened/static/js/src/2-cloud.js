@@ -626,6 +626,10 @@
       const data = await postJson("/api/telegram/send", { file_id: item.id });
       if (data.success) {
         toast("Telegram transfer started!");
+        if (data.warning) {
+          toast(`Warning: ${data.warning}`);
+          status($("cloudStatus"), `Warning: ${data.warning}`, "error");
+        }
         pollActiveTransfer();
       }
     } catch (err) {
@@ -672,14 +676,14 @@
 
   async function openTelegramSettings() {
     $("telegramAuthOverlay").classList.remove("hidden");
-    status($("tgAuthStatus"), "Loading settings...", "");
+    status($("tgAuthStatus"), "Checking status...", "");
     
     // Clear inputs
     $("tgPhone").value = "";
     $("tgCode").value = "";
     
     try {
-      // 1. Check auth status
+      // Check auth status
       const authRes = await fetch("/api/telegram/status", { credentials: "same-origin" });
       if (authRes.ok) {
         const authData = await authRes.json();
@@ -693,24 +697,10 @@
           $("tgCodeStep").classList.add("hidden");
         }
       }
-      
-      // 2. Fetch config & usage
-      const configRes = await fetch("/api/telegram/config", { credentials: "same-origin" });
-      if (configRes.ok) {
-        const configData = await configRes.json();
-        $("tgTargetChat").value = configData.chat_id || "";
-        
-        const usage = Number(configData.bandwidth_usage_gb || 0);
-        const limit = Number(configData.bandwidth_limit_gb || 99.0);
-        $("tgBandwidthText").textContent = `${usage.toFixed(2)} GB / ${limit.toFixed(1)} GB`;
-        
-        const pct = Math.min(100, (usage / limit) * 100);
-        $("tgBandwidthBar").style.width = `${pct}%`;
-      }
       status($("tgAuthStatus"), "", "");
     } catch (err) {
-      console.error("Error loading Telegram settings:", err);
-      status($("tgAuthStatus"), "Failed to load settings details", "error");
+      console.error("Error loading Telegram status:", err);
+      status($("tgAuthStatus"), "Failed to load connection status", "error");
     }
   }
 
