@@ -80,7 +80,10 @@ def search_route():
         return matches_query(q, info["series"], is_episode=info["episode"] is not None)
 
     def _tokens(value):
-        return [t for t in re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split() if t]
+        tokens = [t for t in re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split() if t]
+        if len(tokens) > 1 and tokens[-1] in {"us", "uk", "ca", "au", "nz"}:
+            tokens.pop()
+        return tokens
 
     def _without_articles(tokens):
         return [t for t in tokens if t not in {"the", "a", "an"}]

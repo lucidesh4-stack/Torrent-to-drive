@@ -252,6 +252,8 @@ def _clean_query_tokens(query: str) -> list[str]:
         if re.fullmatch(r"(19|20)\d{2}", t):         # 1999, 2026 (year)
             continue
         out.append(t)
+    if len(out) > 1 and out[-1] in {"us", "uk", "ca", "au", "nz"}:
+        out.pop()
     return out
 
 
