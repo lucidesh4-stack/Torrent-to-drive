@@ -1574,11 +1574,26 @@
   function renderQueue(data) {
     // 1. Render Limit / Target
     const usage = Number(data.bandwidth_usage_gb || 0);
-    const limit = Number(data.bandwidth_limit_gb || 99.0);
-    $("tgTransfersLimitText").textContent = `${usage.toFixed(2)} GB / ${limit.toFixed(1)} GB`;
+    const projected = Number(data.bandwidth_projected_gb || usage);
+    const limit = Number(data.bandwidth_limit_gb || 4.5);
+    
+    let limitText = `${usage.toFixed(2)} GB / ${limit.toFixed(1)} GB`;
+    if (projected > usage) {
+      limitText = `${usage.toFixed(2)} GB (Proj: ${projected.toFixed(2)} GB) / ${limit.toFixed(1)} GB`;
+    }
+    $("tgTransfersLimitText").textContent = limitText;
     
     const pct = Math.min(100, (usage / limit) * 100);
     $("tgTransfersLimitBar").style.width = `${pct}%`;
+    
+    if (projected >= limit) {
+      $("tgTransfersLimitBar").style.background = "#ef4444";
+    } else if (projected >= 4.0) {
+      $("tgTransfersLimitBar").style.background = "#f59e0b";
+    } else {
+      $("tgTransfersLimitBar").style.background = "var(--accent)";
+    }
+    
     $("tgTransfersTargetText").textContent = data.destination || "me";
 
     // 2. Render Active Transfer
