@@ -19,23 +19,47 @@ log = logging.getLogger(__name__)
 
 telegram_bp = Blueprint("telegram", __name__)
 
-class AsyncStreamWrapper:
-    def __init__(self, response_stream, chunk_size=1 * 1024 * 1024):
-        self.stream = response_stream
-        self.iterator = response_stream.aiter_bytes(chunk_size=chunk_size)
+class AsyncQueueStreamWrapper:
+    def __init__(self, queue: asyncio.Queue):
+        self.queue = queue
         self.buffer = b""
         self.name = "file"
+        self.producer_done = False
+        self.exception = None
 
     async def read(self, n):
-        while len(self.buffer) < n:
+        if self.exception:
+            raise self.exception
+
+        while len(self.buffer) < n and not (self.producer_done and self.queue.empty()):
             try:
-                chunk = await self.iterator.__anext__()
-                self.buffer += chunk
-            except StopAsyncIteration:
+                item = await self.queue.get()
+                self.queue.task_done()
+                if item is None:
+                    self.producer_done = True
+                elif isinstance(item, Exception):
+                    self.exception = item
+                    raise item
+                else:
+                    self.buffer += item
+            except Exception as e:
+                if isinstance(e, Exception) and not isinstance(e, ValueError):
+                    self.exception = e
+                    raise e
                 break
+
         data = self.buffer[:n]
         self.buffer = self.buffer[n:]
         return data
+
+async def producer(response_stream, queue):
+    try:
+        async for chunk in response_stream.aiter_bytes(chunk_size=1 * 1024 * 1024):
+            await queue.put(chunk)
+        await queue.put(None)
+    except Exception as pe:
+        log.warning("Producer stream read error: %s", pe)
+        await queue.put(pe)
 
 class ProgressTracker:
     def __init__(self, rs, task_id, filename, total_bytes):
@@ -127,7 +151,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "3600"
             )
             
-            async with httpx.AsyncClient(timeout=30.0) as httpx_client:
+            limits = httpx.Limits(max_keepalive_connections=2, max_connections=5)
+            async with httpx.AsyncClient(limits=limits, timeout=60.0) as httpx_client:
                 async with httpx_client.stream("GET", file_url) as r:
                     r.raise_for_status()
                     
@@ -139,7 +164,10 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         except ValueError:
                             pass
                     
-                    wrapper = AsyncStreamWrapper(r, chunk_size=1 * 1024 * 1024)
+                    queue = asyncio.Queue(maxsize=5)
+                    producer_task = asyncio.create_task(producer(r, queue))
+                    
+                    wrapper = AsyncQueueStreamWrapper(queue)
                     wrapper.name = filename
                     
                     tracker = ProgressTracker(rs, task_id, filename, exact_size)
@@ -150,6 +178,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         file_size=exact_size,
                         progress_callback=tracker
                     )
+                    
+                    await producer_task
                     
                     await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
