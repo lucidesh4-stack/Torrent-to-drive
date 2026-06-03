@@ -198,17 +198,31 @@ async def validate_telegram_target(client, target_chat):
         raise ValueError(f"Could not find or access target chat/channel: {e}")
 
     if isinstance(entity, Channel):
-        permissions = await client.get_permissions(entity)
-        if entity.broadcast:
-            if not (permissions.is_admin or permissions.is_creator):
-                raise ValueError("You do not have permission to post in this broadcast channel (admin rights required).")
-        else:
-            if not permissions.send_messages:
-                raise ValueError("You do not have permission to send messages here.")
+        permissions = None
+        try:
+            permissions = await client.get_permissions(entity)
+        except Exception as pe:
+            log.warning("Failed to check channel permissions: %s", pe)
+            
+        if permissions is not None:
+            if entity.broadcast:
+                is_admin = getattr(permissions, "is_admin", False)
+                is_creator = getattr(permissions, "is_creator", False)
+                if not (is_admin or is_creator):
+                    raise ValueError("You do not have permission to post in this broadcast channel (admin rights required).")
+            else:
+                if not getattr(permissions, "send_messages", True):
+                    raise ValueError("You do not have permission to send messages here.")
     elif isinstance(entity, Chat):
-        permissions = await client.get_permissions(entity)
-        if not permissions.send_messages:
-            raise ValueError("You do not have permission to send messages in this group.")
+        permissions = None
+        try:
+            permissions = await client.get_permissions(entity)
+        except Exception as pe:
+            log.warning("Failed to check chat permissions: %s", pe)
+            
+        if permissions is not None:
+            if not getattr(permissions, "send_messages", True):
+                raise ValueError("You do not have permission to send messages in this group.")
 
     return resolved_chat
 
