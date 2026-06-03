@@ -392,12 +392,10 @@
         if (mobile) {
           const title = document.createElement("div");
           title.className = "mobile-encoder-title";
-          const strong = document.createElement("strong");
-          strong.textContent = enc.name;
           const badge = document.createElement("span");
           badge.className = "encoder-count";
           badge.textContent = qg.label || qualityLabel(qg.quality);
-          title.append(strong, badge);
+          title.append(badge);
           body.appendChild(title);
 
           const seasons = qg.seasons || [];

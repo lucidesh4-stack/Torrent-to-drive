@@ -46,13 +46,7 @@
             <div class="topbar-storage-meter" aria-hidden="true"><div id="topStorageMeter"></div></div>
           </div>
         </div>
-        <div class="tabs">
-          <button id="cloudTab" class="tab active" type="button">Cloud Drive</button>
-          <button id="searchTab" class="tab" type="button">Search</button>
-          <button id="historyBtn" class="tab" type="button">History</button>
-          <button id="telegramTabBtn" class="tab" type="button">Transfers</button>
-          <span id="userPill" class="user-pill hidden" aria-hidden="true">Logged in</span>
-        </div>
+        <span id="userPill" class="user-pill hidden" aria-hidden="true">Logged in</span>
       </div>
     </header>
 
@@ -231,6 +225,25 @@
       </section>
 
     </main>
+    <nav class="bottom-nav">
+      <div class="bottom-nav-highlight" id="bottomNavHighlight"></div>
+      <button id="cloudTab" class="bottom-tab-item active" type="button" aria-label="Cloud Drive">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg"><path d="M17.5 19A5.5 5.5 0 0 0 17 8H15.6a8 8 0 1 0-15.6 2A5.5 5.5 0 0 0 5.5 19H17.5Z"/></svg>
+        <span class="bottom-tab-label">Drive</span>
+      </button>
+      <button id="searchTab" class="bottom-tab-item" type="button" aria-label="Search">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="bottom-tab-label">Search</span>
+      </button>
+      <button id="historyBtn" class="bottom-tab-item" type="button" aria-label="History">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg clock-icon"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span class="bottom-tab-label">History</span>
+      </button>
+      <button id="telegramTabBtn" class="bottom-tab-item" type="button" aria-label="Transfers">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+        <span class="bottom-tab-label">Send</span>
+      </button>
+    </nav>
   </section>
 
   <section id="videoOverlay" class="overlay hidden">
@@ -249,6 +262,7 @@
   <!-- History Modal Overlay -->
   <section id="historyOverlay" class="overlay hidden">
     <div class="player-box" style="max-width: 800px; max-height: 80vh; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5);">
+      <div class="sheet-grabber"></div>
       <div class="panel-head" style="border-radius: 14px 14px 0 0;">
         <div>
           <h2>Magnet History</h2>
@@ -277,6 +291,7 @@
   <!-- Telegram Transfers Overlay -->
   <section id="telegramTransfersOverlay" class="overlay hidden">
     <div class="player-box" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5);">
+      <div class="sheet-grabber"></div>
       <div class="panel-head" style="border-radius: 14px 14px 0 0; padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h2 style="margin: 0; font-size: 1.25rem;">Telegram Exports</h2>

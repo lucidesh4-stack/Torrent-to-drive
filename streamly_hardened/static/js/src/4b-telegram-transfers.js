@@ -132,6 +132,7 @@
   // Hook Navigation button
   if ($("telegramTabBtn")) {
     $("telegramTabBtn").addEventListener("click", () => {
+      if (typeof window.updateBottomNavHighlight === "function") window.updateBottomNavHighlight(3);
       isOverlayOpen = true;
       $("telegramTransfersOverlay").classList.remove("hidden");
       refreshQueueStatus();
@@ -144,6 +145,7 @@
       isOverlayOpen = false;
       $("telegramTransfersOverlay").classList.add("hidden");
       if (pollTimer) clearTimeout(pollTimer);
+      if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
     });
   }
 

@@ -99,12 +99,14 @@
   }
 
   $("historyBtn").addEventListener("click", () => {
+    if (typeof window.updateBottomNavHighlight === "function") window.updateBottomNavHighlight(2);
     renderHistory();
     $("historyOverlay").classList.remove("hidden");
   });
 
   $("closeHistoryBtn").addEventListener("click", () => {
     $("historyOverlay").classList.add("hidden");
+    if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
   });
 
   $("clearHistoryBtn").addEventListener("click", async () => {

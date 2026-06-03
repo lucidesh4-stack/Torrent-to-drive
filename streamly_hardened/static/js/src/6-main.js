@@ -1,3 +1,21 @@
+  window.updateBottomNavHighlight = function(index) {
+    const highlight = $("bottomNavHighlight");
+    if (!highlight) return;
+    highlight.style.transform = `translateX(${index * 100}%)`;
+    
+    // Update active class on tab items
+    const tabs = ["cloudTab", "searchTab", "historyBtn", "telegramTabBtn"];
+    tabs.forEach((id, idx) => {
+      const btn = $(id);
+      if (btn) btn.classList.toggle("active", idx === index);
+    });
+  };
+
+  window.restoreActiveMainTabHighlight = function() {
+    const isCloud = !$("cloudView").classList.contains("hidden");
+    window.updateBottomNavHighlight(isCloud ? 0 : 1);
+  };
+
   async function setTab(name) {
     if (name === "cloud" && !isAuthenticated) {
       // Trigger a silent re-login attempt first. If that works, proceed.
@@ -16,8 +34,9 @@
 
     $("cloudView").classList.toggle("hidden", name !== "cloud");
     $("searchView").classList.toggle("hidden", name !== "search");
-    $("cloudTab").classList.toggle("active", name === "cloud");
-    $("searchTab").classList.toggle("active", name === "search");
+    
+    if (name === "cloud") window.updateBottomNavHighlight(0);
+    if (name === "search") window.updateBottomNavHighlight(1);
 
     // Auto-load root folder when switching to cloud view; stop transfer polling off-cloud.
     if (name === "cloud" && isAuthenticated) {
@@ -219,6 +238,28 @@
         if (closeTransfers) closeTransfers.click();
       }
     }
+  });
+
+  // Dismiss overlay when backdrop is clicked
+  document.querySelectorAll(".overlay").forEach((ov) => {
+    ov.addEventListener("click", (e) => {
+      if (e.target === ov) {
+        ov.classList.add("hidden");
+        if (ov.id === "telegramTransfersOverlay") {
+          const btn = $("closeTelegramTransfersBtn");
+          if (btn) btn.click();
+        } else if (ov.id === "historyOverlay") {
+          const btn = $("closeHistoryBtn");
+          if (btn) btn.click();
+        } else if (ov.id === "videoOverlay") {
+          const btn = $("closeVideoBtn");
+          if (btn) btn.click();
+        } else if (ov.id === "telegramAuthOverlay") {
+          const btn = $("closeTelegramAuthBtn");
+          if (btn) btn.click();
+        }
+      }
+    });
   });
 
   // Telegram auth and settings controls

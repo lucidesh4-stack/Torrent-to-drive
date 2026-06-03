@@ -2102,3 +2102,63 @@ ValueError: 'NoneType' object has no attribute 'is_admin'
 2026-06-03 06:33:14,510 | INFO | [f334b5ac] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
 2026-06-03 06:33:16,242 | INFO | [1728ff3a] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
 2026-06-03 06:33:17,854 | INFO | [f334b5ac] | streamly_hardened.routes.telegram:232 | Queue check: transfer 5b408937 is active. Skipping.
+2026-06-03 06:41:29,646 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:41:29,571 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:41:31,049 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task 4fd9270e
+2026-06-03 06:41:31,174 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task 3ffc0837
+2026-06-03 06:41:31,052 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:41:31,248 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:41:32,350 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:41:32,362 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:41:36,226 | INFO | [system] | httpx:1740 | HTTP Request: GET https://rd24.seedr.cc/ff_get/5931033300/Euphoria.US.S03E05.This.Little.Piggy.1080p.HEVC.x265-MeGusta.mkv?st=iQBjybuHy_P7H2hreeRrCQ&e=1780554390 "HTTP/1.1 200 OK"
+2026-06-03 06:41:36,318 | INFO | [system] | httpx:1740 | HTTP Request: GET https://rd2.seedr.cc/ff_get/5931033292/Euphoria.US.S03E04.1080p.HEVC.x265-MeGusta[EZTVx.to].mkv?st=0CnQn9kfFzWpVuzyjE40OQ&e=1780554380 "HTTP/1.1 200 OK"
+2026-06-03 06:45:32,579 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:45:32,678 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:45:34,078 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task 0e7a9f0a
+2026-06-03 06:45:34,178 | INFO | [system] | streamly_hardened.routes.telegram:271 | Queue check: started transfer thread for task dcf5caa5
+2026-06-03 06:45:34,080 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:45:34,181 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpFull...
+2026-06-03 06:45:35,099 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:45:35,210 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpFull complete!
+2026-06-03 06:45:38,593 | INFO | [system] | httpx:1740 | HTTP Request: GET https://nw27.seedr.cc/ff_get/5931033218/Euphoria.US.S03E01.Andale.1080p.HEVC.x265-MeGusta.mkv?st=y0SWopO99wV9wVTWoiqfcg&e=1780554766 "HTTP/1.1 200 OK"
+2026-06-03 06:45:38,784 | INFO | [system] | httpx:1740 | HTTP Request: GET https://rd16.seedr.cc/ff_get/5931033238/Euphoria.US.S03E02.1080p.HEVC.x265-MeGusta.mkv?st=6TlnayQ3s4l4mJ4nLCtkrA&e=1780554794 "HTTP/1.1 200 OK"
+2026-06-03 06:52:31,180 | INFO | [dfccb668] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:52:32,299 | INFO | [dfccb668] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 06:52:33,179 | INFO | [dfccb668] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:52:34,779 | INFO | [aa3d5bbc] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:52:35,905 | INFO | [818de8aa] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:52:36,815 | INFO | [f9c7b662] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:55:22,582 | INFO | [30fff24f] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 06:55:24,278 | INFO | [30fff24f] | streamly_hardened.app:28 | Session restored via global master token for sid=3hFDWZ7f...
+2026-06-03 06:55:25,390 | INFO | [30fff24f] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:55:26,889 | INFO | [6fb60bb6] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:55:51,896 | INFO | [2e81b5e8] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 06:59:44,593 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:59:44,594 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 06:59:45,372 | INFO | [system] | streamly_hardened.routes.telegram:238 | Queue check: no tasks in queue.
+2026-06-03 06:59:45,596 | INFO | [system] | streamly_hardened.routes.telegram:238 | Queue check: no tasks in queue.
+2026-06-03 07:01:37,240 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 07:01:37,314 | INFO | [system] | streamly_hardened.app:144 | Upstash Redis reachable — history, token & log persistence active
+2026-06-03 07:01:37,837 | INFO | [system] | streamly_hardened.app:155 | Startup lock already held by another worker process. Skipping initialization.
+2026-06-03 07:01:37,837 | INFO | [system] | streamly_hardened.app:150 | Startup lock acquired. Initializing active transfer state and triggering next transfer.
+2026-06-03 07:01:38,742 | INFO | [system] | streamly_hardened.routes.telegram:258 | Queue check: no tasks in queue.
+2026-06-03 07:02:03,975 | INFO | [9315c970] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 07:02:04,142 | INFO | [9315c970] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 07:02:04,917 | INFO | [fceb6dc1] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 07:02:05,670 | INFO | [53e38b87] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 07:02:14,574 | INFO | [e72b3c31] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=list_contents "HTTP/1.1 200 OK"
+2026-06-03 07:02:19,261 | INFO | [9d7356ce] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 07:02:20,440 | INFO | [9d7356ce] | streamly_hardened.routes.telegram:291 | Queue check: started transfer thread for task 35bd54d9
+2026-06-03 07:02:20,442 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpIntermediate...
+2026-06-03 07:02:21,029 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpIntermediate complete!
+2026-06-03 07:02:24,302 | INFO | [system] | httpx:1740 | HTTP Request: GET https://nw27.seedr.cc/ff_get/5931033219/Euphoria.US.S03E01.Andale.1080p.HEVC.x265-MeGusta.nfo?st=lZY_eW-dno56rRKahiA4Ug&e=1780556539 "HTTP/1.1 200 OK"
+2026-06-03 07:02:24,966 | INFO | [system] | telethon.network.mtprotosender:325 | Disconnecting from 91.108.56.133:443/TcpIntermediate...
+2026-06-03 07:02:25,340 | INFO | [system] | telethon.network.mtprotosender:345 | Disconnection from 91.108.56.133:443/TcpIntermediate complete!
+2026-06-03 07:02:26,214 | INFO | [system] | streamly_hardened.routes.telegram:258 | Queue check: no tasks in queue.
+2026-06-03 07:02:40,355 | INFO | [84703af5] | httpx:1025 | HTTP Request: GET https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=get_settings "HTTP/1.1 200 OK"
+2026-06-03 07:02:40,539 | INFO | [84703af5] | streamly_hardened.app:28 | Session restored via global master token for sid=f7HsiO-V...
+2026-06-03 07:02:40,855 | INFO | [84703af5] | httpx:1025 | HTTP Request: POST https://www.seedr.cc/oauth_test/resource.php?access_token=5f4955bda375c958219cc821a13df1218c8752b7&func=fetch_file "HTTP/1.1 200 OK"
+2026-06-03 07:02:42,215 | INFO | [84703af5] | streamly_hardened.routes.telegram:291 | Queue check: started transfer thread for task ded2114e
+2026-06-03 07:02:42,217 | INFO | [system] | telethon.network.mtprotosender:234 | Connecting to 91.108.56.133:443/TcpIntermediate...
+2026-06-03 07:02:43,013 | INFO | [system] | telethon.network.mtprotosender:285 | Connection to 91.108.56.133:443/TcpIntermediate complete!
+2026-06-03 07:02:46,614 | INFO | [system] | httpx:1740 | HTTP Request: GET https://nw27.seedr.cc/ff_get/5931033218/Euphoria.US.S03E01.Andale.1080p.HEVC.x265-MeGusta.mkv?st=fV7TX-Lwd8RuoQhuNajebQ&e=1780556560 "HTTP/1.1 200 OK"

@@ -14,9 +14,15 @@
       --green: #10b981;
       --red: #f43f5e;
       --orange: #f59e0b;
+      --radius-xs: 4px;
       --radius-sm: 8px;
       --radius-md: 12px;
       --radius-lg: 16px;
+      --radius-xl: 20px;
+      --transition-snap: 0.1s ease;
+      --transition-slide: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-sheet-in: 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+      --transition-sheet-out: 0.26s cubic-bezier(0.4, 0, 1, 1);
       font-family: 'Outfit', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
     }
     * { box-sizing: border-box; }
@@ -33,7 +39,7 @@
     button, input, select { font: inherit; }
     button {
       border: 0;
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-md);
       padding: 11px 14px;
       background: var(--blue);
       color: white;
@@ -54,7 +60,7 @@
       background: #0b0e14;
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
+      border-radius: var(--radius-md);
       padding: 12px 13px;
       outline: none;
       font-size: 16px; /* prevents iOS auto-zoom on focus */
@@ -588,7 +594,128 @@ button.icon-btn {
     #historyBody .hist-icon:active,
     .panel-head button.ghost:active,
     .login-close:active,
-    .mfs-field label:active {
-      transform: scale(0.98) !important;
+    .mfs-field label:active,
+    .bottom-tab-item:active {
+      transform: scale(0.97) !important;
       filter: brightness(0.9) !important;
+    }
+
+    /* Bottom Navigation Bar */
+    .bottom-nav {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(480px, calc(100% - 32px));
+      height: 64px;
+      border-radius: 28px;
+      background: rgba(16, 20, 30, 0.82);
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+      z-index: 999;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      padding: 0 12px;
+      padding-bottom: env(safe-area-inset-bottom);
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    
+    .bottom-nav-highlight {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      height: 48px;
+      width: calc((100% - 24px) / 4);
+      border-radius: 20px;
+      background: var(--blue);
+      z-index: 1;
+      transition: transform var(--transition-slide);
+      pointer-events: none;
+    }
+    
+    .bottom-tab-item {
+      position: relative;
+      flex: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: transparent !important;
+      border: none !important;
+      color: var(--muted);
+      padding: 0 !important;
+      cursor: pointer;
+      z-index: 2;
+      box-shadow: none !important;
+      transition: color 0.2s, transform 0.1s ease-out;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .bottom-tab-item:hover {
+      background: transparent !important;
+      transform: none !important;
+      color: var(--text);
+    }
+    
+    .bottom-tab-item.active {
+      color: #fff !important;
+    }
+    
+    .bottom-tab-label {
+      font-size: 11px;
+      font-weight: 500;
+      margin-top: 3px;
+      transition: font-weight 0.2s, color 0.2s;
+    }
+    
+    .bottom-tab-item.active .bottom-tab-label {
+      font-weight: 600;
+    }
+    
+    .tab-icon-svg {
+      fill: none;
+      stroke: currentColor;
+      transition: fill 0.2s, stroke 0.2s;
+      width: 22px;
+      height: 22px;
+    }
+    
+    .bottom-tab-item.active .tab-icon-svg {
+      fill: currentColor;
+      stroke: currentColor;
+    }
+    
+    .bottom-tab-item.active .tab-icon-svg.clock-icon polyline {
+      stroke: var(--blue) !important;
+    }
+    
+    /* Decorative Grabber Handle */
+    .sheet-grabber {
+      display: none;
+    }
+    
+    /* Search Bar geometry unification */
+    .search-unified-row .search-box-wrap input {
+      height: 44px !important;
+      border-radius: var(--radius-md) !important;
+    }
+    
+    .search-unified-row button.icon-btn {
+      height: 44px !important;
+      width: 44px !important;
+      border-radius: var(--radius-md) !important;
+    }
+    
+    .search-unified-row .sb-icon {
+      border-radius: var(--radius-md) !important;
+    }
+
+    /* Transition classes for smooth scale interaction */
+    .episode-row, #cloudBody tr, .bottom-tab-item {
+      transition: transform 0.1s ease-out, background 0.1s ease-out, color 0.1s ease-out;
     }

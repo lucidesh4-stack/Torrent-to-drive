@@ -3,12 +3,10 @@
       .search-grid { grid-template-columns: 1fr; }
       /* Full-bleed page width on mobile, minimal side gutters */
       .topbar-inner { width: calc(100% - 20px); padding: 10px 0; flex-wrap: nowrap; gap: 10px; }
-      .main { width: calc(100% - 20px); }
-      /* Hide the (barely visible) brand logo + "connected" text on mobile */
-      .topbar-inner .brand { display: none !important; }
-      .topbar-inner { justify-content: center; }
-      .tabs { flex: 0 0 auto; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-      .tabs::-webkit-scrollbar { display: none; }
+      .main { width: calc(100% - 20px); padding-bottom: 96px !important; }
+      /* Show storage brand on mobile since top tabs are gone */
+      .topbar-inner .brand { display: flex !important; flex: 1 1 auto; }
+      .topbar-inner { justify-content: space-between; }
       .user-pill { display: none !important; }
       #cloudView .table th:nth-child(3), #cloudView .table td:nth-child(3),
       #cloudView .table th:nth-child(4), #cloudView .table td:nth-child(4),
@@ -641,7 +639,7 @@
     font-weight: 800;
     cursor: pointer;
     user-select: none;
-    transition: all 0.1s ease-out;
+    transition: border-color 0.1s ease-out, color 0.1s ease-out, box-shadow 0.1s ease-out;
   }
   .mfs-field label:hover {
     border-color: var(--blue);
@@ -659,6 +657,7 @@
     border-color: var(--blue);
     color: #fff;
     box-shadow: 0 0 0 1px var(--blue);
+    transition: background-color 0.1s ease-out, border-color 0.1s ease-out, color 0.1s ease-out, box-shadow 0.1s ease-out;
   }
   .mfs-apply { width: 100%; border-radius: var(--radius-md); padding: 12px; font-size: 14px; font-weight: 1000; margin-top: 8px; }
 
@@ -775,6 +774,70 @@
   .encoder-count { font-size: 10px; padding: 2px 8px; }
   .mobile-encoder-title { padding: 8px 10px 6px; }
   .mobile-encoder-title strong { font-size: 14px; }
+}
+
+/* General Desktop main padding for Bottom Nav */
+.main {
+  padding-bottom: 96px !important;
+}
+
+/* Mobile bottom sheets for overlays */
+@media (max-width: 768px) {
+  #telegramTransfersOverlay,
+  #historyOverlay {
+    align-items: flex-end !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    background: rgba(7, 10, 15, 0.45) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    display: flex !important;
+  }
+  
+  #telegramTransfersOverlay.hidden,
+  #historyOverlay.hidden {
+    display: none !important;
+  }
+  
+  #telegramTransfersOverlay .player-box,
+  #historyOverlay .player-box {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 80vh !important;
+    max-height: 80vh !important;
+    border-radius: 20px 20px 0 0 !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-bottom: none !important;
+    margin: 0 !important;
+    background: var(--panel-2) !important;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.5) !important;
+    transform: translateY(0);
+    animation: sheet-slide-up var(--transition-sheet-in) forwards;
+  }
+
+  #telegramTransfersOverlay .sheet-grabber,
+  #historyOverlay .sheet-grabber {
+    display: block !important;
+    width: 40px !important;
+    height: 4px !important;
+    border-radius: 2px !important;
+    background: var(--muted) !important;
+    opacity: 0.4 !important;
+    margin: 12px auto 8px !important;
+    flex-shrink: 0 !important;
+  }
+  
+  @keyframes sheet-slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+}
+
+@media (max-width: 768px) {
   .mobile-season-nav { padding: 6px 10px; gap: 5px; }
   .mobile-season-tab { padding: 4px 8px; font-size: 10px; }
   .episode-row {
