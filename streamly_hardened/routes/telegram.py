@@ -689,10 +689,12 @@ def telegram_send_file():
             from ..security import json_error
             return json_error(404, "not_found", "Direct download URL is unavailable")
             
-        # File size cap check (2 GB)
-        if size >= 2 * 1024 * 1024 * 1024:
+        # File size cap check (default 2 GB, adjustable for Telegram Premium up to 4 GB)
+        import os
+        max_file_size_gb = float(os.getenv("TELEGRAM_MAX_FILE_SIZE_GB", "2.0"))
+        if size >= max_file_size_gb * 1024 * 1024 * 1024:
             from ..security import json_error
-            return json_error(400, "file_too_large", "File size exceeds the 2 GB limit for Telegram uploads.")
+            return json_error(400, "file_too_large", f"File size exceeds the {max_file_size_gb} GB limit for Telegram uploads.")
             
     except Exception as e:
         log.warning("Failed to fetch file details from Seedr: %s", e)
