@@ -68,17 +68,25 @@ class ProgressTracker:
         self.task_id = task_id
         self.filename = filename
         self.total_bytes = total_bytes
-        self.last_update_time = 0.0
         self.last_pct = 0.0
-        self.last_sent_bytes = 0
+        self.last_bandwidth_sent_bytes = 0
+        self.last_write_time = time.time()
+        self.last_write_bytes = 0
 
     def __call__(self, sent_bytes, total_bytes):
-        diff = sent_bytes - self.last_sent_bytes
+        # Check for cancel request
+        if self.rs.get(f"streamly:cancel_request:{self.task_id}"):
+            raise ValueError("Cancelled by user")
+
+        diff = sent_bytes - self.last_bandwidth_sent_bytes
         if diff > 0:
-            self.last_sent_bytes = sent_bytes
+            self.last_bandwidth_sent_bytes = sent_bytes
             try:
                 import datetime
-                ym = datetime.datetime.utcnow().strftime("%Y-%m")
+                try:
+                    ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
+                except AttributeError:
+                    ym = datetime.datetime.utcnow().strftime("%Y-%m")
                 self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(diff))
                 self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000") # 60 days
             except Exception as e:
@@ -87,9 +95,21 @@ class ProgressTracker:
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
         pct = round((sent_bytes / tot) * 100, 1)
-        if now - self.last_update_time >= 2.0 or pct >= 100.0 or pct - self.last_pct >= 5.0:
-            self.last_update_time = now
+        
+        elapsed = now - self.last_write_time
+        if elapsed >= 2.0 or pct >= 100.0 or pct - self.last_pct >= 5.0:
+            bytes_sent_since_last_write = sent_bytes - self.last_write_bytes
+            if elapsed > 0:
+                speed_bytes_sec = bytes_sent_since_last_write / elapsed
+            else:
+                speed_bytes_sec = 0.0
+                
+            speed_mb = round(speed_bytes_sec / (1024 * 1024), 2)
+            
+            self.last_write_time = now
+            self.last_write_bytes = sent_bytes
             self.last_pct = pct
+            
             status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
             self.rs._execute(
                 "SET",
@@ -100,6 +120,7 @@ class ProgressTracker:
                     "filename": self.filename,
                     "sent_bytes": sent_bytes,
                     "total_bytes": tot,
+                    "speed_mb": speed_mb,
                     "error": None
                 }),
                 "EX",
@@ -506,6 +527,11 @@ def telegram_send_file():
             from ..security import json_error
             return json_error(404, "not_found", "Direct download URL is unavailable")
             
+        # File size cap check (2 GB)
+        if size >= 2 * 1024 * 1024 * 1024:
+            from ..security import json_error
+            return json_error(400, "file_too_large", "File size exceeds the 2 GB limit for Telegram uploads.")
+            
     except Exception as e:
         log.warning("Failed to fetch file details from Seedr: %s", e)
         from ..security import json_error
@@ -610,7 +636,127 @@ def transfer_status_route():
     return Response(raw, mimetype="application/json")
 
 
+@telegram_bp.get("/api/telegram/queue")
+@rate_limited(cost=0.5)
+def get_telegram_queue():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    active_task_id = rs.get("streamly:active_transfer_global")
+    active_item = None
+    if active_task_id:
+        if isinstance(active_task_id, bytes):
+            active_task_id = active_task_id.decode("utf-8")
+        raw_status = rs.get(f"streamly:transfer_status:{active_task_id}")
+        if raw_status:
+            if isinstance(raw_status, bytes):
+                raw_status = raw_status.decode("utf-8")
+            active_item = _json.loads(raw_status)
+            active_item["task_id"] = active_task_id
 
+    queue_task_ids = rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
+    queue_items = []
+    if queue_task_ids:
+        for tid in queue_task_ids:
+            if isinstance(tid, bytes):
+                tid = tid.decode("utf-8")
+            raw_args = rs.get(f"streamly:task_args:{tid}")
+            if raw_args:
+                if isinstance(raw_args, bytes):
+                    raw_args = raw_args.decode("utf-8")
+                args = _json.loads(raw_args)
+                queue_items.append({
+                    "task_id": tid,
+                    "filename": args.get("filename", "file"),
+                    "total_bytes": args.get("size", 0),
+                    "status": "QUEUED"
+                })
+
+    import datetime
+    try:
+        ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
+    except AttributeError:
+        ym = datetime.datetime.utcnow().strftime("%Y-%m")
+    raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
+    bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
+    bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
+    
+    destination = current_app.config.get("TELEGRAM_CHAT_ID") or "me"
+    
+    return jsonify({
+        "active": active_item,
+        "queue": queue_items,
+        "bandwidth_usage_gb": bw_gb,
+        "bandwidth_limit_gb": 99.0,
+        "destination": destination
+    })
+
+
+@telegram_bp.post("/api/telegram/cancel")
+@rate_limited(cost=1.0)
+@csrf_required
+def telegram_cancel_transfer():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    
+    # Try reading task_id from JSON request body
+    task_id = None
+    try:
+        data = request.get_json(silent=True) or {}
+        task_id = data.get("task_id")
+    except Exception:
+        pass
+        
+    # If not provided, fallback to the user's active transfer
+    if not task_id:
+        task_id = rs.get(f"streamly:active_transfer:{sid}")
+        if isinstance(task_id, bytes):
+            task_id = task_id.decode("utf-8")
+            
+    if not task_id:
+        from ..security import json_error
+        return json_error(400, "not_found", "No active transfer to cancel")
+        
+    active_global = rs.get("streamly:active_transfer_global")
+    if isinstance(active_global, bytes):
+        active_global = active_global.decode("utf-8")
+        
+    # Case 1: The task is currently running in the active uploader thread
+    if active_global == task_id:
+        rs.set(f"streamly:cancel_request:{task_id}", "1", ex=300)
+        return jsonify({"success": True, "message": "Cancellation request sent to active transfer"})
+        
+    # Case 2: The task is queued but not yet active
+    removed = rs._execute("LREM", "streamly:transfer_queue", "0", task_id)
+    
+    # Set status to FAILED/CANCELLED in Redis
+    rs._execute(
+        "SET",
+        f"streamly:transfer_status:{task_id}",
+        _json.dumps({
+            "progress": 0.0,
+            "status": "FAILED",
+            "error": "Cancelled by user",
+            "filename": "file",
+            "sent_bytes": 0,
+            "total_bytes": 0
+        }),
+        "EX",
+        "3600"
+    )
+    
+    # Clean up keys for this task
+    rs._execute("DEL", f"streamly:active_transfer:{sid}")
+    rs._execute("DEL", f"streamly:task_args:{task_id}")
+    
+    return jsonify({"success": True, "message": "Queued transfer cancelled successfully"})
 
 
 @telegram_bp.post("/api/telegram/logout")

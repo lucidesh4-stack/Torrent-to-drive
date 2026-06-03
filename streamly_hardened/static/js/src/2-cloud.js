@@ -619,6 +619,10 @@
     const item = selected;
     if (!item) return toast("Select a file first");
     if (item.type === "folder") return toast("Folders cannot be sent to Telegram directly; download them as a zip first.");
+    if (item.size >= 2 * 1024 * 1024 * 1024) {
+      toast("Telegram uploads are capped at 2 GB.");
+      return status($("cloudStatus"), "File exceeds 2 GB limit", "error");
+    }
     
     status($("cloudStatus"), "Preparing Telegram transfer...", "");
     
@@ -631,6 +635,9 @@
           status($("cloudStatus"), `Warning: ${data.warning}`, "error");
         }
         pollActiveTransfer();
+        if (typeof window.triggerQueuePolling === "function") {
+          window.triggerQueuePolling();
+        }
       }
     } catch (err) {
       if ((err.message || "").includes("Telegram is not authenticated") || (err.message || "").includes("telegram_not_authenticated")) {

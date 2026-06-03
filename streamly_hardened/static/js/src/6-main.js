@@ -214,6 +214,10 @@
       if (!$("telegramAuthOverlay").classList.contains("hidden")) {
         $("telegramAuthOverlay").classList.add("hidden");
       }
+      if (!$("telegramTransfersOverlay").classList.contains("hidden")) {
+        const closeTransfers = $("closeTelegramTransfersBtn");
+        if (closeTransfers) closeTransfers.click();
+      }
     }
   });
 
