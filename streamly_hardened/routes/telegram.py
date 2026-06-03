@@ -343,8 +343,8 @@ def trigger_next_transfer(rs):
             bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
             
             is_hf = "SPACE_ID" in os.environ
-            limit_bytes = int(1000 * 1024 * 1024 * 1024) if is_hf else int(4.5 * 1024 * 1024 * 1024)
-            limit_label = "1000 GB" if is_hf else "4.5 GB"
+            limit_bytes = int(99 * 1024 * 1024 * 1024) if is_hf else int(4.5 * 1024 * 1024 * 1024)
+            limit_label = "99 GB" if is_hf else "4.5 GB"
             
             if bw_bytes >= limit_bytes or bw_bytes + size > limit_bytes:
                 log.warning("Queue processing: task %s blocked because monthly bandwidth limit (%s) is exceeded", task_id, limit_label)
@@ -701,7 +701,7 @@ def telegram_send_file():
         from ..security import json_error
         return json_error(502, "provider_error", "Failed to retrieve file from Seedr")
         
-    # Bandwidth limit check (warning at 4.0 GB / 900 GB, block at 4.5 GB / 1000 GB, tracking projected bandwidth)
+    # Bandwidth limit check (warning at 4.0 GB / 90 GB, block at 4.5 GB / 99 GB, tracking projected bandwidth)
     import datetime
     import os
     try:
@@ -713,10 +713,10 @@ def telegram_send_file():
     
     is_hf = "SPACE_ID" in os.environ
     if is_hf:
-        limit_bytes = int(1000 * 1024 * 1024 * 1024)
-        warning_bytes = int(900 * 1024 * 1024 * 1024)
-        limit_label = "1000 GB"
-        warning_label = "900 GB"
+        limit_bytes = int(99 * 1024 * 1024 * 1024)
+        warning_bytes = int(90 * 1024 * 1024 * 1024)
+        limit_label = "99 GB"
+        warning_label = "90 GB"
     else:
         limit_bytes = int(4.5 * 1024 * 1024 * 1024)
         warning_bytes = int(4.0 * 1024 * 1024 * 1024)
@@ -861,7 +861,7 @@ def get_telegram_queue():
     projected_gb = round(projected_bytes / (1024 * 1024 * 1024), 2)
     
     is_hf = "SPACE_ID" in os.environ
-    limit_gb = 1000.0 if is_hf else 4.5
+    limit_gb = 99.0 if is_hf else 4.5
     
     destination = current_app.config.get("TELEGRAM_CHAT_ID") or "me"
     
