@@ -446,14 +446,21 @@
   #searchView #resultCount { display: none; }
   #searchView .mobile-filter-btn {
     display: block;
-    height: 34px;
-    padding: 0 10px;
-    border-radius: var(--radius-sm);
-    background: #0b0d13;
-    color: #d4dfef;
-    border: 1px solid var(--line);
-    font-size: 12px;
-    font-weight: 900;
+    position: fixed;
+    bottom: calc(96px + env(safe-area-inset-bottom));
+    right: 16px;
+    z-index: 1010;
+    height: 40px;
+    padding: 0 16px;
+    border-radius: 20px;
+    background: rgba(20, 24, 33, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #2f9cf0;
+    border: 1px solid rgba(47, 156, 240, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    font-weight: 700;
   }
   #searchView .mode-toggle {
     display: grid;
