@@ -333,6 +333,7 @@ def trigger_next_transfer(rs):
             
             # Double check monthly bandwidth before starting the transfer
             import datetime
+            import os
             try:
                 ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
             except AttributeError:
@@ -340,17 +341,20 @@ def trigger_next_transfer(rs):
                 
             raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
             bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
-            limit_bytes = int(4.5 * 1024 * 1024 * 1024)
+            
+            is_hf = "SPACE_ID" in os.environ
+            limit_bytes = int(1000 * 1024 * 1024 * 1024) if is_hf else int(4.5 * 1024 * 1024 * 1024)
+            limit_label = "1000 GB" if is_hf else "4.5 GB"
             
             if bw_bytes >= limit_bytes or bw_bytes + size > limit_bytes:
-                log.warning("Queue processing: task %s blocked because monthly bandwidth limit (4.5 GB) is exceeded", task_id)
+                log.warning("Queue processing: task %s blocked because monthly bandwidth limit (%s) is exceeded", task_id, limit_label)
                 rs._execute(
                     "SET",
                     f"streamly:transfer_status:{task_id}",
                     _json.dumps({
                         "progress": 0.0,
                         "status": "FAILED",
-                        "error": "Monthly bandwidth limit (4.5 GB) exceeded. Transfer blocked.",
+                        "error": f"Monthly bandwidth limit ({limit_label}) exceeded. Transfer blocked.",
                         "filename": filename,
                         "sent_bytes": 0,
                         "total_bytes": size
@@ -695,8 +699,9 @@ def telegram_send_file():
         from ..security import json_error
         return json_error(502, "provider_error", "Failed to retrieve file from Seedr")
         
-    # Bandwidth limit check (warning at 4.0 GB, block at 4.5 GB, tracking projected bandwidth)
+    # Bandwidth limit check (warning at 4.0 GB / 900 GB, block at 4.5 GB / 1000 GB, tracking projected bandwidth)
     import datetime
+    import os
     try:
         ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
     except AttributeError:
@@ -704,17 +709,26 @@ def telegram_send_file():
         
     projected_bytes = get_projected_bandwidth(rs, ym, size)
     
-    limit_bytes = int(4.5 * 1024 * 1024 * 1024)
-    warning_bytes = int(4.0 * 1024 * 1024 * 1024)
+    is_hf = "SPACE_ID" in os.environ
+    if is_hf:
+        limit_bytes = int(1000 * 1024 * 1024 * 1024)
+        warning_bytes = int(900 * 1024 * 1024 * 1024)
+        limit_label = "1000 GB"
+        warning_label = "900 GB"
+    else:
+        limit_bytes = int(4.5 * 1024 * 1024 * 1024)
+        warning_bytes = int(4.0 * 1024 * 1024 * 1024)
+        limit_label = "4.5 GB"
+        warning_label = "4.0 GB"
     
     if projected_bytes > limit_bytes:
         from ..security import json_error
         return json_error(400, "bandwidth_limit_exceeded", 
-                          "Queuing this file would exceed the monthly bandwidth limit of 4.5 GB. Transfer blocked.")
+                          f"Queuing this file would exceed the monthly bandwidth limit of {limit_label}. Transfer blocked.")
                           
     warning_message = None
     if projected_bytes >= warning_bytes:
-        warning_message = "Monthly bandwidth consumption is projected to reach 4.0 GB or more."
+        warning_message = f"Monthly bandwidth consumption is projected to reach {warning_label} or more."
         
     api_id = config.get("TELEGRAM_API_ID")
     api_hash = config.get("TELEGRAM_API_HASH")
@@ -832,6 +846,7 @@ def get_telegram_queue():
                 })
 
     import datetime
+    import os
     try:
         ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
     except AttributeError:
@@ -843,6 +858,9 @@ def get_telegram_queue():
     projected_bytes = get_projected_bandwidth(rs, ym, 0)
     projected_gb = round(projected_bytes / (1024 * 1024 * 1024), 2)
     
+    is_hf = "SPACE_ID" in os.environ
+    limit_gb = 1000.0 if is_hf else 4.5
+    
     destination = current_app.config.get("TELEGRAM_CHAT_ID") or "me"
     
     return jsonify({
@@ -850,7 +868,7 @@ def get_telegram_queue():
         "queue": queue_items,
         "bandwidth_usage_gb": bw_gb,
         "bandwidth_projected_gb": projected_gb,
-        "bandwidth_limit_gb": 4.5,
+        "bandwidth_limit_gb": limit_gb,
         "destination": destination
     })
 

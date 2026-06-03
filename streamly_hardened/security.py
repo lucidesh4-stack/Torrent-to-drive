@@ -203,10 +203,24 @@ def rate_limited(cost: float = 1.0):
 def install_security_headers(app) -> None:
     @app.after_request
     def set_headers(response):
+        import os
+        is_hf = "SPACE_ID" in os.environ
+        
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
+        
+        if is_hf:
+            # Hugging Face runs in an iframe on huggingface.co and hf.space
+            # Remove X-Frame-Options to allow CSP frame-ancestors to govern framing behavior
+            if "X-Frame-Options" in response.headers:
+                del response.headers["X-Frame-Options"]
+        else:
+            response.headers.setdefault("X-Frame-Options", "DENY")
+            
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        
+        csp_ancestors = "frame-ancestors 'self' https://huggingface.co https://*.hf.space" if is_hf else "frame-ancestors 'none'"
+        
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
@@ -215,7 +229,7 @@ def install_security_headers(app) -> None:
             "connect-src 'self' https://bitsearch.eu https://v3.sg.media-imdb.com https://www.seedr.cc https:; "
             "style-src 'self' 'unsafe-inline'; "
             "script-src 'self' 'unsafe-inline'; "
-            "base-uri 'none'; object-src 'none'; frame-ancestors 'none'",
+            f"base-uri 'none'; object-src 'none'; {csp_ancestors}",
         )
         if request.path.startswith("/api/") or request.path.startswith("/fs/"):
             response.headers.setdefault("Cache-Control", "no-store")
