@@ -29,3 +29,7 @@ Thumbs.db
 streamly_session
 *.session
 *.session-journal
+
+# AI Context and logs
+ai/
+render logs.txt
