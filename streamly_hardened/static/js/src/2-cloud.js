@@ -629,7 +629,7 @@
         pollTelegramTask(data.task_id);
       }
     } catch (err) {
-      if ((err.message || "").includes("telegram_not_authenticated") || err.status === 401) {
+      if ((err.message || "").includes("Telegram is not authenticated") || (err.message || "").includes("telegram_not_authenticated")) {
         status($("cloudStatus"), "Telegram authentication required", "error");
         showTelegramAuthModal();
       } else {
