@@ -8,7 +8,7 @@ import uuid
 import datetime
 from typing import Any
 
-from flask import Flask, Response, jsonify, render_template, request, g, render_template_string
+from flask import Flask, Response, jsonify, render_template, request, g, render_template_string, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import AppConfig
