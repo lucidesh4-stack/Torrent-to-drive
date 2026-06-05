@@ -1026,7 +1026,10 @@ button.icon-btn {
       color: var(--text) !important;
       background: rgba(255, 255, 255, 0.08) !important;
     }
-    #pasteBtn:active, #clearSearchBtn:active, .search-bar-actions button:active {
+    #pasteBtn:active, #clearSearchBtn:active {
+      transform: translateY(-50%) scale(0.9) !important;
+    }
+    .search-bar-actions button:active {
       transform: scale(0.9) !important;
     }
 
