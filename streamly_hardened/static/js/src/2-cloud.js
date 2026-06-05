@@ -389,7 +389,7 @@
     const mGB = max / (1024 ** 3);
     const uText = uGB.toFixed(1);
     const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
-    const usedTotalLabel = `${uText} / ${mText} GB`;
+    const usedTotalLabel = `${uText} / ${mText} GB · ${pct.toFixed(0)}%`;
 
     const storageMeter = $("storageMeter");
     const storageText = $("storageText");

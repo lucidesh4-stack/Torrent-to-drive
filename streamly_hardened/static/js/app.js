@@ -112,7 +112,7 @@
       userPill.textContent = username ? username : "Guest";
     }
     const accountLabel = $("accountLabel");
-    if (accountLabel) accountLabel.textContent = username ? `Connected to ${username}` : "Guest Mode";
+    if (accountLabel) accountLabel.textContent = username ? username : "Guest Mode";
     const cmAcct = $("cmAccount");
     if (cmAcct) cmAcct.textContent = username ? `Connected as ${username}` : "Guest Mode";
   }
@@ -518,7 +518,7 @@
     const mGB = max / (1024 ** 3);
     const uText = uGB.toFixed(1);
     const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
-    const usedTotalLabel = `${uText} / ${mText} GB`;
+    const usedTotalLabel = `${uText} / ${mText} GB · ${pct.toFixed(0)}%`;
 
     const storageMeter = $("storageMeter");
     const storageText = $("storageText");
@@ -863,92 +863,7 @@
     }
   }
 
-  async function getSuggestions() {
-    const q = $("searchQuery").value.trim();
-    const box = $("suggestBox");
-    clearTimeout(suggestTimer);
-    
-    // Don't suggest if it looks like a magnet link
-    if (q.length < 3 || /^magnet:\?xt=urn:btih:/i.test(q)) {
-      box.classList.add("hidden");
-      box.textContent = "";
-      return;
-    }
-    suggestTimer = setTimeout(async () => {
-      try {
-        // Race guard: skip if user kept typing after this timer fired
-        if ($("searchQuery").value.trim() !== q) return;
-        const data = await parseResponse(await fetch("/api/suggest?q=" + encodeURIComponent(q), { credentials: "same-origin" }));
-        box.textContent = "";
-        const rows = Array.isArray(data) ? data : [];
-        if (!rows.length) {
-          box.classList.add("hidden");
-          return;
-        }
 
-        // Apply mobile-specific fixed positioning to escape clipping
-        if (isMobileSearchUi()) {
-          const rect = $("searchQuery").getBoundingClientRect();
-          box.style.position = "fixed";
-          box.style.top = (rect.bottom + 6) + "px";
-          box.style.left = rect.left + "px";
-          box.style.width = rect.width + "px";
-          box.style.zIndex = "9900";
-        } else {
-          // Reset desktop/absolute inline styles
-          box.style.position = "";
-          box.style.top = "";
-          box.style.left = "";
-          box.style.width = "";
-          box.style.zIndex = "";
-        }
-
-        for (const item of rows) {
-          const row = document.createElement("div");
-          row.className = "suggest-item";
-
-          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
-          const typeIcon = isTv ? "📺" : "🎬";
-          const typeName = isTv ? "TV" : "Movie";
-
-          const iconSpan = document.createElement("span");
-          iconSpan.className = "suggest-type-icon";
-          iconSpan.textContent = typeIcon;
-
-          const content = document.createElement("div");
-          content.className = "suggest-content";
-
-          const title = document.createElement("span");
-          title.className = "suggest-title";
-          title.textContent = item.title || "Untitled";
-
-          const year = document.createElement("span");
-          year.className = "suggest-year muted";
-          year.textContent = ` · ${item.year || "N/A"}`;
-
-          content.append(title, year);
-
-          const typeSpan = document.createElement("span");
-          typeSpan.className = "suggest-type-name muted";
-          typeSpan.textContent = typeName;
-
-          row.append(iconSpan, content, typeSpan);
-
-          row.addEventListener("click", () => {
-            $("searchQuery").value = item.title || "";
-            box.classList.add("hidden");
-            if (typeof search === "function") {
-              search(false, 1);
-            }
-          });
-          box.appendChild(row);
-        }
-        box.classList.remove("hidden");
-      } catch (_) {
-        box.classList.add("hidden");
-      }
-    }, 350);
-  }
 
   function cycleSort(field) {
     if (currentSort === field) {
@@ -1780,7 +1695,11 @@
 })();
 
   function isMagnetLink(value) {
-    return /^magnet:\?xt=urn:btih:/i.test(String(value || "").trim());
+    const val = String(value || "").trim();
+    if (/^\s*magnet:\?xt=urn:btih:/i.test(val)) return true;
+    const lower = val.toLowerCase();
+    if (lower.endsWith(".torrent") && (lower.startsWith("http://") || lower.startsWith("https://"))) return true;
+    return false;
   }
 
   function magnetInfoHash(value) {
@@ -1823,14 +1742,19 @@
     status($("searchStatus"), "Magnet already auto-added recently. Tap Add to force add again.", "ok");
   }
 
+  function setSearchAction(action) {
+    const isAdd = action === "add";
+    const searchBtn = $("searchBtn");
+    const addBtn = $("addMagnetBtn");
+    if (searchBtn && addBtn) {
+      searchBtn.classList.toggle("hidden", isAdd);
+      addBtn.classList.toggle("hidden", !isAdd);
+    }
+  }
+
   function setMagnetUiState(value) {
     const isMagnet = isMagnetLink(value);
-    if ($("searchBtn") && $("addMagnetBtn")) {
-      $("searchBtn").classList.toggle("hidden", isMagnet);
-      $("addMagnetBtn").classList.toggle("hidden", !isMagnet);
-      $("addMagnetBtn").textContent = "➕";
-      $("addMagnetBtn").title = "Add magnet";
-    }
+    setSearchAction(isMagnet ? "add" : "search");
     return isMagnet;
   }
 
@@ -2094,6 +2018,129 @@
     });
     return add;
   }
+
+  let fieldsWarned = false;
+
+  async function getSuggestions() {
+    const q = $("searchQuery").value.trim();
+    const box = $("suggestBox");
+    clearTimeout(suggestTimer);
+    
+    if (q.length < 3 || isMagnetLink(q)) {
+      box.classList.add("hidden");
+      box.textContent = "";
+      return;
+    }
+    suggestTimer = setTimeout(async () => {
+      try {
+        if ($("searchQuery").value.trim() !== q) return;
+        const data = await parseResponse(await fetch("/api/suggest?q=" + encodeURIComponent(q), { credentials: "same-origin" }));
+        box.textContent = "";
+        const rows = Array.isArray(data) ? data : [];
+        if (!rows.length) {
+          box.classList.add("hidden");
+          return;
+        }
+
+        if (!fieldsWarned && rows.length > 0) {
+          const missing = [];
+          const testItem = rows[0] || {};
+          if (testItem.title === undefined) missing.push("title");
+          if (testItem.year === undefined) missing.push("year");
+          if (testItem.type === undefined) missing.push("type");
+          if (testItem.rating === undefined) missing.push("rating");
+          if (testItem.poster_url === undefined && testItem.poster === undefined) missing.push("poster_url");
+          if (missing.length > 0) {
+            console.warn("IMDb suggestions missing expected backend fields: " + missing.join(", "));
+            fieldsWarned = true;
+          }
+        }
+
+        if (isMobileSearchUi()) {
+          const rect = $("searchQuery").getBoundingClientRect();
+          box.style.position = "fixed";
+          box.style.top = (rect.bottom + 6) + "px";
+          box.style.left = rect.left + "px";
+          box.style.width = rect.width + "px";
+          box.style.zIndex = "9900";
+        } else {
+          box.style.position = "";
+          box.style.top = "";
+          box.style.left = "";
+          box.style.width = "";
+          box.style.zIndex = "";
+        }
+
+        for (const item of rows) {
+          const row = document.createElement("div");
+          row.className = "suggest-item";
+
+          const posterContainer = document.createElement("div");
+          posterContainer.className = "suggest-poster-container";
+
+          const placeholder = document.createElement("div");
+          placeholder.className = "suggest-poster-placeholder";
+          placeholder.textContent = (item.title || "U").charAt(0).toUpperCase();
+
+          const posterUrl = item.poster_url || item.poster;
+          if (posterUrl) {
+            const img = document.createElement("img");
+            img.className = "suggest-poster-img";
+            img.src = posterUrl;
+            img.alt = item.title || "";
+            img.onerror = () => {
+              img.style.display = "none";
+              placeholder.style.display = "flex";
+            };
+            placeholder.style.display = "none";
+            posterContainer.append(img, placeholder);
+          } else {
+            posterContainer.appendChild(placeholder);
+          }
+
+          const content = document.createElement("div");
+          content.className = "suggest-content";
+
+          const title = document.createElement("div");
+          title.className = "suggest-title";
+          title.textContent = item.title || "Untitled";
+
+          const meta = document.createElement("div");
+          meta.className = "suggest-meta";
+
+          const metaParts = [];
+          if (item.year && item.year !== "N/A") {
+            metaParts.push(item.year);
+          }
+          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
+          const typeName = item.type || (isTv ? "TV" : "Movie");
+          if (typeName) {
+            metaParts.push(typeName);
+          }
+          if (item.rating) {
+            metaParts.push(`⭐ ${item.rating}`);
+          }
+          meta.textContent = metaParts.join(" \u2009·\u2009 ");
+
+          content.append(title, meta);
+          row.append(posterContainer, content);
+
+          row.addEventListener("click", () => {
+            $("searchQuery").value = item.title || "";
+            box.classList.add("hidden");
+            if (typeof search === "function") {
+              search(false, 1);
+            }
+          });
+          box.appendChild(row);
+        }
+        box.classList.remove("hidden");
+      } catch (_) {
+        box.classList.add("hidden");
+      }
+    }, 350);
+  }
+
   window.updateBottomNavHighlight = function(index) {
     const highlight = $("bottomNavHighlight");
     if (!highlight) return;
@@ -2427,8 +2474,7 @@
       $("suggestBox").textContent = "";
       $("searchQuery").focus();
       // restore the Search button in case an "Add Link" state was showing
-      $("searchBtn").classList.remove("hidden");
-      $("addMagnetBtn").classList.add("hidden");
+      if (typeof setSearchAction === "function") setSearchAction("search");
     });
   // Automatically toggle Search vs Add button based on input content
   $("searchQuery").addEventListener("input", (e) => {

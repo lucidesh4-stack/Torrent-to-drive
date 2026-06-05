@@ -142,7 +142,7 @@
     .topbar-storage-row-2 { display: flex; align-items: center; gap: 12px; width: 100%; }
     .topbar-storage-meter { flex: 1; height: 6px; background: rgba(0, 0, 0, 0.35); border-radius: 99px; overflow: hidden; position: relative; }
     .topbar-storage-meter > div { height: 100%; width: 0; border-radius: 99px; transition: width 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease; }
-    .storage-percentage { font-size: 12px; font-weight: 700; color: var(--text); min-width: 30px; text-align: right; }
+
     .main { width: min(1420px, calc(100% - 28px)); margin: 22px auto 60px; }
     .panel, .player-box, .login-card, .ui-container {
       background: rgba(22, 27, 34, 0.85) !important;
@@ -235,37 +235,71 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 10px 14px;
+      height: 72px;
+      padding: 0 12px;
+      box-sizing: border-box;
       cursor: pointer;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 14px;
-      transition: background-color 0.15s;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      transition: background-color 0.15s ease;
+    }
+    .suggest-item:last-child {
+      border-bottom: none;
     }
     .suggest-item:hover {
       background: rgba(255, 255, 255, 0.04);
     }
-    .suggest-type-icon {
-      font-size: 16px;
+    .suggest-poster-container {
+      width: 40px;
+      height: 60px;
+      min-width: 40px;
+      border-radius: 4px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       flex-shrink: 0;
+    }
+    .suggest-poster-img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+    .suggest-poster-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #272d38, #161b22);
+      color: #ffffff;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 4px;
+      text-transform: uppercase;
+      user-select: none;
     }
     .suggest-content {
       flex: 1;
       min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
     .suggest-title {
-      font-weight: 600;
+      font-size: 14.5px;
+      font-weight: 500;
       color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      line-height: 1.3;
     }
-    .suggest-year {
-      margin-left: 2px;
-    }
-    .suggest-type-name {
-      font-size: 12px;
-      margin-left: auto;
-      padding-left: 8px;
+    .suggest-meta {
+      font-size: 12.5px;
+      color: var(--muted);
+      margin-top: 3px;
+      line-height: 1.3;
     }
     .sortable { cursor: pointer; user-select: none; }
     .sortable:hover { color: white; }

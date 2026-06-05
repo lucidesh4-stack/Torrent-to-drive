@@ -331,8 +331,7 @@
       $("suggestBox").textContent = "";
       $("searchQuery").focus();
       // restore the Search button in case an "Add Link" state was showing
-      $("searchBtn").classList.remove("hidden");
-      $("addMagnetBtn").classList.add("hidden");
+      if (typeof setSearchAction === "function") setSearchAction("search");
     });
   // Automatically toggle Search vs Add button based on input content
   $("searchQuery").addEventListener("input", (e) => {

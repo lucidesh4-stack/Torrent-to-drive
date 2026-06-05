@@ -771,7 +771,7 @@
     overflow: visible !important;
   }
   #searchView .suggest-box {
-    max-height: 288px !important;
+    max-height: 432px !important;
   }
 
   /* Quality navigation should look like season chips, not like a heavy segmented control. */

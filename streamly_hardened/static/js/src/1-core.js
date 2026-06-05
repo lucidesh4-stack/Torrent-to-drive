@@ -110,7 +110,7 @@
       userPill.textContent = username ? username : "Guest";
     }
     const accountLabel = $("accountLabel");
-    if (accountLabel) accountLabel.textContent = username ? `Connected to ${username}` : "Guest Mode";
+    if (accountLabel) accountLabel.textContent = username ? username : "Guest Mode";
     const cmAcct = $("cmAccount");
     if (cmAcct) cmAcct.textContent = username ? `Connected as ${username}` : "Guest Mode";
   }

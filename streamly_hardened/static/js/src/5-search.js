@@ -1,6 +1,10 @@
 
   function isMagnetLink(value) {
-    return /^magnet:\?xt=urn:btih:/i.test(String(value || "").trim());
+    const val = String(value || "").trim();
+    if (/^\s*magnet:\?xt=urn:btih:/i.test(val)) return true;
+    const lower = val.toLowerCase();
+    if (lower.endsWith(".torrent") && (lower.startsWith("http://") || lower.startsWith("https://"))) return true;
+    return false;
   }
 
   function magnetInfoHash(value) {
@@ -43,14 +47,19 @@
     status($("searchStatus"), "Magnet already auto-added recently. Tap Add to force add again.", "ok");
   }
 
+  function setSearchAction(action) {
+    const isAdd = action === "add";
+    const searchBtn = $("searchBtn");
+    const addBtn = $("addMagnetBtn");
+    if (searchBtn && addBtn) {
+      searchBtn.classList.toggle("hidden", isAdd);
+      addBtn.classList.toggle("hidden", !isAdd);
+    }
+  }
+
   function setMagnetUiState(value) {
     const isMagnet = isMagnetLink(value);
-    if ($("searchBtn") && $("addMagnetBtn")) {
-      $("searchBtn").classList.toggle("hidden", isMagnet);
-      $("addMagnetBtn").classList.toggle("hidden", !isMagnet);
-      $("addMagnetBtn").textContent = "➕";
-      $("addMagnetBtn").title = "Add magnet";
-    }
+    setSearchAction(isMagnet ? "add" : "search");
     return isMagnet;
   }
 
@@ -314,3 +323,126 @@
     });
     return add;
   }
+
+  let fieldsWarned = false;
+
+  async function getSuggestions() {
+    const q = $("searchQuery").value.trim();
+    const box = $("suggestBox");
+    clearTimeout(suggestTimer);
+    
+    if (q.length < 3 || isMagnetLink(q)) {
+      box.classList.add("hidden");
+      box.textContent = "";
+      return;
+    }
+    suggestTimer = setTimeout(async () => {
+      try {
+        if ($("searchQuery").value.trim() !== q) return;
+        const data = await parseResponse(await fetch("/api/suggest?q=" + encodeURIComponent(q), { credentials: "same-origin" }));
+        box.textContent = "";
+        const rows = Array.isArray(data) ? data : [];
+        if (!rows.length) {
+          box.classList.add("hidden");
+          return;
+        }
+
+        if (!fieldsWarned && rows.length > 0) {
+          const missing = [];
+          const testItem = rows[0] || {};
+          if (testItem.title === undefined) missing.push("title");
+          if (testItem.year === undefined) missing.push("year");
+          if (testItem.type === undefined) missing.push("type");
+          if (testItem.rating === undefined) missing.push("rating");
+          if (testItem.poster_url === undefined && testItem.poster === undefined) missing.push("poster_url");
+          if (missing.length > 0) {
+            console.warn("IMDb suggestions missing expected backend fields: " + missing.join(", "));
+            fieldsWarned = true;
+          }
+        }
+
+        if (isMobileSearchUi()) {
+          const rect = $("searchQuery").getBoundingClientRect();
+          box.style.position = "fixed";
+          box.style.top = (rect.bottom + 6) + "px";
+          box.style.left = rect.left + "px";
+          box.style.width = rect.width + "px";
+          box.style.zIndex = "9900";
+        } else {
+          box.style.position = "";
+          box.style.top = "";
+          box.style.left = "";
+          box.style.width = "";
+          box.style.zIndex = "";
+        }
+
+        for (const item of rows) {
+          const row = document.createElement("div");
+          row.className = "suggest-item";
+
+          const posterContainer = document.createElement("div");
+          posterContainer.className = "suggest-poster-container";
+
+          const placeholder = document.createElement("div");
+          placeholder.className = "suggest-poster-placeholder";
+          placeholder.textContent = (item.title || "U").charAt(0).toUpperCase();
+
+          const posterUrl = item.poster_url || item.poster;
+          if (posterUrl) {
+            const img = document.createElement("img");
+            img.className = "suggest-poster-img";
+            img.src = posterUrl;
+            img.alt = item.title || "";
+            img.onerror = () => {
+              img.style.display = "none";
+              placeholder.style.display = "flex";
+            };
+            placeholder.style.display = "none";
+            posterContainer.append(img, placeholder);
+          } else {
+            posterContainer.appendChild(placeholder);
+          }
+
+          const content = document.createElement("div");
+          content.className = "suggest-content";
+
+          const title = document.createElement("div");
+          title.className = "suggest-title";
+          title.textContent = item.title || "Untitled";
+
+          const meta = document.createElement("div");
+          meta.className = "suggest-meta";
+
+          const metaParts = [];
+          if (item.year && item.year !== "N/A") {
+            metaParts.push(item.year);
+          }
+          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
+          const typeName = item.type || (isTv ? "TV" : "Movie");
+          if (typeName) {
+            metaParts.push(typeName);
+          }
+          if (item.rating) {
+            metaParts.push(`⭐ ${item.rating}`);
+          }
+          meta.textContent = metaParts.join(" \u2009·\u2009 ");
+
+          content.append(title, meta);
+          row.append(posterContainer, content);
+
+          row.addEventListener("click", () => {
+            $("searchQuery").value = item.title || "";
+            box.classList.add("hidden");
+            if (typeof search === "function") {
+              search(false, 1);
+            }
+          });
+          box.appendChild(row);
+        }
+        box.classList.remove("hidden");
+      } catch (_) {
+        box.classList.add("hidden");
+      }
+    }, 350);
+  }
+
