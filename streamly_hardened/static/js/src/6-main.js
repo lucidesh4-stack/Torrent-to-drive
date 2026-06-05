@@ -376,6 +376,15 @@
 
   // Initialization Sequence
   async function init() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("streamly:autoAddedMagnet:")) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (_) {}
+
     let initialTab = window.location.hash.replace("#", "") || "search";
     if (initialTab !== "cloud" && initialTab !== "search") initialTab = "search";
     

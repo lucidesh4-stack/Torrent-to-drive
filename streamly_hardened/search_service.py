@@ -734,7 +734,7 @@ class SearchService:
                     "id": imdb_id,
                 }
             )
-            if len(suggestions) >= 10:
+            if len(suggestions) >= 5:
                 break
         return suggestions
 

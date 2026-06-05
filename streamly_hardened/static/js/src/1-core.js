@@ -24,7 +24,6 @@
   let autoAddTimer = null;
   let clipboardMagnetCheckTimer = null;
   let lastClipboardMagnetCheckAt = 0;
-  const AUTO_ADD_MAGNET_TTL_MS = 24 * 60 * 60 * 1000;
   const CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS = 1200;
 
 

@@ -26,7 +26,6 @@
   let autoAddTimer = null;
   let clipboardMagnetCheckTimer = null;
   let lastClipboardMagnetCheckAt = 0;
-  const AUTO_ADD_MAGNET_TTL_MS = 24 * 60 * 60 * 1000;
   const CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS = 1200;
 
 
@@ -1710,38 +1709,6 @@
     catch (_) { return String(m[1] || "").trim().toLowerCase(); }
   }
 
-  function autoAddedStorageKey(magnet) {
-    const hash = magnetInfoHash(magnet);
-    return hash ? "streamly:autoAddedMagnet:" + hash : "";
-  }
-
-  function wasAutoAddedRecently(magnet) {
-    const key = autoAddedStorageKey(magnet);
-    if (!key) return false;
-    try {
-      const raw = localStorage.getItem(key);
-      const ts = Number(raw || 0);
-      if (!ts) return false;
-      if (Date.now() - ts > AUTO_ADD_MAGNET_TTL_MS) {
-        localStorage.removeItem(key);
-        return false;
-      }
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function rememberAutoAddedMagnet(magnet) {
-    const key = autoAddedStorageKey(magnet);
-    if (!key) return;
-    try { localStorage.setItem(key, String(Date.now())); } catch (_) {}
-  }
-
-  function showRecentMagnetSkip() {
-    status($("searchStatus"), "Magnet already auto-added recently. Tap Add to force add again.", "ok");
-  }
-
   function setSearchAction(action) {
     const isAdd = action === "add";
     const searchBtn = $("searchBtn");
@@ -1770,20 +1737,11 @@
     }
 
     if (lastAutoAddedMagnet === magnet) return true;
-    if (wasAutoAddedRecently(magnet)) {
-      showRecentMagnetSkip();
-      return true;
-    }
     clearTimeout(autoAddTimer);
     autoAddTimer = setTimeout(() => {
       if ($("searchQuery").value.trim() !== magnet) return;
       if (lastAutoAddedMagnet === magnet) return;
-      if (wasAutoAddedRecently(magnet)) {
-        showRecentMagnetSkip();
-        return;
-      }
       lastAutoAddedMagnet = magnet;
-      rememberAutoAddedMagnet(magnet);
       search(false, 1);
     }, source === "input" ? 250 : 0);
     return true;
@@ -1893,7 +1851,6 @@
       status($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
         await postJson("/api/add", { magnet: q });
-        rememberAutoAddedMagnet(q);
         status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
         else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
@@ -2129,9 +2086,6 @@
           row.addEventListener("click", () => {
             $("searchQuery").value = item.title || "";
             box.classList.add("hidden");
-            if (typeof search === "function") {
-              search(false, 1);
-            }
           });
           box.appendChild(row);
         }
@@ -2520,6 +2474,15 @@
 
   // Initialization Sequence
   async function init() {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("streamly:autoAddedMagnet:")) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (_) {}
+
     let initialTab = window.location.hash.replace("#", "") || "search";
     if (initialTab !== "cloud" && initialTab !== "search") initialTab = "search";
     
