@@ -1127,7 +1127,7 @@
 
     const title = document.createElement("div");
     title.className = "row-title";
-    title.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ");
+    title.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ") || row.name || "Untitled";
     title.title = row.name || "";
 
     const meta = document.createElement("div");
@@ -1317,12 +1317,12 @@
         }
 
         // Desktop
-        for (const s of qg.seasons) {
+        for (const s of (qg.seasons || [])) {
           const slabel = document.createElement("div");
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
           body.appendChild(slabel);
-          const eps = s.episodes;
+          const eps = s.episodes || [];
           for (const ep of eps) {
             body.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, qg.label || qg.quality]));
           }
