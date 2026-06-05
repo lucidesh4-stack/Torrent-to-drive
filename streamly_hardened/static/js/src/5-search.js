@@ -390,7 +390,7 @@
           });
           box.appendChild(row);
         }
-        if (suppressSuggestions || box.classList.contains("hidden")) return;
+        if (suppressSuggestions) return;
         box.classList.remove("hidden");
       } catch (_) {
         box.classList.add("hidden");
