@@ -1980,30 +1980,6 @@
     return add;
   }
 
-  function positionSuggestBox() {
-    const box = $("suggestBox");
-    if (!box || box.classList.contains("hidden")) return;
-    if (isMobileSearchUi()) {
-      // Anchor to the FULL search bar (includes filter + search buttons),
-      // so the dropdown matches the bar width and sits directly beneath it.
-      const bar = $("searchQuery").closest(".search-bar-integrated")
-                || $("searchQuery").closest(".search-box-wrap")
-                || $("searchQuery");
-      const rect = bar.getBoundingClientRect();
-      box.style.position = "fixed";
-      box.style.top = (rect.bottom + 6) + "px";
-      box.style.left = rect.left + "px";
-      box.style.width = rect.width + "px";
-      box.style.zIndex = "9900";
-    } else {
-      box.style.position = "";
-      box.style.top = "";
-      box.style.left = "";
-      box.style.width = "";
-      box.style.zIndex = "";
-    }
-  }
-
   let fieldsWarned = false;
 
   async function getSuggestions() {
@@ -2041,9 +2017,7 @@
           }
         }
 
-        positionSuggestBox();
-
-        for (const item of rows) {
+        for (const item of rows.slice(0, 5)) {
           const row = document.createElement("div");
           row.className = "suggest-item";
 
@@ -2109,9 +2083,6 @@
       }
     }, 350);
   }
-
-  window.addEventListener("scroll", () => positionSuggestBox(), { passive: true });
-  window.addEventListener("resize", () => positionSuggestBox(), { passive: true });
 
   window.updateBottomNavHighlight = function(index) {
     const highlight = $("bottomNavHighlight");

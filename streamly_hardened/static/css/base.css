@@ -220,15 +220,15 @@
       left: 0;
       right: 0;
       top: calc(100% + 8px);
-      z-index: 25;
-      background: rgba(11, 14, 20, 0.85);
+      z-index: 9900;
+      background: rgba(11, 14, 20, 0.97);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid rgba(255, 255, 255, 0.06);
       border-radius: var(--radius-md);
       overflow: hidden;
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
-      max-height: 288px; /* Max 6 visible rows scroll if more */
+      max-height: 312px; /* 5 rows × 60px + borders; grows to fit up to 5 */
       overflow-y: auto;
     }
     .suggest-item {
