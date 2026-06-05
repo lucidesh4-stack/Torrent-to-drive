@@ -362,7 +362,8 @@
         }
 
         if (isMobileSearchUi()) {
-          const rect = $("searchQuery").getBoundingClientRect();
+          const wrap = $("searchQuery").closest(".search-box-wrap") || $("searchQuery");
+          const rect = wrap.getBoundingClientRect();
           box.style.position = "fixed";
           box.style.top = (rect.bottom + 6) + "px";
           box.style.left = rect.left + "px";
