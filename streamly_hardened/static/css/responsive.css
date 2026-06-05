@@ -606,8 +606,8 @@
     left: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
-    height: 80vh !important;
-    max-height: 80vh !important;
+    height: auto !important;
+    max-height: 90vh !important;
     padding: 12px 20px 32px !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
     border-bottom: none !important;
