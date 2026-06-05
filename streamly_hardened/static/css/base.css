@@ -924,6 +924,10 @@ button.icon-btn {
       transition: color 0.2s;
     }
     
+    #searchView.panel {
+      overflow: visible !important;
+    }
+    
     /* Unified Search Control Panel */
     #searchView .search-control-panel {
       display: flex;
