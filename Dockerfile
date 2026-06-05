@@ -11,12 +11,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl gcc python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps first
+# Create a non-privileged user and group for Hugging Face compatibility
+RUN useradd -m -u 1000 user
+WORKDIR /app
+
+# Install Python deps first (done as root)
 COPY streamly_hardened/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy package
-COPY streamly_hardened /app/streamly_hardened
+# Copy package and set ownership to user 1000
+COPY --chown=user:user streamly_hardened /app/streamly_hardened
+
+# Switch to the non-root user
+USER user
 
 # Hugging Face default port is 7860; Render/others inject PORT env var
 ENV PORT=7860
