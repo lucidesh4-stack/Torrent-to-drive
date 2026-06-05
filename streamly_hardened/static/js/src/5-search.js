@@ -54,6 +54,8 @@
   }
 
   async function ingestClipboardMagnet(autoAdd = true) {
+    // Do not auto-detect/overwrite if the user already has text in the search box.
+    if ($("searchQuery") && $("searchQuery").value.trim()) return false;
     if (!navigator.clipboard || !navigator.clipboard.readText) return false;
     try {
       const text = (await navigator.clipboard.readText()).trim();
@@ -109,6 +111,8 @@
   }
 
   function ingestUrlMagnet() {
+    // Do not auto-detect/overwrite if the user already has text in the search box.
+    if ($("searchQuery") && $("searchQuery").value.trim()) return false;
     const magnet = extractMagnetFromUrl();
     if (!magnet) return false;
     $("searchQuery").value = magnet;
@@ -282,6 +286,30 @@
     return add;
   }
 
+  function positionSuggestBox() {
+    const box = $("suggestBox");
+    if (!box || box.classList.contains("hidden")) return;
+    if (isMobileSearchUi()) {
+      // Anchor to the FULL search bar (includes filter + search buttons),
+      // so the dropdown matches the bar width and sits directly beneath it.
+      const bar = $("searchQuery").closest(".search-bar-integrated")
+                || $("searchQuery").closest(".search-box-wrap")
+                || $("searchQuery");
+      const rect = bar.getBoundingClientRect();
+      box.style.position = "fixed";
+      box.style.top = (rect.bottom + 6) + "px";
+      box.style.left = rect.left + "px";
+      box.style.width = rect.width + "px";
+      box.style.zIndex = "9900";
+    } else {
+      box.style.position = "";
+      box.style.top = "";
+      box.style.left = "";
+      box.style.width = "";
+      box.style.zIndex = "";
+    }
+  }
+
   let fieldsWarned = false;
 
   async function getSuggestions() {
@@ -319,21 +347,7 @@
           }
         }
 
-        if (isMobileSearchUi()) {
-          const wrap = $("searchQuery").closest(".search-box-wrap") || $("searchQuery");
-          const rect = wrap.getBoundingClientRect();
-          box.style.position = "fixed";
-          box.style.top = (rect.bottom + 6) + "px";
-          box.style.left = rect.left + "px";
-          box.style.width = rect.width + "px";
-          box.style.zIndex = "9900";
-        } else {
-          box.style.position = "";
-          box.style.top = "";
-          box.style.left = "";
-          box.style.width = "";
-          box.style.zIndex = "";
-        }
+        positionSuggestBox();
 
         for (const item of rows) {
           const row = document.createElement("div");
@@ -401,4 +415,7 @@
       }
     }, 350);
   }
+
+  window.addEventListener("scroll", () => positionSuggestBox(), { passive: true });
+  window.addEventListener("resize", () => positionSuggestBox(), { passive: true });
 

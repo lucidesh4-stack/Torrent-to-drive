@@ -772,6 +772,7 @@
   }
   #searchView .suggest-box {
     max-height: 360px !important;
+    background: rgba(11, 14, 20, 0.97) !important;
   }
 
   /* Quality navigation should look like season chips, not like a heavy segmented control. */
