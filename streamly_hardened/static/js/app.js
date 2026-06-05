@@ -1343,6 +1343,7 @@
             }
             body.appendChild(sNav);
             const activeSeason = seasons.find(s => s.season === activeSeriesSeason[skey]) || seasons[0];
+            const eps = activeSeason ? (activeSeason.episodes || []) : [];
             for (const ep of eps) body.appendChild(seriesEpisodeRow(ep, [ep.se, qg.label || qg.quality]));
           }
           continue;
