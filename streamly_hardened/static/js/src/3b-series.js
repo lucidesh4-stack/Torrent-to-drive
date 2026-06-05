@@ -207,7 +207,6 @@
       container.appendChild(empty);
       return;
     }
-    syncSortControls();
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(seriesHeaderRow());
@@ -372,8 +371,6 @@
       container.appendChild(empty);
       return;
     }
-
-    syncSortControls();
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(seriesHeaderRow());

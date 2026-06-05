@@ -855,32 +855,6 @@
     openTelegramSettings();
   }
 
-  function syncSortControls() {
-    for (const key of ["seeders", "leechers", "date", "size"]) {
-      const mark = $("sortMark-" + key);
-      if (mark) mark.textContent = key === currentSort ? (currentOrder === "desc" ? "\u25BC" : "\u25B2") : "";
-    }
-  }
-
-
-
-  function cycleSort(field) {
-    if (currentSort === field) {
-      currentOrder = currentOrder === "desc" ? "asc" : "desc";
-    } else {
-      currentSort = field;
-      currentOrder = "desc";
-    }
-    syncSortControls();
-    if (typeof userSorted !== "undefined") userSorted = true;
-    // Client-side only: re-order the already-loaded results (no new bitsearch call).
-    if (typeof seriesMode !== "undefined" && seriesMode) {
-      if (typeof lastSeriesData !== "undefined" && lastSeriesData) renderSeriesGrouped(lastSeriesData);
-    } else if (typeof lastNormalGroups !== "undefined" && lastNormalGroups) {
-      renderNormalGrouped(lastNormalGroups);
-    }
-  }
-
   // History Management (Redis Backend)
   /* ===== Series Mode v2 + Normal grouped ===== */
   let seriesMode = false;
@@ -1091,7 +1065,6 @@
       container.appendChild(empty);
       return;
     }
-    syncSortControls();
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(seriesHeaderRow());
@@ -1256,8 +1229,6 @@
       container.appendChild(empty);
       return;
     }
-
-    syncSortControls();
 
     const fragment = document.createDocumentFragment();
     fragment.appendChild(seriesHeaderRow());
@@ -2453,9 +2424,7 @@
       }
     }, 150);
   });
-  document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
   document.addEventListener("click", (e) => { if (!e.target.closest(".search-bar-integrated")) $("suggestBox").classList.add("hidden"); });
-  syncSortControls();
   $("closeVideoBtn").addEventListener("click", () => {
     const video = $("videoPlayer");
     video.pause();
