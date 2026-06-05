@@ -1022,7 +1022,12 @@ button.icon-btn {
     }
 
     /* Hover and active scales */
-    #pasteBtn:hover, #clearSearchBtn:hover, .search-bar-actions button:hover {
+    #pasteBtn:hover, #clearSearchBtn:hover {
+      color: var(--text) !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+      transform: translateY(-50%) !important;
+    }
+    .search-bar-actions button:hover {
       color: var(--text) !important;
       background: rgba(255, 255, 255, 0.08) !important;
     }
