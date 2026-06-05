@@ -1066,3 +1066,69 @@ button.icon-btn {
       opacity: 0 !important;
       pointer-events: none !important;
     }
+
+@media (max-width: 768px) {
+  /* Bigger, raised-glass container */
+  .search-bar-integrated {
+    height: 58px !important;
+    border-radius: 16px !important;
+    padding: 0 6px 0 2px !important;
+    gap: 0 !important;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01)), rgba(13,17,23,0.6) !important;
+    border: 1px solid rgba(255,255,255,0.10) !important;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 20px rgba(0,0,0,0.35) !important;
+  }
+  .search-bar-integrated:focus-within {
+    border-color: rgba(59,130,246,0.55) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.12), 0 6px 20px rgba(0,0,0,0.4) !important;
+  }
+
+  /* Input: bigger text; empty keeps 40px left gutter for the paste icon */
+  .search-bar-integrated .search-box-wrap input {
+    font-size: 16px !important;
+    font-weight: 500 !important;
+    padding: 0 8px 0 40px !important;
+    transition: padding .15s ease !important;
+  }
+  .search-bar-integrated .search-box-wrap input::placeholder {
+    color: rgba(203,213,225,0.45) !important; font-weight: 400 !important;
+  }
+  /* SPACE MGMT: when typing, the paste icon is hidden -> reclaim its gutter
+     (left 40->12) for more visible text; keep 36px right for the ✕ chip. */
+  .search-bar-integrated .search-box-wrap input:not(:placeholder-shown) {
+    padding: 0 36px 0 12px !important;
+  }
+
+  /* Paste icon tucked to the left edge */
+  .search-box-wrap .sb-icon-left { left: 4px !important; color: rgba(203,213,225,0.55) !important; }
+
+  /* Clear ✕ as a circular chip */
+  .search-box-wrap .sb-icon-right { right: 6px !important; }
+  #clearSearchBtn {
+    width: 28px !important; height: 28px !important; min-width: 28px !important; min-height: 28px !important;
+    border-radius: 999px !important; background: rgba(255,255,255,0.06) !important;
+  }
+
+  /* Action cluster: hairline divider + unified buttons */
+  .search-bar-actions {
+    gap: 6px !important; padding-left: 8px !important; padding-right: 1px !important; position: relative;
+  }
+  .search-bar-actions::before {
+    content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 1px; height: 26px; background: rgba(255,255,255,0.10);
+  }
+  .mobile-filter-btn, .search-bar-actions #searchBtn, .search-bar-actions #addMagnetBtn {
+    width: 42px !important; height: 42px !important; border-radius: 12px !important;
+  }
+  .mobile-filter-btn {
+    background: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    color: rgba(203,213,225,0.85) !important;
+    padding: 0 !important;
+  }
+  .search-bar-actions #searchBtn {
+    background: linear-gradient(180deg, #4a9bf5, #2f7fe0) !important;
+    color: #fff !important;
+    box-shadow: 0 2px 8px rgba(47,127,224,0.4) !important;
+  }
+}
