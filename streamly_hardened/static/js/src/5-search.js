@@ -1,4 +1,6 @@
 
+  let suppressSuggestions = false;
+
   function isMagnetLink(value) {
     const val = String(value || "").trim();
     if (/^\s*magnet:\?xt=urn:btih:/i.test(val)) return true;
@@ -147,6 +149,7 @@
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
 
+    suppressSuggestions = true;
     clearTimeout(suggestTimer);
     $("suggestBox").classList.add("hidden");
     $("suggestBox").textContent = "";
@@ -298,6 +301,7 @@
       box.textContent = "";
       return;
     }
+    suppressSuggestions = false;
     suggestTimer = setTimeout(async () => {
       try {
         if ($("searchQuery").value.trim() !== q) return;
@@ -377,12 +381,16 @@
           content.append(title, meta);
           row.append(posterContainer, content);
 
+          row.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+          });
           row.addEventListener("click", () => {
             $("searchQuery").value = item.title || "";
             box.classList.add("hidden");
           });
           box.appendChild(row);
         }
+        if (suppressSuggestions || box.classList.contains("hidden")) return;
         box.classList.remove("hidden");
       } catch (_) {
         box.classList.add("hidden");

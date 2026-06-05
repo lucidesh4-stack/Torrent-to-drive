@@ -360,7 +360,7 @@
     }, 150);
   });
   document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
-  document.addEventListener("click", (e) => { if (!e.target.closest(".search-box-wrap")) $("suggestBox").classList.add("hidden"); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".search-bar-integrated")) $("suggestBox").classList.add("hidden"); });
   syncSortControls();
   $("closeVideoBtn").addEventListener("click", () => {
     const video = $("videoPlayer");
