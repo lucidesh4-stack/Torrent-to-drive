@@ -1904,10 +1904,13 @@
       const groups = Array.isArray(data.quality_groups) ? data.quality_groups : [];
       $("seriesResults").classList.remove("hidden");
       renderNormalGrouped(groups);
+      // "less_relevant" is a separate section, NOT a quality group — exclude it from the group count.
+      const primaryGroups = groups.filter(g => g.quality !== "less_relevant");
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
+      const groupCount = primaryGroups.length;
       if ($("resultCount")) $("resultCount").textContent = "";
       const providerText = providerStatusText(data);
-      status($("searchStatus"), "Found " + total + " results" + (groups.length ? " across " + groups.length + " quality group" + (groups.length === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
+      status($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
       if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");
