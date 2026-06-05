@@ -27,29 +27,61 @@
           box.classList.add("hidden");
           return;
         }
+
+        // Apply mobile-specific fixed positioning to escape clipping
+        if (isMobileSearchUi()) {
+          const rect = $("searchQuery").getBoundingClientRect();
+          box.style.position = "fixed";
+          box.style.top = (rect.bottom + 6) + "px";
+          box.style.left = rect.left + "px";
+          box.style.width = rect.width + "px";
+          box.style.zIndex = "9900";
+        } else {
+          // Reset desktop/absolute inline styles
+          box.style.position = "";
+          box.style.top = "";
+          box.style.left = "";
+          box.style.width = "";
+          box.style.zIndex = "";
+        }
+
         for (const item of rows) {
           const row = document.createElement("div");
           row.className = "suggest-item";
-          const img = document.createElement("img");
-          img.className = "suggest-poster";
-          img.alt = "";
-          img.referrerPolicy = "no-referrer";
-          img.src = item.poster || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='42' height='58'%3E%3Crect width='100%25' height='100%25' fill='%23111827'/%3E%3Ctext x='50%25' y='52%25' fill='%2394a3b8' text-anchor='middle' font-size='16'%3E?%3C/text%3E%3C/svg%3E";
-          img.onerror = () => { img.removeAttribute("src"); };
-          const meta = document.createElement("div");
-          const title = document.createElement("div");
+
+          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
+          const typeIcon = isTv ? "📺" : "🎬";
+          const typeName = isTv ? "TV" : "Movie";
+
+          const iconSpan = document.createElement("span");
+          iconSpan.className = "suggest-type-icon";
+          iconSpan.textContent = typeIcon;
+
+          const content = document.createElement("div");
+          content.className = "suggest-content";
+
+          const title = document.createElement("span");
           title.className = "suggest-title";
           title.textContent = item.title || "Untitled";
-          const year = document.createElement("div");
-          year.className = "muted";
-          year.textContent = item.year || "N/A";
-          meta.append(title, year);
-          row.append(img, meta);
+
+          const year = document.createElement("span");
+          year.className = "suggest-year muted";
+          year.textContent = ` · ${item.year || "N/A"}`;
+
+          content.append(title, year);
+
+          const typeSpan = document.createElement("span");
+          typeSpan.className = "suggest-type-name muted";
+          typeSpan.textContent = typeName;
+
+          row.append(iconSpan, content, typeSpan);
+
           row.addEventListener("click", () => {
             $("searchQuery").value = item.title || "";
-            $("suggestBox").classList.add("hidden");
-            $("searchQuery").focus();
-            // Do NOT auto-search — user clicks Search button to spend a quota hit
+            box.classList.add("hidden");
+            if (typeof search === "function") {
+              search(false, 1);
+            }
           });
           box.appendChild(row);
         }

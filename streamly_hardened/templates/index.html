@@ -39,13 +39,17 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="logo-cloud-svg"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
           </div>
           <div class="topbar-storage-copy">
-            <h2>Storage</h2>
-            <div class="topbar-storage-line">
-              <span id="topStorageText" class="muted">Unknown</span>
-              <span class="topbar-sep" aria-hidden="true">•</span>
-              <span id="accountLabel" class="muted">Connected</span>
+            <div class="topbar-storage-row-1">
+              <span class="storage-title">☁ Storage</span>
+              <span id="topStorageText" class="storage-used-total">Unknown</span>
+              <span id="accountLabel" class="storage-email">Connected</span>
             </div>
-            <div class="topbar-storage-meter" aria-hidden="true"><div id="topStorageMeter"></div></div>
+            <div class="topbar-storage-row-2">
+              <div class="topbar-storage-meter" id="topStorageMeterWrap" aria-hidden="true">
+                <div id="topStorageMeter"></div>
+              </div>
+              <span id="storagePercentText" class="storage-percentage">0%</span>
+            </div>
           </div>
         </div>
         <span id="userPill" class="user-pill hidden" aria-hidden="true">Logged in</span>
@@ -153,17 +157,17 @@
         <div class="search-control-panel">
           <div class="search-bar-integrated">
             <div class="search-box-wrap">
-              <button id="pasteBtn" type="button" class="sb-icon sb-icon-left" title="Paste from clipboard" aria-label="Paste"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
               <input id="searchQuery" type="text" placeholder="Type a title or paste a magnet link..." autocomplete="off">
-              <button id="clearSearchBtn" type="button" class="sb-icon sb-icon-right" title="Clear" aria-label="Clear"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+              <button id="pasteBtn" type="button" class="sb-icon sb-icon-left" title="Paste from clipboard" aria-label="Paste"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-clipboard"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></button>
+              <button id="clearSearchBtn" type="button" class="sb-icon sb-icon-right" title="Clear" aria-label="Clear"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
               <div id="suggestBox" class="suggest-box hidden"></div>
             </div>
             <div class="search-bar-actions">
               <button id="mobileFilterBtn" class="mobile-filter-btn" type="button" title="Filters">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sliders-horizontal"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sliders-horizontal"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="22"/></svg>
               </button>
-              <button id="searchBtn" type="button" class="search-action-btn" title="Search"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
-              <button id="addMagnetBtn" type="button" class="search-action-btn hidden" title="Add Link"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg></button>
+              <button id="searchBtn" type="button" class="search-action-btn" title="Search"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></button>
+              <button id="addMagnetBtn" type="button" class="search-action-btn hidden" title="Add Link"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg></button>
             </div>
           </div>
           <div class="search-control-row">

@@ -385,6 +385,12 @@
     const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
     const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
 
+    const uGB = used / (1024 ** 3);
+    const mGB = max / (1024 ** 3);
+    const uText = uGB.toFixed(1);
+    const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
+    const usedTotalLabel = `${uText} / ${mText} GB`;
+
     const storageMeter = $("storageMeter");
     const storageText = $("storageText");
     if (storageMeter) storageMeter.style.width = pct.toFixed(1) + "%";
@@ -392,8 +398,18 @@
 
     const topMeter = $("topStorageMeter");
     const topText = $("topStorageText");
-    if (topMeter) topMeter.style.width = pct.toFixed(1) + "%";
-    if (topText) topText.textContent = label;
+    const pctText = $("storagePercentText");
+    const meterWrap = $("topStorageMeterWrap");
+
+    if (topMeter) {
+      topMeter.style.width = pct.toFixed(1) + "%";
+      topMeter.style.backgroundImage = "none";
+      topMeter.style.backgroundColor = pct >= 95 ? "#ef4444" : (pct >= 80 ? "#f59e0b" : "#2f9cf0");
+      topMeter.style.boxShadow = pct >= 95 ? "0 0 8px rgba(239, 68, 68, 0.65)" : (pct >= 80 ? "0 0 8px rgba(245, 158, 11, 0.65)" : "0 0 8px rgba(47, 156, 240, 0.65)");
+    }
+    if (topText) topText.textContent = usedTotalLabel;
+    if (pctText) pctText.textContent = pct.toFixed(0) + "%";
+    if (meterWrap) meterWrap.title = `${used.toLocaleString()} / ${max.toLocaleString()} bytes`;
 
     const cmMeter = $("cmStorageMeter");
     const cmText = $("cmStorageText");

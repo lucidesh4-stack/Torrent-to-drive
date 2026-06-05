@@ -349,7 +349,17 @@
   });
 
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
-  $("searchQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") search(false, 1); });
+  $("searchQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") search(false, 1);
+    else if (e.key === "Escape") $("suggestBox").classList.add("hidden");
+  });
+  $("searchQuery").addEventListener("blur", () => {
+    setTimeout(() => {
+      if (document.activeElement !== $("searchQuery")) {
+        $("suggestBox").classList.add("hidden");
+      }
+    }, 150);
+  });
   document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
   document.addEventListener("click", (e) => { if (!e.target.closest(".search-box-wrap")) $("suggestBox").classList.add("hidden"); });
   syncSortControls();

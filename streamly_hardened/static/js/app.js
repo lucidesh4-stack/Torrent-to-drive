@@ -514,6 +514,12 @@
     const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
     const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
 
+    const uGB = used / (1024 ** 3);
+    const mGB = max / (1024 ** 3);
+    const uText = uGB.toFixed(1);
+    const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
+    const usedTotalLabel = `${uText} / ${mText} GB`;
+
     const storageMeter = $("storageMeter");
     const storageText = $("storageText");
     if (storageMeter) storageMeter.style.width = pct.toFixed(1) + "%";
@@ -521,8 +527,18 @@
 
     const topMeter = $("topStorageMeter");
     const topText = $("topStorageText");
-    if (topMeter) topMeter.style.width = pct.toFixed(1) + "%";
-    if (topText) topText.textContent = label;
+    const pctText = $("storagePercentText");
+    const meterWrap = $("topStorageMeterWrap");
+
+    if (topMeter) {
+      topMeter.style.width = pct.toFixed(1) + "%";
+      topMeter.style.backgroundImage = "none";
+      topMeter.style.backgroundColor = pct >= 95 ? "#ef4444" : (pct >= 80 ? "#f59e0b" : "#2f9cf0");
+      topMeter.style.boxShadow = pct >= 95 ? "0 0 8px rgba(239, 68, 68, 0.65)" : (pct >= 80 ? "0 0 8px rgba(245, 158, 11, 0.65)" : "0 0 8px rgba(47, 156, 240, 0.65)");
+    }
+    if (topText) topText.textContent = usedTotalLabel;
+    if (pctText) pctText.textContent = pct.toFixed(0) + "%";
+    if (meterWrap) meterWrap.title = `${used.toLocaleString()} / ${max.toLocaleString()} bytes`;
 
     const cmMeter = $("cmStorageMeter");
     const cmText = $("cmStorageText");
@@ -869,29 +885,61 @@
           box.classList.add("hidden");
           return;
         }
+
+        // Apply mobile-specific fixed positioning to escape clipping
+        if (isMobileSearchUi()) {
+          const rect = $("searchQuery").getBoundingClientRect();
+          box.style.position = "fixed";
+          box.style.top = (rect.bottom + 6) + "px";
+          box.style.left = rect.left + "px";
+          box.style.width = rect.width + "px";
+          box.style.zIndex = "9900";
+        } else {
+          // Reset desktop/absolute inline styles
+          box.style.position = "";
+          box.style.top = "";
+          box.style.left = "";
+          box.style.width = "";
+          box.style.zIndex = "";
+        }
+
         for (const item of rows) {
           const row = document.createElement("div");
           row.className = "suggest-item";
-          const img = document.createElement("img");
-          img.className = "suggest-poster";
-          img.alt = "";
-          img.referrerPolicy = "no-referrer";
-          img.src = item.poster || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='42' height='58'%3E%3Crect width='100%25' height='100%25' fill='%23111827'/%3E%3Ctext x='50%25' y='52%25' fill='%2394a3b8' text-anchor='middle' font-size='16'%3E?%3C/text%3E%3C/svg%3E";
-          img.onerror = () => { img.removeAttribute("src"); };
-          const meta = document.createElement("div");
-          const title = document.createElement("div");
+
+          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
+          const typeIcon = isTv ? "📺" : "🎬";
+          const typeName = isTv ? "TV" : "Movie";
+
+          const iconSpan = document.createElement("span");
+          iconSpan.className = "suggest-type-icon";
+          iconSpan.textContent = typeIcon;
+
+          const content = document.createElement("div");
+          content.className = "suggest-content";
+
+          const title = document.createElement("span");
           title.className = "suggest-title";
           title.textContent = item.title || "Untitled";
-          const year = document.createElement("div");
-          year.className = "muted";
-          year.textContent = item.year || "N/A";
-          meta.append(title, year);
-          row.append(img, meta);
+
+          const year = document.createElement("span");
+          year.className = "suggest-year muted";
+          year.textContent = ` · ${item.year || "N/A"}`;
+
+          content.append(title, year);
+
+          const typeSpan = document.createElement("span");
+          typeSpan.className = "suggest-type-name muted";
+          typeSpan.textContent = typeName;
+
+          row.append(iconSpan, content, typeSpan);
+
           row.addEventListener("click", () => {
             $("searchQuery").value = item.title || "";
-            $("suggestBox").classList.add("hidden");
-            $("searchQuery").focus();
-            // Do NOT auto-search — user clicks Search button to spend a quota hit
+            box.classList.add("hidden");
+            if (typeof search === "function") {
+              search(false, 1);
+            }
           });
           box.appendChild(row);
         }
@@ -1039,31 +1087,10 @@
 
   // Clickable header row for the sectioned views (Normal + Series).
   // Mirrors the desktop table columns: Name | SE(seeds) | Time | Size | Add.
-  function seriesHeaderRow() {
-    const head = document.createElement("div");
-    head.className = "sec-head";
-    const cols = [
-      { label: "Name", key: null, cls: "h-name" },
-      { label: "Encoder", key: null, cls: "h-encoder" },
-      { label: "SE", key: "seeders", cls: "h-se" },
-      { label: "Time", key: "date", cls: "h-time" },
-      { label: "Size", key: "size", cls: "h-size" },
-      { label: "+", key: null, cls: "h-add" },
-    ];
-    for (const c of cols) {
-      const el = document.createElement("span");
-      el.className = "sec-h " + c.cls + (c.key ? " sortable" : "");
-      const mark = c.key && currentSort === c.key ? (currentOrder === "desc" ? " \u25BC" : " \u25B2") : "";
-      el.textContent = c.label + mark;
-      if (c.key) el.addEventListener("click", (e) => { e.stopPropagation(); cycleSort(c.key); });
-      head.appendChild(el);
-    }
-    return head;
+    function seriesHeaderRow() {
+    return document.createDocumentFragment();
   }
 
-  // Accordion: clicking a section header closes its siblings and toggles itself.
-  // `groupSel` scopes "siblings" (e.g. only sections in the same container, or
-  // only uploaders within the same encoder body).
   function makeAccordion(section, header, container, groupSel) {
     header.addEventListener("click", (e) => {
       if (e.target.closest("button")) return; // ignore Add-all clicks
@@ -1076,26 +1103,63 @@
   function plainRow(row) {
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
-    const name = document.createElement("span");
-    name.className = "name truncate";
-    name.textContent = row.name || "Untitled";
-    name.title = row.name || "";
-    
-    const encoder = document.createElement("span");
-    encoder.className = "encoder truncate";
-    encoder.textContent = row.encoder || "-";
-    encoder.title = row.encoder || "";
-    
-    const se = document.createElement("span"); se.className = "se"; se.textContent = row.seeds || 0;
-    const time = document.createElement("span");
-    time.className = "time";
-    time.textContent = row.date || "-";
-    if (!row.date || row.date === "-") {
-      time.classList.add("hidden");
+
+    const content = document.createElement("div");
+    content.className = "row-content";
+
+    const title = document.createElement("div");
+    title.className = "row-title";
+    title.textContent = row.name || "Untitled";
+    title.title = row.name || "";
+
+    const meta = document.createElement("div");
+    meta.className = "row-meta";
+
+    const seeds = Number(row.seeds || 0);
+    const dotColor = seeds >= 50 ? "seed-green" : (seeds >= 10 ? "seed-amber" : "seed-red");
+    const dot = document.createElement("span");
+    dot.className = `seed-dot ${dotColor}`;
+    dot.textContent = "●";
+
+    const seedsText = document.createElement("span");
+    seedsText.className = "meta-seeds";
+    seedsText.textContent = `${seeds} seeds`;
+
+    meta.append(dot, seedsText);
+
+    function addSep() {
+      const sep = document.createElement("span");
+      sep.className = "meta-sep";
+      sep.textContent = " · ";
+      meta.appendChild(sep);
     }
-    const size = document.createElement("span"); size.className = "size"; size.textContent = row.size || "-";
-    const add = document.createElement("span"); add.className = "add"; add.appendChild(makeAddButton(row));
-    wrap.append(name, encoder, se, time, size, add);
+
+    if (row.size && row.size !== "-") {
+      addSep();
+      const s = document.createElement("span");
+      s.textContent = row.size;
+      meta.appendChild(s);
+    }
+    if (row.encoder && row.encoder !== "-") {
+      addSep();
+      const e = document.createElement("span");
+      e.textContent = row.encoder;
+      meta.appendChild(e);
+    }
+    if (row.date && row.date !== "-") {
+      addSep();
+      const d = document.createElement("span");
+      d.textContent = row.date;
+      meta.appendChild(d);
+    }
+
+    content.append(title, meta);
+
+    const action = document.createElement("div");
+    action.className = "row-action";
+    action.appendChild(makeAddButton(row));
+
+    wrap.append(content, action);
     return wrap;
   }
 
@@ -1171,36 +1235,62 @@
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
 
-    const name = document.createElement("span");
-    name.className = "name truncate";
-    name.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ");
-    name.title = row.name || "";
+    const content = document.createElement("div");
+    content.className = "row-content";
 
-    const encoder = document.createElement("span");
-    encoder.className = "encoder truncate";
-    encoder.textContent = row.encoder || "-";
-    encoder.title = row.encoder || "";
+    const title = document.createElement("div");
+    title.className = "row-title";
+    title.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ");
+    title.title = row.name || "";
 
-    const se = document.createElement("span");
-    se.className = "se";
-    se.textContent = row.seeds || 0;
+    const meta = document.createElement("div");
+    meta.className = "row-meta";
 
-    const time = document.createElement("span");
-    time.className = "time";
-    time.textContent = row.date || "-";
-    if (!row.date || row.date === "-") {
-      time.classList.add("hidden");
+    const seeds = Number(row.seeds || 0);
+    const dotColor = seeds >= 50 ? "seed-green" : (seeds >= 10 ? "seed-amber" : "seed-red");
+    const dot = document.createElement("span");
+    dot.className = `seed-dot ${dotColor}`;
+    dot.textContent = "●";
+
+    const seedsText = document.createElement("span");
+    seedsText.className = "meta-seeds";
+    seedsText.textContent = `${seeds} seeds`;
+
+    meta.append(dot, seedsText);
+
+    function addSep() {
+      const sep = document.createElement("span");
+      sep.className = "meta-sep";
+      sep.textContent = " · ";
+      meta.appendChild(sep);
     }
 
-    const size = document.createElement("span");
-    size.className = "size";
-    size.textContent = row.size || "-";
+    if (row.size && row.size !== "-") {
+      addSep();
+      const s = document.createElement("span");
+      s.textContent = row.size;
+      meta.appendChild(s);
+    }
+    if (row.encoder && row.encoder !== "-") {
+      addSep();
+      const e = document.createElement("span");
+      e.textContent = row.encoder;
+      meta.appendChild(e);
+    }
+    if (row.date && row.date !== "-") {
+      addSep();
+      const d = document.createElement("span");
+      d.textContent = row.date;
+      meta.appendChild(d);
+    }
 
-    const add = document.createElement("span");
-    add.className = "add";
-    add.appendChild(makeAddButton(row));
+    content.append(title, meta);
 
-    wrap.append(name, encoder, se, time, size, add);
+    const action = document.createElement("div");
+    action.className = "row-action";
+    action.appendChild(makeAddButton(row));
+
+    wrap.append(content, action);
     return wrap;
   }
 
@@ -1312,14 +1402,6 @@
 
       for (const qg of qualityGroups) {
         if (mobile) {
-          const title = document.createElement("div");
-          title.className = "mobile-encoder-title";
-          const badge = document.createElement("span");
-          badge.className = "encoder-count";
-          badge.textContent = qg.label || qualityLabel(qg.quality);
-          title.append(badge);
-          body.appendChild(title);
-
           const seasons = qg.seasons || [];
           if (seasons.length) {
             const skey = enc.encoder_norm + ":" + qg.quality;
@@ -1350,34 +1432,16 @@
         }
 
         // Desktop
-        const qGroup = document.createElement("div");
-        qGroup.className = "uploader-group"; // Expanded by default
-        const qlabel = document.createElement("div");
-        qlabel.className = "uploader-label";
-        const chev = document.createElement("span");
-        chev.className = "u-chevron";
-        chev.textContent = "▼";
-        const txt = document.createElement("span");
-        txt.style.flex = "1";
-        txt.style.minWidth = "0";
-        txt.textContent = (qg.label || qg.quality) + " (" + qg.episode_count + ")";
-        qlabel.append(chev, txt);
-        qGroup.appendChild(qlabel);
-        const qBody = document.createElement("div");
-        qBody.className = "uploader-body";
-
         for (const s of qg.seasons) {
           const slabel = document.createElement("div");
           slabel.className = "season-label";
           slabel.textContent = "Season " + (s.season || "?");
-          qBody.appendChild(slabel);
+          body.appendChild(slabel);
           const eps = s.episodes;
           for (const ep of eps) {
-            qBody.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, qg.label || qg.quality]));
+            body.appendChild(seriesEpisodeRow(ep, [ep.series, ep.se, qg.label || qg.quality]));
           }
         }
-        qGroup.appendChild(qBody);
-        body.appendChild(qGroup);
       }
       section.append(header, body);
       fragment.appendChild(section);
@@ -2381,7 +2445,17 @@
   });
 
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
-  $("searchQuery").addEventListener("keydown", (e) => { if (e.key === "Enter") search(false, 1); });
+  $("searchQuery").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") search(false, 1);
+    else if (e.key === "Escape") $("suggestBox").classList.add("hidden");
+  });
+  $("searchQuery").addEventListener("blur", () => {
+    setTimeout(() => {
+      if (document.activeElement !== $("searchQuery")) {
+        $("suggestBox").classList.add("hidden");
+      }
+    }, 150);
+  });
   document.querySelectorAll(".sortable[data-sort]").forEach((el) => el.addEventListener("click", () => cycleSort(el.dataset.sort)));
   document.addEventListener("click", (e) => { if (!e.target.closest(".search-box-wrap")) $("suggestBox").classList.add("hidden"); });
   syncSortControls();

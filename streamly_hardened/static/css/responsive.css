@@ -361,8 +361,8 @@
 @media (max-width: 768px) {
   #seriesResults { padding: 0 10px 16px; }
 
-  /* Compact clickable header on mobile (Name | SE | Time | Size | Add) */
-  .sec-head { grid-template-columns: 1fr 42px 64px 64px 38px; gap: 6px; padding: 9px 10px; font-size: 10px; letter-spacing: .02em; }
+  /* Hide column header on mobile */
+  .sec-head { display: none !important; }
 
   .encoder-header { flex-wrap: wrap; padding: 11px 12px; gap: 8px; }
   .encoder-title { gap: 8px; flex: 1 1 100%; min-width: 0; }
@@ -370,65 +370,15 @@
   .encoder-quality { font-size: 12px; white-space: normal; }
   .encoder-count { font-size: 11px; }
 
-  /* Unified, aligned single-line grid row for search results (Name | SE | Time | Size | Add) */
   .episode-row {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 42px 64px 64px 38px !important;
-    gap: 6px !important;
-    padding: 11px 12px !important;
-    align-items: center !important;
-    border-bottom: 1px solid var(--line) !important;
+    grid-template-columns: 1fr auto !important;
+    gap: 12px !important;
+    padding: 10px 12px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    margin-bottom: 0 !important;
     background: transparent !important;
-  }
-  .episode-row .name {
-    grid-column: 1 !important;
-    font-size: 13.5px !important;
-    font-weight: 500 !important;
-    color: var(--text) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-  .episode-row .se {
-    grid-column: 2 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: #86efac !important;
-    font-weight: 700 !important;
-  }
-  .episode-row .se::before {
-    content: "" !important;
-  }
-  .episode-row .time {
-    grid-column: 3 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    display: block !important;
-  }
-  .episode-row .size {
-    grid-column: 4 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    display: block !important;
-  }
-  .episode-row .add {
-    grid-column: 5 !important;
-    grid-row: auto !important;
-    display: flex !important;
-    justify-content: flex-end !important;
-    align-self: center !important;
-  }
-  .episode-row .add .add-btn {
-    width: 30px !important;
-    height: 30px !important;
-    padding: 0 !important;
-    border-radius: 6px !important;
   }
 
   /* Uploader sub-row wraps too */
@@ -467,129 +417,21 @@
     0%, 100% { opacity: 0.85; filter: drop-shadow(0 0 2px rgba(47,156,240,0.3)); }
     50% { opacity: 1; filter: drop-shadow(0 0 8px rgba(47,156,240,0.7)); }
   }
-  #topStorageText, .topbar-sep {
-    display: none !important;
-  }
-  .topbar-storage-meter {
-    height: 4px !important;
-    background: rgba(0, 0, 0, 0.35) !important;
-    border-radius: 99px !important;
-    border: none !important;
-    margin-top: 6px !important;
-    overflow: hidden !important;
-  }
-  #topStorageMeter {
-    background: linear-gradient(90deg, #2f9cf0, #00d2ff) !important;
-    box-shadow: 0 0 8px rgba(47, 156, 240, 0.65) !important;
+  @media (max-width: 360px) {
+    .storage-email {
+      max-width: 90px !important;
+    }
   }
 
   /* Component 2: Unified Control Panel Container */
   #searchView .search-control-panel {
     order: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px !important;
-    margin: 8px 10px 16px 10px;
-    border-radius: var(--radius-md);
-    background: rgba(22, 27, 34, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    margin: 8px 10px 16px 10px !important;
   }
 
   /* Integrated Search Bar inside container */
   .search-bar-integrated {
-    display: flex;
-    align-items: center;
-    border: 1px solid var(--line);
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: var(--radius-md);
-    width: 100%;
-    position: relative;
-    overflow: hidden;
-    height: 46px;
-    transition: border-color 0.2s;
-  }
-  .search-bar-integrated:focus-within {
-    border-color: var(--accent);
-  }
-  .search-bar-integrated .search-box-wrap {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    position: relative;
-    height: 100%;
-  }
-  .search-bar-integrated .search-box-wrap input {
-    width: 100% !important;
-    height: 100% !important;
-    padding: 0 38px 0 38px !important;
-    border: none !important;
-    background: transparent !important;
-    color: var(--text) !important;
-    font-size: 14px !important;
-    box-shadow: none !important;
-  }
-  .search-bar-integrated .sb-icon-left {
-    position: absolute;
-    left: 10px;
-    z-index: 5;
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0;
-  }
-  .search-bar-integrated .sb-icon-right {
-    position: absolute;
-    right: 10px;
-    z-index: 5;
-    background: transparent;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    padding: 0;
-  }
-  .search-bar-integrated .search-bar-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding-right: 6px;
-    height: 100%;
-  }
-  .search-bar-actions .search-action-btn,
-  .search-bar-actions .mobile-filter-btn {
-    width: 34px !important;
-    height: 34px !important;
-    border-radius: 8px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border: none !important;
-    background: transparent !important;
-    color: var(--muted) !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
-    box-shadow: none !important;
-  }
-  .search-bar-actions .search-action-btn:hover,
-  .search-bar-actions .mobile-filter-btn:hover {
-    color: var(--text) !important;
-    background: rgba(255, 255, 255, 0.08) !important;
-  }
-  .search-bar-actions #searchBtn {
-    color: var(--accent) !important;
-    background: rgba(47, 156, 240, 0.12) !important;
-  }
-  .search-bar-actions #searchBtn:hover {
-    color: #fff !important;
-    background: var(--accent) !important;
-  }
-  .search-bar-actions #addMagnetBtn {
-    color: #fff !important;
-    background: var(--accent) !important;
+    overflow: visible !important; /* Ensure suggestions dropdown doesn't clip on mobile */
   }
 
   /* Controls Row containing segment toggle */
@@ -739,62 +581,13 @@
   /* Compact mobile rows matching the mockup. */
   .episode-row {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 42px 64px 64px 38px !important;
-    gap: 6px !important;
-    padding: 11px 12px !important;
-    align-items: center !important;
-    border-bottom: 1px solid var(--line) !important;
+    grid-template-columns: 1fr auto !important;
+    gap: 12px !important;
+    padding: 10px 12px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    margin-bottom: 0 !important;
     background: transparent !important;
-  }
-  .episode-row .name {
-    grid-column: 1 !important;
-    font-size: 13.5px !important;
-    font-weight: 500 !important;
-    color: var(--text) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-  .episode-row .se {
-    grid-column: 2 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: #86efac !important;
-    font-weight: 700 !important;
-  }
-  .episode-row .se::before {
-    content: "" !important;
-  }
-  .episode-row .time {
-    grid-column: 3 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    display: block !important;
-  }
-  .episode-row .size {
-    grid-column: 4 !important;
-    font-size: 12px !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    display: block !important;
-  }
-  .episode-row .add {
-    grid-column: 5 !important;
-    grid-row: auto !important;
-    display: flex !important;
-    justify-content: flex-end !important;
-    align-self: center !important;
-  }
-  .episode-row .add .add-btn {
-    width: 30px !important;
-    height: 30px !important;
-    padding: 0 !important;
-    border-radius: 6px !important;
   }
 
   /* Filter bottom sheet. */
@@ -978,12 +771,7 @@
     overflow: visible !important;
   }
   #searchView .suggest-box {
-    z-index: 120;
-    top: calc(100% + 6px);
-    max-height: min(360px, 58vh);
-    width: 100% !important;
-    left: 0 !important;
-    right: 0 !important;
+    max-height: 288px !important;
   }
 
   /* Quality navigation should look like season chips, not like a heavy segmented control. */
@@ -1097,67 +885,16 @@
   .mobile-season-tab { padding: 4px 8px; font-size: 10px; }
   .episode-row {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 42px 64px 64px 38px !important;
-    gap: 6px !important;
-    padding: 11px 12px !important;
-    align-items: center !important;
-    border-bottom: 1px solid var(--line) !important;
+    grid-template-columns: 1fr auto !important;
+    gap: 12px !important;
+    padding: 10px 12px !important;
+    border: none !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    margin-bottom: 0 !important;
     background: transparent !important;
   }
-  .episode-row .name {
-    grid-column: 1 !important;
-    font-size: 13px !important;
-    font-weight: 500 !important;
-    color: var(--text) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-  }
-  .episode-row .se, .episode-row .size, .episode-row .time { font-size: 12px !important; }
-  .episode-row .se {
-    grid-column: 2 !important;
-    text-align: right !important;
-    color: #86efac !important;
-    font-weight: 700 !important;
-  }
-  .episode-row .se::before {
-    content: "" !important;
-  }
-  .episode-row .time {
-    grid-column: 3 !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    display: block !important;
-  }
-  .episode-row .size {
-    grid-column: 4 !important;
-    text-align: right !important;
-    color: var(--muted) !important;
-    white-space: nowrap !important;
-    display: block !important;
-  }
-  .episode-row .add {
-    grid-column: 5 !important;
-    grid-row: auto !important;
-    display: flex !important;
-    justify-content: flex-end !important;
-    align-self: center !important;
-  }
-  .episode-row .add .add-btn {
-    width: 30px !important;
-    height: 30px !important;
-    border-radius: 6px !important;
-    font-size: 17px !important;
-  }
   .sec-head {
-    display: grid !important;
-    grid-template-columns: minmax(0, 1fr) 42px 64px 64px 38px !important;
-    gap: 6px !important;
-    padding: 10px 12px 8px !important;
-    font-size: 9.5px !important;
+    display: none !important;
   }
 
   /* Prevent seeder icon leak in skeleton loaders */
