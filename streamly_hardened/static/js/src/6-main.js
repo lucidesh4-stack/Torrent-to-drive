@@ -110,12 +110,16 @@
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".ms-dd")) document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
   });
+  let filterSearchTimer = null;
+  function debouncedFilterSearch() {
+    if (typeof search !== "function" || !$("searchQuery").value.trim()) return;
+    clearTimeout(filterSearchTimer);
+    filterSearchTimer = setTimeout(() => search(false, 1), 350);
+  }
   document.querySelectorAll(".qualityOpt, .encoderOpt").forEach((el) =>
     el.addEventListener("change", () => {
       if (typeof updateDropdownLabels === "function") updateDropdownLabels();
-      if (typeof search === "function" && $("searchQuery").value.trim()) {
-        search(false, 1);
-      }
+      debouncedFilterSearch();
     })
   );
 

@@ -1,5 +1,6 @@
 
   let suppressSuggestions = false;
+  let searchAbort = null;
 
   function isMagnetLink(value) {
     const val = String(value || "").trim();
@@ -150,6 +151,9 @@
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
 
     suppressSuggestions = true;
+    if (searchAbort) searchAbort.abort();
+    searchAbort = new AbortController();
+    const _signal = searchAbort.signal;
     clearTimeout(suggestTimer);
     $("suggestBox").classList.add("hidden");
     $("suggestBox").textContent = "";
@@ -219,7 +223,7 @@
       if (typeof seriesMode !== "undefined" && seriesMode) {
         params.set("mode", "series");
       }
-      const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin" }));
+      const data = await parseResponse(await fetch("/api/search?" + params.toString(), { credentials: "same-origin", signal: _signal }));
 
       if (data && data.mode === "series") {
         $("seriesResults").classList.remove("hidden");
@@ -247,6 +251,7 @@
       const providerText = providerStatusText(data);
       status($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
+      if (err && err.name === "AbortError") return; // superseded by a newer search
       if ($("resultCount")) $("resultCount").textContent = "";
       status($("searchStatus"), err.message || "Search failed", "error");
     }
