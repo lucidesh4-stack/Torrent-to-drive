@@ -63,8 +63,10 @@
     if (bulk) {
       bulk.classList.toggle("hidden", count === 0);
       const bc = $("cmBulkCount");
-      if (bc) bc.textContent = `${count} selected`;
+      if (bc) bc.textContent = String(count);
     }
+    const tgBtn = $("cmBulkTelegram");
+    if (tgBtn) tgBtn.disabled = count !== 1 || (selected && selected.type === "folder");
     // Mobile select-all checkbox state
     const cmAll = $("cmSelectAll");
     if (cmAll) {
@@ -300,20 +302,10 @@
       meta.append(s1, s2);
       info.append(fn, meta);
 
-      const kebab = document.createElement("button");
-      kebab.type = "button";
-      kebab.className = "cm-kebab";
-      kebab.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-more-vertical"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>`;
-      kebab.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCtxMenu(item, kebab);
-      });
-
-      row.append(tick, ic, info, kebab);
+      row.append(tick, ic, info);
 
       // tap = select/unselect ; double-tap = open
       row.addEventListener("click", (e) => {
-        if (e.target.closest(".cm-kebab")) return;
         if (cmTapTimer) {
           clearTimeout(cmTapTimer);
           cmTapTimer = null;
@@ -330,54 +322,7 @@
     }
   }
 
-  let ctxItem = null;
-  function openCtxMenu(item, anchor) {
-    ctxItem = item;
-    const menu = $("cloudCtxMenu");
-    if (!menu) return;
-    menu.classList.remove("hidden");
-    const r = anchor.getBoundingClientRect();
-    const mw = 210;
-    let left = r.right - mw + window.scrollX;
-    if (left < 8) left = 8;
-    menu.style.left = left + "px";
-    menu.style.top = (r.bottom + 6 + window.scrollY) + "px";
-  }
-  function closeCtxMenu() {
-    const menu = $("cloudCtxMenu");
-    if (menu) menu.classList.add("hidden");
-    ctxItem = null;
-  }
 
-  async function ctxAction(act) {
-    const item = ctxItem;
-    closeCtxMenu();
-    if (!item) return;
-    // operate on this single item
-    selectedKeys.clear();
-    selectedKeys.add(item.key);
-    lastClickedKey = item.key;
-    updateSelection();
-    if (act === "download") return downloadSelected();
-    if (act === "delete") return deleteSelected();
-    if (act === "telegram") return sendSelectedToTelegram();
-    if (act === "copy") {
-      try {
-        if (item.type !== "file") {
-          // folder: produce a zip link to copy
-          const data = await postJson("/api/zip", { type: item.type, id: item.id });
-          if (!data.url) throw new Error("No link");
-          await navigator.clipboard.writeText(data.url);
-        } else {
-          const url = await getFileUrl(item);
-          await navigator.clipboard.writeText(url);
-        }
-        toast("Link copied to clipboard");
-      } catch (err) {
-        toast(err.message || "Could not copy link");
-      }
-    }
-  }
 
   function updateStorage(used, max) {
     storageSnapshotLoaded = true;

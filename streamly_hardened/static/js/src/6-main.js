@@ -202,10 +202,9 @@
     updateSelection();
   });
   if ($("cmBulkDownload")) $("cmBulkDownload").addEventListener("click", downloadSelected);
+  if ($("cmBulkCopy")) $("cmBulkCopy").addEventListener("click", copySelectedLink);
+  if ($("cmBulkTelegram")) $("cmBulkTelegram").addEventListener("click", sendSelectedToTelegram);
   if ($("cmBulkDelete")) $("cmBulkDelete").addEventListener("click", deleteSelected);
-  if ($("cmBulkClear")) $("cmBulkClear").addEventListener("click", () => { selectedKeys.clear(); lastClickedKey = null; updateSelection(); });
-  document.querySelectorAll("#cloudCtxMenu .cm-ctx-item").forEach((b) => b.addEventListener("click", () => ctxAction(b.dataset.act)));
-  document.addEventListener("click", (e) => { if (!e.target.closest("#cloudCtxMenu") && !e.target.closest(".cm-kebab")) closeCtxMenu(); });
 
   if ($("pasteBtn")) {
     $("pasteBtn").addEventListener("click", async () => {
