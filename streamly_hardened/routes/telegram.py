@@ -269,6 +269,12 @@ def get_telegram_client(session_str):
 
 async def validate_telegram_target(client, target_chat):
     try:
+        if target_chat != "me":
+            try:
+                await client.get_dialogs()
+            except Exception as de:
+                log.warning("Failed to fetch dialogs for cache: %s", de)
+
         if str(target_chat).lstrip("-").isdigit():
             val = int(target_chat)
             # If a positive 10+ digit ID (commonly copied channel ID without prefix), try converting to channel ID format (-100...)
