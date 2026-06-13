@@ -1,6 +1,6 @@
-  async function saveToHistory(magnet, title) {
+  async function saveToHistory(magnet, title, size) {
     try {
-      await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet" });
+      await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet", size: size || "" });
     } catch (e) {
       console.warn("Failed to save history", e);
       // Optional: toast("History save failed: " + (e.message || "Unknown error"));
@@ -29,6 +29,13 @@
         titleDiv.style.fontWeight = "bold";
         titleDiv.textContent = item.title;
         nameTd.append(titleDiv);
+        
+        const sizeDiv = document.createElement("div");
+        sizeDiv.className = "text-meta";
+        sizeDiv.style.fontSize = "11px";
+        sizeDiv.style.marginTop = "2px";
+        sizeDiv.textContent = item.size ? `${item.size} · ${item.time}` : item.time;
+        nameTd.append(sizeDiv);
         
         const actionTd = document.createElement("td");
         actionTd.style.textAlign = "right";
@@ -63,7 +70,7 @@
           try {
             await postJson("/api/add", { magnet: item.magnet });
             toast("Added from history: " + item.title);
-            await saveToHistory(item.magnet, item.title); // Update timestamp
+            await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
             addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
           } catch (e) {
             toast("Failed: " + e.message);

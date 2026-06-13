@@ -34,9 +34,16 @@ def add_history():
     else:
         name = "Unknown Magnet"
         
+    size = data.get("size") if data.get("size") else ""
+    if isinstance(size, str):
+        size = size[:64]
+    else:
+        size = ""
+        
     new_item = {
         "magnet": magnet,
         "title": name,
+        "size": size,
         "time": time.strftime("%d/%m/%Y, %H:%M:%S")
     }
     rs = getattr(current_app, "rs", None)

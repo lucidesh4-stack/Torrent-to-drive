@@ -280,7 +280,7 @@
       add.disabled = true;
       setButtonState("adding");
       setTimeout(async () => {
-        saveToHistory(result.magnet, result.name);
+        saveToHistory(result.magnet, result.name, result.size);
         try {
           await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
           toast("Added to Seedr: " + (result.name || "torrent"));
