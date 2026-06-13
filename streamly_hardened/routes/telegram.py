@@ -269,8 +269,22 @@ def get_telegram_client(session_str):
 
 async def validate_telegram_target(client, target_chat):
     try:
-        resolved_chat = int(target_chat) if str(target_chat).lstrip("-").isdigit() else target_chat
-        entity = await client.get_entity(resolved_chat)
+        if str(target_chat).lstrip("-").isdigit():
+            val = int(target_chat)
+            # If a positive 10+ digit ID (commonly copied channel ID without prefix), try converting to channel ID format (-100...)
+            if val > 0 and (len(str(val)) >= 10 or str(val).startswith("100")):
+                try:
+                    resolved_chat = int(f"-100{val}")
+                    entity = await client.get_entity(resolved_chat)
+                except Exception:
+                    resolved_chat = val
+                    entity = await client.get_entity(resolved_chat)
+            else:
+                resolved_chat = val
+                entity = await client.get_entity(resolved_chat)
+        else:
+            resolved_chat = target_chat
+            entity = await client.get_entity(resolved_chat)
     except Exception as e:
         raise ValueError(f"Could not find or access target chat/channel: {e}")
 
@@ -675,7 +689,7 @@ def telegram_send_file():
     from flask import session
     sid = session.get("sid") or ensure_sid()
     
-    chat_id = config.get("TELEGRAM_CHAT_ID") or "me"
+    chat_id = config.get("TELEGRAM_CHAT_ID") or "-1001004247146382"
     
     cloud = getattr(current_app, "cloud", None)
     try:
@@ -863,7 +877,7 @@ def get_telegram_queue():
     is_hf = "SPACE_ID" in os.environ
     limit_gb = 99.0 if is_hf else 4.5
     
-    destination = current_app.config.get("TELEGRAM_CHAT_ID") or "me"
+    destination = current_app.config.get("TELEGRAM_CHAT_ID") or "-1001004247146382"
     
     return jsonify({
         "active": active_item,
