@@ -695,7 +695,7 @@ def telegram_send_file():
     from flask import session
     sid = session.get("sid") or ensure_sid()
     
-    chat_id = config.get("TELEGRAM_CHAT_ID") or "-1001004247146382"
+    chat_id = config.get("TELEGRAM_CHAT_ID") or "-1004247146382"
     
     cloud = getattr(current_app, "cloud", None)
     try:
@@ -883,7 +883,7 @@ def get_telegram_queue():
     is_hf = "SPACE_ID" in os.environ
     limit_gb = 99.0 if is_hf else 4.5
     
-    destination = current_app.config.get("TELEGRAM_CHAT_ID") or "-1001004247146382"
+    destination = current_app.config.get("TELEGRAM_CHAT_ID") or "-1004247146382"
     
     return jsonify({
         "active": active_item,
