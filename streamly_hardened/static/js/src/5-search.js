@@ -167,8 +167,14 @@
       saveToHistory(q, magnetName);
       status($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
-        await postJson("/api/add", { magnet: q });
-        status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+        const res = await postJson("/api/add", { magnet: q });
+        if (res && res.queued) {
+          status($("searchStatus"), "\u2713 Added to Queue: " + magnetName, "ok");
+          toast("Added to local queue: " + magnetName);
+        } else {
+          status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+          toast("Added to Seedr: " + magnetName);
+        }
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
         else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
         $("searchQuery").value = "";
@@ -282,8 +288,12 @@
       setTimeout(async () => {
         saveToHistory(result.magnet, result.name, result.size);
         try {
-          await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
-          toast("Added to Seedr: " + (result.name || "torrent"));
+          const res = await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
+          if (res && res.queued) {
+            toast("Added to queue: " + (result.name || "torrent"));
+          } else {
+            toast("Added to Seedr: " + (result.name || "torrent"));
+          }
           if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
           else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
           setButtonState("done");

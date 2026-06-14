@@ -232,6 +232,15 @@ def create_app(
         try:
             rs.get("streamly:health_check_test")
             log.info("Upstash Redis reachable — history, token & log persistence active")
+            
+            # Start Seedr Queue Daemon background thread
+            try:
+                from .routes.queue import trigger_seedr_queue
+                trigger_seedr_queue(app)
+                log.info("Seedr Queue Daemon started successfully.")
+            except Exception as daemon_init_err:
+                log.warning("Failed to start Seedr Queue Daemon: %s", daemon_init_err)
+                
             try:
                 # Use a startup lock to ensure only one worker clears the global active lock
                 # and triggers the next transfer when the container boots up.
@@ -239,6 +248,7 @@ def create_app(
                 if acquired == "OK":
                     log.info("Startup lock acquired. Initializing active transfer state and triggering next transfer.")
                     rs._execute("DEL", "streamly:active_transfer_global")
+                    rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
                     from .routes.telegram import trigger_next_transfer
                     trigger_next_transfer(rs)
                 else:

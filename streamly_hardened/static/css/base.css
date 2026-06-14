@@ -622,7 +622,29 @@ button.icon-btn {
 .transfer-meta { color: var(--muted); font-size: 12px; }
 .transfer-bar { height: 6px; width: min(360px, 100%); background: #263241; border-radius: 999px; overflow: hidden; }
 .transfer-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .25s ease; }
-.transfer-cancel-btn { padding: 6px 10px; border-radius: var(--radius-sm); font-size: 12px; }
+.transfer-cancel-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+}
+.transfer-cancel-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
+  border-color: #ef4444;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.45);
+  transform: scale(1.08);
+}
+.queued-row td { background: rgba(245, 158, 11, 0.035); }
+.queued-row:hover td { background: rgba(245, 158, 11, 0.07); }
 
     /* Sleek Custom Scrollbars */
     ::-webkit-scrollbar {

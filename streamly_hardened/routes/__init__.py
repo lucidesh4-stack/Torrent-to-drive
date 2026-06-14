@@ -3,6 +3,7 @@ from .cloud import cloud_bp
 from .search import search_bp
 from .history import history_bp
 from .telegram import telegram_bp
+from .queue import queue_bp
 
 def register_routes(app):
     app.register_blueprint(auth_bp)
@@ -10,3 +11,4 @@ def register_routes(app):
     app.register_blueprint(search_bp)
     app.register_blueprint(history_bp)
     app.register_blueprint(telegram_bp)
+    app.register_blueprint(queue_bp)

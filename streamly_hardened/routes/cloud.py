@@ -158,40 +158,82 @@ def zip_bulk():
 @rate_limited(cost=2.0)
 @csrf_required
 def add_magnet():
+    rs = getattr(current_app, "rs", None)
     config = current_app.config
     data = require_json_body(config)
     magnet = validate_magnet(data.get("magnet"), config)
     raw_size = data.get("size")
+    size_bytes = _safe_int(raw_size) if raw_size is not None else 0
+    name = data.get("name")
     
+    # Try parsing torrent name from 'dn' parameter in magnet link
+    if not name:
+        try:
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(magnet)
+            qs = parse_qs(parsed.query)
+            dn = qs.get("dn")
+            if dn:
+                name = dn[0]
+        except Exception:
+            pass
+    if not name:
+        name = "Unknown Magnet"
+        
+    # Always write to backend history first
+    from .queue import add_to_history_backend
+    add_to_history_backend(rs, magnet, name, size_bytes)
+    
+    # Reject files over 4.5 GB limit immediately
+    if size_bytes > 4.5 * 1024 * 1024 * 1024:
+        from ..security import json_error
+        return json_error(
+            400,
+            "payload_too_large",
+            "File exceeds 4.5 GB limit and cannot be downloaded."
+        )
+        
     cloud = getattr(current_app, "cloud", None)
-    if raw_size is not None:
-        size_bytes = _safe_int(raw_size)
-        if size_bytes > 0:
-            try:
-                storage = cloud.list_items(current_client(), 0)
-                used = max(0, _safe_int(storage.get("used")))
-                maximum = max(1, _safe_int(storage.get("max")))
-                if used + size_bytes > maximum:
-                    from ..security import json_error
-                    return json_error(
-                        400,
-                        "storage_full",
-                        "Insufficient storage: the torrent is too large for your available space."
-                    )
-            except Exception as e:
-                current_app.logger.error("Critical storage check failure: %s", e)
-                from ..security import json_error
-                return json_error(
-                    502,
-                    "storage_check_failed",
-                    "Unable to verify storage space. Please try again later."
-                )
+    
+    # Check if we should queue the item
+    should_queue = False
+    try:
+        storage = cloud.list_items(current_client(), 0)
+        used = max(0, _safe_int(storage.get("used")))
+        maximum = max(1, _safe_int(storage.get("max")))
+        transfers = storage.get("transfers", [])
+        
+        if len(transfers) > 0:
+            should_queue = True
+        elif size_bytes > 0 and (used + size_bytes > maximum):
+            should_queue = True
+    except Exception as e:
+        current_app.logger.error("Storage check failure before adding: %s", e)
+        
+    if should_queue:
+        if rs:
+            import uuid
+            import time
+            import json as _json
+            queued_item = {
+                "task_id": str(uuid.uuid4())[:8],
+                "magnet": magnet,
+                "name": name,
+                "size": size_bytes,
+                "time": int(time.time())
+            }
+            rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+            return jsonify({"success": True, "queued": True})
+        else:
+            from ..security import json_error
+            return json_error(503, "redis_unavailable", "Redis is required for queue storage")
+            
     try:
         cloud.add_magnet(current_client(), magnet)
     except (ConnectionError, TimeoutError) as e:
         current_app.logger.warning("Provider error on add: %s", e)
         from ..security import json_error
-        msg = str(e) or "Provider rejected the request (e.g. storage full) or is unavailable"
+        msg = str(e) or "Provider rejected the request or is unavailable"
         return json_error(502, "provider_error", msg)
     return jsonify({"success": True})
 

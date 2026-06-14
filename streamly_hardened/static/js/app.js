@@ -1,4 +1,4 @@
-﻿
+
 (() => {
   let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let currentFolder = 0;
@@ -128,6 +128,7 @@
 
   let storageSnapshotLoading = false;
   let storageSnapshotLoaded = false;
+  let seedrQueue = [];
 
   function updateSelection() {
     refreshSelectedShim();
@@ -283,9 +284,52 @@
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className = "danger transfer-cancel-btn";
-    cancelBtn.textContent = "Cancel";
+    cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
+    cancelBtn.title = "Cancel transfer";
     cancelBtn.addEventListener("click", () => cancelTransfer(t));
     dateTd.appendChild(cancelBtn);
+    tr.append(iconTd, nameTd, typeTd, sizeTd, dateTd);
+    return tr;
+  }
+
+  function renderQueuedRow(q) {
+    const tr = document.createElement("tr");
+    tr.className = "transfer-row queued-row";
+    
+    const iconTd = document.createElement("td");
+    iconTd.textContent = "⏱️";
+    iconTd.title = "Queued for download";
+
+    const nameTd = document.createElement("td");
+    const box = document.createElement("div");
+    box.className = "transfer-cell";
+    const title = document.createElement("div");
+    title.className = "transfer-title truncate";
+    title.textContent = q.name || "Queued torrent";
+    title.title = q.name || "";
+    const meta = document.createElement("div");
+    meta.className = "transfer-meta";
+    meta.textContent = "Queued (Waiting for storage/idle slot)";
+    box.append(title, meta);
+    nameTd.appendChild(box);
+
+    const typeTd = document.createElement("td");
+    typeTd.className = "muted";
+    typeTd.textContent = "queued";
+    
+    const sizeTd = document.createElement("td");
+    sizeTd.className = "muted";
+    sizeTd.textContent = q.size ? bytes(q.size) : "-";
+    
+    const dateTd = document.createElement("td");
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.className = "danger transfer-cancel-btn";
+    cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
+    cancelBtn.title = "Cancel queue item";
+    cancelBtn.addEventListener("click", () => cancelQueuedItem(q));
+    dateTd.appendChild(cancelBtn);
+    
     tr.append(iconTd, nameTd, typeTd, sizeTd, dateTd);
     return tr;
   }
@@ -294,7 +338,7 @@
     clearTimeout(cloudAutoRefreshTimer);
     cloudAutoRefreshTimer = null;
     const cloudVisible = $("cloudView") && !$("cloudView").classList.contains("hidden");
-    if (isAuthenticated && cloudVisible && transfers.length > 0) {
+    if (isAuthenticated && cloudVisible && (transfers.length > 0 || seedrQueue.length > 0)) {
       cloudAutoRefreshTimer = setTimeout(() => loadFolder(currentFolder || 0, { silent: true }), CLOUD_TRANSFER_REFRESH_MS);
     }
   }
@@ -305,13 +349,12 @@
     const pathLabel = $("pathLabel");
     if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
     $("upBtn").disabled = currentFolder === 0;
-    $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length !== 0);
+    $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
     lastClickedKey = null;
     updateSelection();
 
-    for (const t of transfers) body.appendChild(renderTransferRow(t));
-
+    // 1. Render items (folders and files) FIRST
     for (const item of items) {
       const tr = document.createElement("tr");
       tr.dataset.key = item.key;
@@ -360,6 +403,16 @@
       body.appendChild(tr);
     }
 
+    // 2. Render transfers SECOND - only if currentFolder === 0
+    if (currentFolder === 0) {
+      for (const t of transfers) body.appendChild(renderTransferRow(t));
+    }
+
+    // 3. Render queued items THIRD - only if currentFolder === 0
+    if (currentFolder === 0) {
+      for (const q of seedrQueue) body.appendChild(renderQueuedRow(q));
+    }
+
     renderCloudMobile();
   }
 
@@ -370,35 +423,16 @@
     if (!list) return;
     list.textContent = "";
     const cnt = $("cmCount");
-    if (cnt) cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}` + (transfers.length ? ` · ${transfers.length} loading` : "");
+    if (cnt) {
+      let activeCount = transfers.length + seedrQueue.length;
+      let activeText = activeCount ? ` · ${activeCount} pending` : "";
+      cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}${activeText}`;
+    }
     const empty = $("cloudMobileEmpty");
-    if (empty) empty.classList.toggle("hidden", items.length + transfers.length !== 0);
+    if (empty) empty.classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     $("cmUpBtn").disabled = currentFolder === 0;
 
-    for (const t of transfers) {
-      const row = document.createElement("div");
-      row.className = "cm-row cm-transfer";
-      const ic = document.createElement("div");
-      ic.className = "cm-ic";
-      ic.textContent = "⏳";
-      const info = document.createElement("div");
-      info.className = "cm-info";
-      const fn = document.createElement("div");
-      fn.className = "cm-fn";
-      fn.textContent = t.name || "Loading torrent";
-      const meta = document.createElement("div");
-      meta.className = "cm-meta";
-      meta.textContent = transferMeta(t) + (t.size_str ? " · " + t.size_str : "");
-      const cancel = document.createElement("button");
-      cancel.type = "button";
-      cancel.className = "danger cm-transfer-cancel";
-      cancel.textContent = "Cancel";
-      cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelTransfer(t); });
-      info.append(fn, transferBar(t), meta, cancel);
-      row.append(ic, info);
-      list.appendChild(row);
-    }
-
+    // 1. Render items (folders and files) FIRST
     for (const item of items) {
       const row = document.createElement("div");
       row.className = "cm-row";
@@ -432,7 +466,6 @@
 
       row.append(tick, ic, info);
 
-      // tap = select/unselect ; double-tap = open
       row.addEventListener("click", (e) => {
         if (cmTapTimer) {
           clearTimeout(cmTapTimer);
@@ -447,6 +480,66 @@
       });
 
       list.appendChild(row);
+    }
+
+    // 2. Render transfers SECOND - only if currentFolder === 0
+    if (currentFolder === 0) {
+      for (const t of transfers) {
+        const row = document.createElement("div");
+        row.className = "cm-row cm-transfer";
+        const ic = document.createElement("div");
+        ic.className = "cm-ic";
+        ic.textContent = "⏳";
+        const info = document.createElement("div");
+        info.className = "cm-info";
+        const fn = document.createElement("div");
+        fn.className = "cm-fn";
+        fn.textContent = t.name || "Loading torrent";
+        const meta = document.createElement("div");
+        meta.className = "cm-meta";
+        meta.textContent = transferMeta(t) + (t.size_str ? " · " + t.size_str : "");
+        
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "danger cm-transfer-cancel";
+        cancel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
+        cancel.title = "Cancel transfer";
+        cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelTransfer(t); });
+        
+        info.append(fn, transferBar(t), meta);
+        row.append(ic, info, cancel);
+        list.appendChild(row);
+      }
+    }
+
+    // 3. Render queued items THIRD - only if currentFolder === 0
+    if (currentFolder === 0) {
+      for (const q of seedrQueue) {
+        const row = document.createElement("div");
+        row.className = "cm-row cm-transfer cm-queued";
+        const ic = document.createElement("div");
+        ic.className = "cm-ic";
+        ic.textContent = "⏱️";
+        const info = document.createElement("div");
+        info.className = "cm-info";
+        const fn = document.createElement("div");
+        fn.className = "cm-fn";
+        fn.textContent = q.name || "Queued torrent";
+        const meta = document.createElement("div");
+        meta.className = "cm-meta";
+        meta.textContent = "Queued (Waiting for storage/idle slot)" + (q.size ? " · " + bytes(q.size) : "");
+        
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "danger cm-transfer-cancel";
+        cancel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
+        cancel.title = "Cancel queued item";
+        cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelQueuedItem(q); });
+        
+        info.append(fn, meta);
+        row.append(ic, info, cancel);
+        list.appendChild(row);
+      }
     }
   }
 
@@ -523,12 +616,24 @@
       parentFolder = Number(data.parent || 0);
       items = [];
       transfers = [];
+      seedrQueue = [];
       for (const transfer of data.transfers || []) transfers.push({ ...transfer, type: "transfer", key: `transfer:${transfer.id}` });
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
+      
+      // Fetch local queue only at root folder
+      if (currentFolder === 0) {
+        try {
+          const qData = await parseResponse(await fetch("/api/queue", { credentials: "same-origin" }));
+          seedrQueue = qData.items || [];
+        } catch (qErr) {
+          console.warn("Failed to load local queue", qErr);
+        }
+      }
+      
       updateStorage(data.used || 0, data.max || 1);
       renderCloud();
-      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + ".", "ok");
+      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + (seedrQueue.length ? ` · ${seedrQueue.length} queued` : "") + ".", "ok");
       syncCloudAutoRefresh();
     } catch (err) {
       if ((err.message || "").toLowerCase().includes("login")) showLogin();
@@ -548,6 +653,22 @@
       status($("cloudStatus"), "Transfer cancelled.", "ok");
     } catch (err) {
       const message = err.message || "Cancel failed";
+      toast(message);
+      status($("cloudStatus"), message, "error");
+    }
+  }
+
+  async function cancelQueuedItem(q) {
+    if (!q || !q.task_id) return toast("Task ID unavailable");
+    if (!confirm(`Remove from queue: ${q.name || "queued torrent"}?`)) return;
+    status($("cloudStatus"), "Cancelling queued item...", "");
+    try {
+      await postJson("/api/queue/cancel", { task_id: q.task_id });
+      toast("Item removed from queue");
+      await loadFolder(currentFolder || 0, { silent: true });
+      status($("cloudStatus"), "Queue item removed.", "ok");
+    } catch (err) {
+      const message = err.message || "Failed to cancel queue item";
       toast(message);
       status($("cloudStatus"), message, "error");
     }
@@ -1784,8 +1905,14 @@
       saveToHistory(q, magnetName);
       status($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
-        await postJson("/api/add", { magnet: q });
-        status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+        const res = await postJson("/api/add", { magnet: q });
+        if (res && res.queued) {
+          status($("searchStatus"), "\u2713 Added to Queue: " + magnetName, "ok");
+          toast("Added to local queue: " + magnetName);
+        } else {
+          status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+          toast("Added to Seedr: " + magnetName);
+        }
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
         else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
         $("searchQuery").value = "";
@@ -1899,8 +2026,12 @@
       setTimeout(async () => {
         saveToHistory(result.magnet, result.name, result.size);
         try {
-          await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
-          toast("Added to Seedr: " + (result.name || "torrent"));
+          const res = await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
+          if (res && res.queued) {
+            toast("Added to queue: " + (result.name || "torrent"));
+          } else {
+            toast("Added to Seedr: " + (result.name || "torrent"));
+          }
           if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
           else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
           setButtonState("done");
