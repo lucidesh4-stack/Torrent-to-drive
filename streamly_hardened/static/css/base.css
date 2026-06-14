@@ -629,19 +629,18 @@ button.icon-btn {
   padding: 0;
   display: inline-grid;
   place-items: center;
-  border: 1.5px solid rgba(239, 68, 68, 0.4);
-  background: rgba(239, 68, 68, 0.08);
-  color: #ef4444;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.15s ease-out;
   outline: none;
 }
 .transfer-cancel-btn:hover {
-  background: #ef4444;
-  color: #ffffff;
-  border-color: #ef4444;
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.45);
-  transform: scale(1.08);
+  background: rgba(239, 68, 68, 0.12);
+  color: #ff4a4a;
+  border-color: rgba(239, 68, 68, 0.25);
+  transform: scale(1.05);
 }
 .queued-row td { background: rgba(245, 158, 11, 0.035); }
 .queued-row:hover td { background: rgba(245, 158, 11, 0.07); }
