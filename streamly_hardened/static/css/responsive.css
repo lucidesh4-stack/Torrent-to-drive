@@ -696,25 +696,21 @@
 @media (max-width: 700px) {
   .cm-transfer-cancel {
     align-self: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
+    width: 28px;
+    height: 28px;
     padding: 0;
     display: inline-grid;
     place-items: center;
-    border: 1.5px solid transparent;
+    border: none;
     background: transparent;
-    color: var(--muted);
+    color: #ff4a4a;
     cursor: pointer;
     flex-shrink: 0;
     outline: none;
-    transition: all 0.15s ease-in-out;
+    transition: transform 0.15s ease-out;
   }
   .cm-transfer-cancel:active {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ff4a4a;
-    border-color: rgba(239, 68, 68, 0.25);
-    transform: scale(0.92);
+    transform: scale(0.9);
   }
 }
 
