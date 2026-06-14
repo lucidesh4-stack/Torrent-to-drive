@@ -155,7 +155,7 @@
     const dateTd = document.createElement("td");
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
-    cancelBtn.className = "danger transfer-cancel-btn";
+    cancelBtn.className = "transfer-cancel-btn";
     cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
     cancelBtn.title = "Cancel transfer";
     cancelBtn.addEventListener("click", () => cancelTransfer(t));
@@ -196,7 +196,7 @@
     const dateTd = document.createElement("td");
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
-    cancelBtn.className = "danger transfer-cancel-btn";
+    cancelBtn.className = "transfer-cancel-btn";
     cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
     cancelBtn.title = "Cancel queue item";
     cancelBtn.addEventListener("click", () => cancelQueuedItem(q));
@@ -373,7 +373,7 @@
         
         const cancel = document.createElement("button");
         cancel.type = "button";
-        cancel.className = "danger cm-transfer-cancel";
+        cancel.className = "cm-transfer-cancel";
         cancel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
         cancel.title = "Cancel transfer";
         cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelTransfer(t); });
@@ -403,7 +403,7 @@
         
         const cancel = document.createElement("button");
         cancel.type = "button";
-        cancel.className = "danger cm-transfer-cancel";
+        cancel.className = "cm-transfer-cancel";
         cancel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
         cancel.title = "Cancel queued item";
         cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelQueuedItem(q); });
