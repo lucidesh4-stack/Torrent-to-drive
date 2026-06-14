@@ -64,7 +64,15 @@
     }
   });
 
-  $("cloudTab").addEventListener("click", () => setTab("cloud"));
+  $("cloudTab").addEventListener("click", () => {
+    const isCloud = !$("cloudView").classList.contains("hidden");
+    if (isCloud) {
+      currentFolder = 0;
+      loadFolder(0);
+    } else {
+      setTab("cloud");
+    }
+  });
   $("searchTab").addEventListener("click", async () => {
     await setTab("search");
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
@@ -400,7 +408,7 @@
     try {
       let data;
       try {
-        data = await parseResponse(await fetch("/api/status", { credentials: "same-origin" }));
+        data = await parseResponse(await fetch("/api/status", { credentials: "same-origin", cache: "no-store" }));
       } catch (_) {
         // Status check failed (likely 401) — try silent re-login before giving up
         const restored = await attemptSilentRelogin();

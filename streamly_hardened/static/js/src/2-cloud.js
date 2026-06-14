@@ -470,7 +470,7 @@
     if (storageSnapshotLoaded && !force) return;
     storageSnapshotLoading = true;
     try {
-      const data = await parseResponse(await fetch("/fs/folder/0/items", { credentials: "same-origin" }));
+      const data = await parseResponse(await fetch("/fs/folder/0/items", { credentials: "same-origin", cache: "no-store" }));
       updateStorage(data.used || 0, data.max || 1);
     } catch (_) {
       // Silent by design: topbar storage should not interrupt Search/Guest flows.
@@ -483,7 +483,7 @@
     const silent = !!(opts && opts.silent);
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
-      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin" }));
+      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin", cache: "no-store" }));
       currentFolder = Number(id) || 0;
       parentFolder = Number(data.parent) || 0;
       items = [];
@@ -743,7 +743,7 @@
     if (telegramPollTimer) clearTimeout(telegramPollTimer);
     
     try {
-      const response = await fetch("/api/transfer/status", { credentials: "same-origin" });
+      const response = await fetch("/api/transfer/status", { credentials: "same-origin", cache: "no-store" });
       if (response.ok) {
         const data = await response.json();
         

@@ -153,6 +153,9 @@ class CloudService:
                 stats = getattr(details, "stats", None)
                 if stats is not None:
                     seeders = max(seeders, _safe_int(getattr(stats, "seeders", seeders)))
+                    size = max(size, _safe_int(getattr(stats, "size", size)))
+                    progress = max(progress, _safe_float(getattr(stats, "progress", progress)))
+                    download_rate = max(download_rate, _safe_float(getattr(stats, "download_rate", download_rate)))
             except self._progress_error_types() as exc:
                 log.info("Seedr transfer progress unavailable for torrent %s: %s", getattr(torrent, "id", "?"), exc)
 

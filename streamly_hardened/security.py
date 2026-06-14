@@ -232,6 +232,8 @@ def install_security_headers(app) -> None:
             f"base-uri 'none'; object-src 'none'; {csp_ancestors}",
         )
         if request.path.startswith("/api/") or request.path.startswith("/fs/"):
-            response.headers.setdefault("Cache-Control", "no-store")
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         return response
 
