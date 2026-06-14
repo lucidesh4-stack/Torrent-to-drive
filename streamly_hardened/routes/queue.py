@@ -69,17 +69,19 @@ def get_daemon_client(app):
 def seedr_queue_daemon_loop(app):
     while True:
         time.sleep(15)
+        rs = getattr(app, "rs", None)
+        cloud = getattr(app, "cloud", None)
+        if not rs or not cloud:
+            continue
+            
+        lock_held = False
         try:
-            rs = getattr(app, "rs", None)
-            cloud = getattr(app, "cloud", None)
-            if not rs or not cloud:
-                continue
-                
             # Acquire distributed lock to prevent multi-worker concurrency conflicts
             acquired = rs._execute("SET", "streamly:seedr_queue_daemon_lock", "1", "EX", "20", "NX")
             if acquired != "OK":
                 continue
-                
+            lock_held = True
+            
             client = get_daemon_client(app)
             if not client:
                 continue
@@ -91,24 +93,55 @@ def seedr_queue_daemon_loop(app):
             
             # Check and prune oversized/invalid active downloads
             active_changed = False
+            
+            # Build list of completed folder and file names (case-insensitive) to prune ghosts
+            completed_names = set()
+            for f in storage.get("folders", []):
+                if f.get("name"):
+                    completed_names.add(f.get("name").lower())
+            for f in storage.get("files", []):
+                if f.get("name"):
+                    completed_names.add(f.get("name").lower())
+
             for t in list(transfers):
+                t_id = t.get("id")
+                t_name = t.get("name") or ""
                 t_size = max(0, _safe_int(t.get("size", 0)))
-                # Cancel downloads exceeding 4.5 GB limit
+                t_status = str(t.get("status", "")).lower()
+                t_stopped = bool(t.get("stopped"))
+                
+                # 1. Cancel downloads exceeding 4.5 GB limit
                 if t_size > 4.5 * 1024 * 1024 * 1024:
-                    app.logger.warning("Active torrent '%s' resolved to size %s (> 4.5 GB). Cancelling.", t.get("name"), t_size)
+                    app.logger.warning("Active torrent '%s' resolved to size %s (> 4.5 GB). Cancelling.", t_name, t_size)
                     try:
-                        cloud.delete_transfer(client, t.get("id"))
+                        cloud.delete_transfer(client, t_id)
                         active_changed = True
                     except Exception as err:
                         app.logger.error("Failed to cancel oversized torrent: %s", err)
-                # Cancel downloads exceeding user's total quota
+                # 2. Cancel downloads exceeding user's total quota
                 elif t_size > maximum:
-                    app.logger.warning("Active torrent '%s' resolved to size %s which exceeds storage quota %s. Cancelling.", t.get("name"), t_size, maximum)
+                    app.logger.warning("Active torrent '%s' resolved to size %s which exceeds storage quota %s. Cancelling.", t_name, t_size, maximum)
                     try:
-                        cloud.delete_transfer(client, t.get("id"))
+                        cloud.delete_transfer(client, t_id)
                         active_changed = True
                     except Exception as err:
                         app.logger.error("Failed to cancel quota-exceeding torrent: %s", err)
+                # 3. Cancel ghost transfers (download finished but transfer is still active on Seedr)
+                elif t_name and t_name.lower() in completed_names:
+                    app.logger.warning("Ghost transfer detected for completed torrent '%s'. Deleting duplicate transfer.", t_name)
+                    try:
+                        cloud.delete_transfer(client, t_id)
+                        active_changed = True
+                    except Exception as err:
+                        app.logger.error("Failed to delete ghost transfer: %s", err)
+                # 4. Cancel stalled/stopped/failed transfers
+                elif t_stopped or "error" in t_status or "failed" in t_status:
+                    app.logger.warning("Transfer '%s' is stopped/failed (status: %s). Cancelling so it doesn't block the queue.", t_name, t_status)
+                    try:
+                        cloud.delete_transfer(client, t_id)
+                        active_changed = True
+                    except Exception as err:
+                        app.logger.error("Failed to delete stopped/failed transfer: %s", err)
                         
             if active_changed:
                 storage = cloud.list_items(client, 0)
@@ -133,12 +166,27 @@ def seedr_queue_daemon_loop(app):
                 raw_item = raw_item.decode("utf-8")
             item = _json.loads(raw_item)
             
+            item_name = item.get("name") or "torrent"
+            item_magnet = item.get("magnet")
+            
+            # Check if this queued item is already downloading or in active transfers
+            already_active = False
+            for t in transfers:
+                if (item_magnet and t.get("magnet") == item_magnet) or (item_name.lower() == (t.get("name") or "").lower()):
+                    already_active = True
+                    break
+                    
+            if already_active:
+                rs._execute("LPOP", "streamly:seedr_queue")
+                app.logger.warning("Queued item '%s' is already active on Seedr. Removing from queue.", item_name)
+                continue
+            
             item_size = _safe_int(item.get("size"))
             if item_size > 0:
                 # Extra size validation check before attempting addition
                 if item_size > 4.5 * 1024 * 1024 * 1024:
                     rs._execute("LPOP", "streamly:seedr_queue")
-                    app.logger.warning("Discarded queued item '%s' because size %s > 4.5 GB", item.get("name"), item_size)
+                    app.logger.warning("Discarded queued item '%s' because size %s > 4.5 GB", item_name, item_size)
                     continue
                     
                 free_space = maximum - used
@@ -148,14 +196,29 @@ def seedr_queue_daemon_loop(app):
                     
             # Sufficient space (or unknown size raw magnet). LPOP and add.
             rs._execute("LPOP", "streamly:seedr_queue")
-            app.logger.info("Popping and adding queued torrent: %s", item.get("name"))
+            app.logger.info("Popping and adding queued torrent: %s", item_name)
+            
+            # Acquire adding lock during addition to block concurrent manual adds
+            rs._execute("SET", "streamly:seedr_adding_lock", "1", "EX", "10")
             try:
                 cloud.add_magnet(client, item.get("magnet"))
             except Exception as e:
                 app.logger.error("Failed to add magnet popped from queue: %s", e)
+                # Re-queue it at the front of the queue so it is not lost
+                try:
+                    rs._execute("LPUSH", "streamly:seedr_queue", _json.dumps(item))
+                    app.logger.info("Re-queued failed torrent at front of queue: %s", item_name)
+                except Exception as re_err:
+                    app.logger.error("Failed to re-queue failed torrent: %s", re_err)
                 
         except Exception as e:
             app.logger.exception("Error in SeedrQueueDaemon loop: %s", e)
+        finally:
+            if lock_held:
+                try:
+                    rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
+                except Exception:
+                    pass
 
 def trigger_seedr_queue(app):
     def run():

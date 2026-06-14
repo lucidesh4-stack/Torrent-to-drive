@@ -70,7 +70,7 @@
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
   });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
-  $("upBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
+  $("upBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
@@ -194,7 +194,7 @@
   });
 
   // ----- Mobile cloud wiring -----
-  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
+  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
   if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   if ($("cmSelectAll")) $("cmSelectAll").addEventListener("change", (e) => {
     if (e.target.checked) { for (const it of items) selectedKeys.add(it.key); }

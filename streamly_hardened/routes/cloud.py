@@ -31,6 +31,26 @@ def list_items(folder_id: str):
     for transfer in data.get("transfers", []):
         transfer["size_str"] = format_size(transfer.get("size", 0))
         transfer["download_rate_str"] = format_size(transfer.get("download_rate", 0)) + "/s"
+        
+    # Inject queue items directly for root folder to prevent client-side timing lags / vanishing queue list
+    if folder == 0:
+        rs = getattr(current_app, "rs", None)
+        queue_items = []
+        if rs:
+            try:
+                import json as _json
+                raw_items = rs._execute("LRANGE", "streamly:seedr_queue", "0", "-1") or []
+                for raw in raw_items:
+                    try:
+                        if isinstance(raw, bytes):
+                            raw = raw.decode("utf-8")
+                        queue_items.append(_json.loads(raw))
+                    except Exception:
+                        pass
+            except Exception as q_err:
+                current_app.logger.warning("Failed to fetch local queue for list_items: %s", q_err)
+        data["queue"] = queue_items
+        
     return jsonify(data)
 
 
@@ -197,19 +217,50 @@ def add_magnet():
     
     # Check if we should queue the item
     should_queue = False
+    
+    # 1. If there is a local queue in Redis, we must always queue to preserve order
     try:
-        storage = cloud.list_items(current_client(), 0)
-        used = max(0, _safe_int(storage.get("used")))
-        maximum = max(1, _safe_int(storage.get("max")))
-        transfers = storage.get("transfers", [])
-        
-        if len(transfers) > 0:
-            should_queue = True
-        elif size_bytes > 0 and (used + size_bytes > maximum):
-            should_queue = True
+        if rs:
+            q_len = rs._execute("LLEN", "streamly:seedr_queue")
+            if q_len and int(q_len) > 0:
+                should_queue = True
     except Exception as e:
-        current_app.logger.error("Storage check failure before adding: %s", e)
-        
+        current_app.logger.error("Queue check failure before adding: %s", e)
+
+    # 2. Check if a Seedr addition is currently locked/in-progress
+    try:
+        if not should_queue and rs:
+            adding_locked = rs._execute("GET", "streamly:seedr_adding_lock")
+            if adding_locked:
+                should_queue = True
+    except Exception as e:
+        current_app.logger.error("Adding lock check failure: %s", e)
+
+    # 3. Check Seedr active downloads and space quota
+    if not should_queue:
+        try:
+            storage = cloud.list_items(current_client(), 0)
+            used = max(0, _safe_int(storage.get("used")))
+            maximum = max(1, _safe_int(storage.get("max")))
+            transfers = storage.get("transfers", [])
+            
+            if len(transfers) > 0:
+                should_queue = True
+            elif size_bytes > 0 and (used + size_bytes > maximum):
+                should_queue = True
+        except Exception as e:
+            current_app.logger.error("Storage check failure before adding: %s", e)
+
+    # 4. Attempt to acquire the adding lock if we plan to add directly
+    if not should_queue and rs:
+        try:
+            # Lock for 10 seconds to throttle concurrent adds
+            acquired = rs._execute("SET", "streamly:seedr_adding_lock", "1", "EX", "10", "NX")
+            if acquired != "OK":
+                should_queue = True
+        except Exception as e:
+            current_app.logger.error("Failed to acquire seedr adding lock: %s", e)
+
     if should_queue:
         if rs:
             import uuid
@@ -230,11 +281,33 @@ def add_magnet():
             
     try:
         cloud.add_magnet(current_client(), magnet)
-    except (ConnectionError, TimeoutError) as e:
-        current_app.logger.warning("Provider error on add: %s", e)
-        from ..security import json_error
-        msg = str(e) or "Provider rejected the request or is unavailable"
-        return json_error(502, "provider_error", msg)
+    except Exception as e:
+        # Fallback: if adding directly to Seedr fails (transient error, rate limit, quota rejection, etc.),
+        # do not reject; automatically queue it instead!
+        current_app.logger.warning("Direct Seedr addition failed for '%s': %s. Falling back to local queue.", name, e)
+        if rs:
+            import uuid
+            import time
+            import json as _json
+            queued_item = {
+                "task_id": str(uuid.uuid4())[:8],
+                "magnet": magnet,
+                "name": name,
+                "size": size_bytes,
+                "time": int(time.time())
+            }
+            rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+            # Clean up adding lock since it failed
+            try:
+                rs._execute("DEL", "streamly:seedr_adding_lock")
+            except Exception:
+                pass
+            return jsonify({"success": True, "queued": True, "fallback": True})
+        else:
+            from ..security import json_error
+            msg = str(e) or "Provider rejected the request and Redis fallback is unavailable"
+            return json_error(502, "provider_error", msg)
+            
     return jsonify({"success": True})
 
 @cloud_bp.get("/api/url")

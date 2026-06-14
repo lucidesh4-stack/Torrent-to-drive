@@ -348,7 +348,7 @@
     body.textContent = "";
     const pathLabel = $("pathLabel");
     if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
-    $("upBtn").disabled = currentFolder === 0;
+    $("upBtn").disabled = currentFolder == 0;
     $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
     lastClickedKey = null;
@@ -388,7 +388,7 @@
 
       const sizeTd = document.createElement("td");
       sizeTd.className = "muted";
-      sizeTd.textContent = item.size_str || "-";
+      sizeTd.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
 
       const dateTd = document.createElement("td");
       dateTd.className = "muted";
@@ -403,13 +403,13 @@
       body.appendChild(tr);
     }
 
-    // 2. Render transfers SECOND - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 2. Render transfers SECOND - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const t of transfers) body.appendChild(renderTransferRow(t));
     }
 
-    // 3. Render queued items THIRD - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 3. Render queued items THIRD - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const q of seedrQueue) body.appendChild(renderQueuedRow(q));
     }
 
@@ -430,7 +430,7 @@
     }
     const empty = $("cloudMobileEmpty");
     if (empty) empty.classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
-    $("cmUpBtn").disabled = currentFolder === 0;
+    $("cmUpBtn").disabled = currentFolder == 0;
 
     // 1. Render items (folders and files) FIRST
     for (const item of items) {
@@ -458,7 +458,7 @@
       const meta = document.createElement("div");
       meta.className = "cm-meta";
       const s1 = document.createElement("span");
-      s1.textContent = item.size_str || "-";
+      s1.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
       const s2 = document.createElement("span");
       s2.textContent = fmtDate(item.last_update);
       meta.append(s1, s2);
@@ -482,8 +482,8 @@
       list.appendChild(row);
     }
 
-    // 2. Render transfers SECOND - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 2. Render transfers SECOND - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const t of transfers) {
         const row = document.createElement("div");
         row.className = "cm-row cm-transfer";
@@ -512,8 +512,8 @@
       }
     }
 
-    // 3. Render queued items THIRD - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 3. Render queued items THIRD - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const q of seedrQueue) {
         const row = document.createElement("div");
         row.className = "cm-row cm-transfer cm-queued";
@@ -612,8 +612,8 @@
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
       const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin" }));
-      currentFolder = Number(id);
-      parentFolder = Number(data.parent || 0);
+      currentFolder = Number(id) || 0;
+      parentFolder = Number(data.parent) || 0;
       items = [];
       transfers = [];
       seedrQueue = [];
@@ -621,14 +621,19 @@
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
       
-      // Fetch local queue only at root folder
-      if (currentFolder === 0) {
-        try {
-          const qData = await parseResponse(await fetch("/api/queue", { credentials: "same-origin" }));
-          seedrQueue = qData.items || [];
-        } catch (qErr) {
-          console.warn("Failed to load local queue", qErr);
-        }
+      // Populate local queue directly from the injected API response data at root folder
+      if (currentFolder == 0) {
+        const rawQueue = data.queue || [];
+        
+        // Deduplicate: remove any queued items that are already active in transfers
+        const activeMagnets = new Set(transfers.map(t => (t.magnet || "").toLowerCase()));
+        const activeNames = new Set(transfers.map(t => (t.name || "").toLowerCase()));
+        
+        seedrQueue = rawQueue.filter(q => {
+          if (q.magnet && activeMagnets.has(q.magnet.toLowerCase())) return false;
+          if (q.name && activeNames.has(q.name.toLowerCase())) return false;
+          return true;
+        });
       }
       
       updateStorage(data.used || 0, data.max || 1);
@@ -921,6 +926,7 @@
     openTelegramSettings();
   }
 
+  // History Management (Redis Backend)
   /* ===== Series Mode v2 + Normal grouped ===== */
   let seriesMode = false;
   // Holds the last rendered dataset so client-side sorting can re-order without re-fetching.
@@ -1439,7 +1445,131 @@
       }
     });
   }
-  // History Management (Redis Backend)
+  async function saveToHistory(magnet, title, size) {
+    try {
+      await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet", size: size || "" });
+    } catch (e) {
+      console.warn("Failed to save history", e);
+      // Optional: toast("History save failed: " + (e.message || "Unknown error"));
+    }
+  }
+
+  async function renderHistory() {
+    const tbody = $("historyBody");
+    tbody.innerHTML = "<tr><td colspan='2' class='muted' style='text-align:center;'>Loading...</td></tr>";
+    
+    try {
+      const data = await parseResponse(await fetch("/api/history", { credentials: "same-origin" }));
+      const history = data.items || [];
+      
+      tbody.innerHTML = "";
+      $("historyEmpty").classList.toggle("hidden", history.length > 0);
+      
+      history.forEach(item => {
+        const tr = document.createElement("tr");
+        
+        const nameTd = document.createElement("td");
+        nameTd.style.maxWidth = "0"; // allows truncate inside table-layout: fixed
+        nameTd.style.width = "100%";
+        const titleDiv = document.createElement("div");
+        titleDiv.className = "truncate";
+        titleDiv.style.fontWeight = "bold";
+        titleDiv.textContent = item.title;
+        nameTd.append(titleDiv);
+        
+        const sizeDiv = document.createElement("div");
+        sizeDiv.className = "text-meta";
+        sizeDiv.style.fontSize = "11px";
+        sizeDiv.style.marginTop = "2px";
+        sizeDiv.textContent = item.size ? `${item.size} · ${item.time}` : item.time;
+        nameTd.append(sizeDiv);
+        
+        const actionTd = document.createElement("td");
+        actionTd.style.textAlign = "right";
+        const btnGroup = document.createElement("div");
+        btnGroup.style.display = "inline-flex";
+        btnGroup.style.gap = "4px";
+        
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "secondary hist-icon";
+        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+        copyBtn.title = "Copy magnet link";
+        copyBtn.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(item.magnet);
+            copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+            toast("Magnet copied");
+            setTimeout(() => {
+              copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+            }, 1500);
+          } catch (e) {
+            toast("Copy failed");
+          }
+        };
+
+        const addBtn = document.createElement("button");
+        addBtn.className = "hist-icon";
+        addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
+        addBtn.title = "Add to Destination";
+        addBtn.onclick = async () => {
+          addBtn.disabled = true;
+          addBtn.innerHTML = `<svg class="btn-spinner" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/><path d="M12 2a10 10 0 0 1 10 10" class="spin-path"/></svg>`;
+          try {
+            await postJson("/api/add", { magnet: item.magnet });
+            toast("Added from history: " + item.title);
+            await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
+            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+          } catch (e) {
+            toast("Failed: " + e.message);
+            addBtn.disabled = false;
+            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
+          }
+        };
+        
+        const delBtn = document.createElement("button");
+        delBtn.className = "danger ghost hist-icon";
+        delBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
+        delBtn.title = "Remove from history";
+        delBtn.onclick = async () => {
+          delBtn.disabled = true;
+          try {
+            await postJson("/api/history/delete", { magnet: item.magnet });
+            renderHistory();
+          } catch(e) {
+             toast("Failed to delete from history");
+             delBtn.disabled = false;
+          }
+        };
+        
+        btnGroup.append(copyBtn, addBtn, delBtn);
+        actionTd.appendChild(btnGroup);
+        
+        tr.append(nameTd, actionTd);
+        tbody.appendChild(tr);
+      });
+    } catch(e) {
+      tbody.innerHTML = "<tr><td colspan='2' class='error' style='text-align:center;'>Failed to load history</td></tr>";
+    }
+  }
+
+  $("historyBtn").addEventListener("click", () => {
+    if (typeof window.updateBottomNavHighlight === "function") window.updateBottomNavHighlight(2);
+    renderHistory();
+    $("historyOverlay").classList.remove("hidden");
+  });
+
+  $("closeHistoryBtn").addEventListener("click", () => {
+    $("historyOverlay").classList.add("hidden");
+    if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
+  });
+
+  $("clearHistoryBtn").addEventListener("click", async () => {
+    if (confirm("Clear global magnet history?")) {
+      await postJson("/api/history/clear", {});
+      renderHistory();
+    }
+  });
+
 (() => {
   let pollTimer = null;
   let isOverlayOpen = false;
@@ -1611,131 +1741,6 @@
     refreshQueueStatus();
   };
 })();
-  async function saveToHistory(magnet, title, size) {
-    try {
-      await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet", size: size || "" });
-    } catch (e) {
-      console.warn("Failed to save history", e);
-      // Optional: toast("History save failed: " + (e.message || "Unknown error"));
-    }
-  }
-
-  async function renderHistory() {
-    const tbody = $("historyBody");
-    tbody.innerHTML = "<tr><td colspan='2' class='muted' style='text-align:center;'>Loading...</td></tr>";
-    
-    try {
-      const data = await parseResponse(await fetch("/api/history", { credentials: "same-origin" }));
-      const history = data.items || [];
-      
-      tbody.innerHTML = "";
-      $("historyEmpty").classList.toggle("hidden", history.length > 0);
-      
-      history.forEach(item => {
-        const tr = document.createElement("tr");
-        
-        const nameTd = document.createElement("td");
-        nameTd.style.maxWidth = "0"; // allows truncate inside table-layout: fixed
-        nameTd.style.width = "100%";
-        const titleDiv = document.createElement("div");
-        titleDiv.className = "truncate";
-        titleDiv.style.fontWeight = "bold";
-        titleDiv.textContent = item.title;
-        nameTd.append(titleDiv);
-        
-        const sizeDiv = document.createElement("div");
-        sizeDiv.className = "text-meta";
-        sizeDiv.style.fontSize = "11px";
-        sizeDiv.style.marginTop = "2px";
-        sizeDiv.textContent = item.size ? `${item.size} · ${item.time}` : item.time;
-        nameTd.append(sizeDiv);
-        
-        const actionTd = document.createElement("td");
-        actionTd.style.textAlign = "right";
-        const btnGroup = document.createElement("div");
-        btnGroup.style.display = "inline-flex";
-        btnGroup.style.gap = "4px";
-        
-        const copyBtn = document.createElement("button");
-        copyBtn.className = "secondary hist-icon";
-        copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
-        copyBtn.title = "Copy magnet link";
-        copyBtn.onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(item.magnet);
-            copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
-            toast("Magnet copied");
-            setTimeout(() => {
-              copyBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
-            }, 1500);
-          } catch (e) {
-            toast("Copy failed");
-          }
-        };
-
-        const addBtn = document.createElement("button");
-        addBtn.className = "hist-icon";
-        addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
-        addBtn.title = "Add to Destination";
-        addBtn.onclick = async () => {
-          addBtn.disabled = true;
-          addBtn.innerHTML = `<svg class="btn-spinner" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/><path d="M12 2a10 10 0 0 1 10 10" class="spin-path"/></svg>`;
-          try {
-            await postJson("/api/add", { magnet: item.magnet });
-            toast("Added from history: " + item.title);
-            await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
-            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
-          } catch (e) {
-            toast("Failed: " + e.message);
-            addBtn.disabled = false;
-            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
-          }
-        };
-        
-        const delBtn = document.createElement("button");
-        delBtn.className = "danger ghost hist-icon";
-        delBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-trash-2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/></svg>`;
-        delBtn.title = "Remove from history";
-        delBtn.onclick = async () => {
-          delBtn.disabled = true;
-          try {
-            await postJson("/api/history/delete", { magnet: item.magnet });
-            renderHistory();
-          } catch(e) {
-             toast("Failed to delete from history");
-             delBtn.disabled = false;
-          }
-        };
-        
-        btnGroup.append(copyBtn, addBtn, delBtn);
-        actionTd.appendChild(btnGroup);
-        
-        tr.append(nameTd, actionTd);
-        tbody.appendChild(tr);
-      });
-    } catch(e) {
-      tbody.innerHTML = "<tr><td colspan='2' class='error' style='text-align:center;'>Failed to load history</td></tr>";
-    }
-  }
-
-  $("historyBtn").addEventListener("click", () => {
-    if (typeof window.updateBottomNavHighlight === "function") window.updateBottomNavHighlight(2);
-    renderHistory();
-    $("historyOverlay").classList.remove("hidden");
-  });
-
-  $("closeHistoryBtn").addEventListener("click", () => {
-    $("historyOverlay").classList.add("hidden");
-    if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
-  });
-
-  $("clearHistoryBtn").addEventListener("click", async () => {
-    if (confirm("Clear global magnet history?")) {
-      await postJson("/api/history/clear", {});
-      renderHistory();
-    }
-  });
-
 
   let suppressSuggestions = false;
   let searchAbort = null;
@@ -2226,7 +2231,7 @@
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
   });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
-  $("upBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
+  $("upBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
@@ -2350,7 +2355,7 @@
   });
 
   // ----- Mobile cloud wiring -----
-  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder !== 0) loadFolder(parentFolder || 0); });
+  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
   if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   if ($("cmSelectAll")) $("cmSelectAll").addEventListener("change", (e) => {
     if (e.target.checked) { for (const it of items) selectedKeys.add(it.key); }

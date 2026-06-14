@@ -220,7 +220,7 @@
     body.textContent = "";
     const pathLabel = $("pathLabel");
     if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
-    $("upBtn").disabled = currentFolder === 0;
+    $("upBtn").disabled = currentFolder == 0;
     $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
     lastClickedKey = null;
@@ -260,7 +260,7 @@
 
       const sizeTd = document.createElement("td");
       sizeTd.className = "muted";
-      sizeTd.textContent = item.size_str || "-";
+      sizeTd.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
 
       const dateTd = document.createElement("td");
       dateTd.className = "muted";
@@ -275,13 +275,13 @@
       body.appendChild(tr);
     }
 
-    // 2. Render transfers SECOND - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 2. Render transfers SECOND - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const t of transfers) body.appendChild(renderTransferRow(t));
     }
 
-    // 3. Render queued items THIRD - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 3. Render queued items THIRD - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const q of seedrQueue) body.appendChild(renderQueuedRow(q));
     }
 
@@ -302,7 +302,7 @@
     }
     const empty = $("cloudMobileEmpty");
     if (empty) empty.classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
-    $("cmUpBtn").disabled = currentFolder === 0;
+    $("cmUpBtn").disabled = currentFolder == 0;
 
     // 1. Render items (folders and files) FIRST
     for (const item of items) {
@@ -330,7 +330,7 @@
       const meta = document.createElement("div");
       meta.className = "cm-meta";
       const s1 = document.createElement("span");
-      s1.textContent = item.size_str || "-";
+      s1.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
       const s2 = document.createElement("span");
       s2.textContent = fmtDate(item.last_update);
       meta.append(s1, s2);
@@ -354,8 +354,8 @@
       list.appendChild(row);
     }
 
-    // 2. Render transfers SECOND - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 2. Render transfers SECOND - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const t of transfers) {
         const row = document.createElement("div");
         row.className = "cm-row cm-transfer";
@@ -384,8 +384,8 @@
       }
     }
 
-    // 3. Render queued items THIRD - only if currentFolder === 0
-    if (currentFolder === 0) {
+    // 3. Render queued items THIRD - only if currentFolder == 0
+    if (currentFolder == 0) {
       for (const q of seedrQueue) {
         const row = document.createElement("div");
         row.className = "cm-row cm-transfer cm-queued";
@@ -484,8 +484,8 @@
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
       const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin" }));
-      currentFolder = Number(id);
-      parentFolder = Number(data.parent || 0);
+      currentFolder = Number(id) || 0;
+      parentFolder = Number(data.parent) || 0;
       items = [];
       transfers = [];
       seedrQueue = [];
@@ -493,14 +493,19 @@
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
       
-      // Fetch local queue only at root folder
-      if (currentFolder === 0) {
-        try {
-          const qData = await parseResponse(await fetch("/api/queue", { credentials: "same-origin" }));
-          seedrQueue = qData.items || [];
-        } catch (qErr) {
-          console.warn("Failed to load local queue", qErr);
-        }
+      // Populate local queue directly from the injected API response data at root folder
+      if (currentFolder == 0) {
+        const rawQueue = data.queue || [];
+        
+        // Deduplicate: remove any queued items that are already active in transfers
+        const activeMagnets = new Set(transfers.map(t => (t.magnet || "").toLowerCase()));
+        const activeNames = new Set(transfers.map(t => (t.name || "").toLowerCase()));
+        
+        seedrQueue = rawQueue.filter(q => {
+          if (q.magnet && activeMagnets.has(q.magnet.toLowerCase())) return false;
+          if (q.name && activeNames.has(q.name.toLowerCase())) return false;
+          return true;
+        });
       }
       
       updateStorage(data.used || 0, data.max || 1);
