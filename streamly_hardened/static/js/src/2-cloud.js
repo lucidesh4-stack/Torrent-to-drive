@@ -489,7 +489,17 @@
     
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
-      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" }));
+      // Fetch Seedr contents and site queue concurrently
+      const folderPromise = fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" });
+      const queuePromise = folderId === 0
+        ? fetch("/api/queue", { credentials: "same-origin", cache: "no-store" }).catch(err => {
+            console.error("Queue fetch failed:", err);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const [folderRes, queueRes] = await Promise.all([folderPromise, queuePromise]);
+      const data = await parseResponse(folderRes);
       
       // If the user has navigated to another folder in the meantime, ignore this stale response
       if (lastRequestedFolderId !== folderId) return;
@@ -503,9 +513,19 @@
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
       
-      // Populate local queue directly from the injected API response data at root folder
+      // Populate local queue directly from the site API response data at root folder
       if (currentFolder == 0) {
-        const rawQueue = data.queue || [];
+        let rawQueue = [];
+        if (queueRes && queueRes.ok) {
+          try {
+            const qData = await queueRes.json();
+            if (qData.success) {
+              rawQueue = qData.items || [];
+            }
+          } catch (e) {
+            console.error("Error parsing queue json:", e);
+          }
+        }
         
         // Deduplicate: remove any queued items that are already active in transfers
         const activeMagnets = new Set(transfers.map(t => (t.magnet || "").toLowerCase()));
