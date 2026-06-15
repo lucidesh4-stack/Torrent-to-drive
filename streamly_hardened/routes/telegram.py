@@ -104,16 +104,6 @@ class AsyncQueueStreamWrapper:
         self.buffer = self.buffer[n:]
         return data
 
-async def producer(response_stream, queue):
-    try:
-        # Use 512 KB chunks to exactly match upload part size — eliminates
-        # internal buffering/splitting inside AsyncQueueStreamWrapper.
-        async for chunk in response_stream.aiter_bytes(chunk_size=512 * 1024):
-            await queue.put(chunk)
-        await queue.put(None)
-    except Exception as pe:
-        log.warning("Producer stream read error: %s", pe)
-        await queue.put(pe)
 
 class ProgressTracker:
     def __init__(self, rs, task_id, filename, total_bytes, loop, cancel_flag):
@@ -192,41 +182,40 @@ class ProgressTracker:
             self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
 
 class UploadSender:
-    def __init__(self, uploader, client, sender, file_id, part_count, big, index, stride, loop):
+    def __init__(self, uploader, client, sender, file_id, part_count, big, loop):
         self.uploader = uploader
         self.client = client
         self.sender = sender
         self.part_count = part_count
-        if big:
-            self.request = functions.upload.SaveBigFilePartRequest(
-                file_id=file_id,
-                file_part=index,
-                file_total_parts=part_count,
-                bytes=b""
-            )
-        else:
-            self.request = functions.upload.SaveFilePartRequest(
-                file_id=file_id,
-                file_part=index,
-                bytes=b""
-            )
-        self.stride = stride
+        self.big = big
+        self.file_id = file_id
         self.previous = None
         self.loop = loop
         self.exception = None
 
-    async def next(self, data: bytes) -> None:
+    async def start_upload(self, part_index: int, data: bytes) -> None:
         if self.exception:
             raise self.exception
         if self.previous:
             await self.previous
-        self.previous = self.loop.create_task(self._next(data))
+        self.previous = self.loop.create_task(self._next(part_index, data))
 
-    async def _next(self, data: bytes) -> None:
+    async def _next(self, part_index: int, data: bytes) -> None:
         try:
-            self.request.bytes = data
-            await self.client._call(self.sender, self.request)
-            self.request.file_part += self.stride
+            if self.big:
+                request = functions.upload.SaveBigFilePartRequest(
+                    file_id=self.file_id,
+                    file_part=part_index,
+                    file_total_parts=self.part_count,
+                    bytes=data
+                )
+            else:
+                request = functions.upload.SaveFilePartRequest(
+                    file_id=self.file_id,
+                    file_part=part_index,
+                    bytes=data
+                )
+            await self.client._call(self.sender, request)
             self.uploader.update_progress(len(data))
         except Exception as e:
             self.exception = e
@@ -247,7 +236,6 @@ class ParallelUploader:
         self.auth_key = (None if dc_id and client.session.dc_id != dc_id
                          else client.session.auth_key)
         self.senders = []
-        self.upload_ticker = 0
         self.progress_callback = progress_callback
         self.file_size = file_size
         self.uploaded_bytes = 0
@@ -281,20 +269,39 @@ class ParallelUploader:
         big = file_size > 10 * 1024 * 1024
 
         self.senders = [
-            await self._create_upload_sender(file_id, part_count, big, 0, connections),
+            await self._create_upload_sender(file_id, part_count, big, connections),
             *await asyncio.gather(*[
-                self._create_upload_sender(file_id, part_count, big, i, connections)
-                for i in range(1, connections)
+                self._create_upload_sender(file_id, part_count, big, connections)
+                for _ in range(1, connections)
             ])
         ]
 
-    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, index: int, stride: int) -> UploadSender:
+    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, connections: int) -> UploadSender:
         sender_conn = await self._create_sender()
-        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, index, stride, loop=self.loop)
+        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, loop=self.loop)
 
-    async def upload(self, part: bytes) -> None:
-        await self.senders[self.upload_ticker].next(part)
-        self.upload_ticker = (self.upload_ticker + 1) % len(self.senders)
+    async def upload(self, part_index: int, part: bytes) -> None:
+        # Check if there is an idle sender
+        idle_sender = None
+        for sender in self.senders:
+            if sender.previous is None or sender.previous.done():
+                idle_sender = sender
+                break
+
+        if idle_sender is None:
+            # All senders are busy, wait for at least one to finish
+            busy_tasks = {
+                sender.previous: sender 
+                for sender in self.senders 
+                if sender.previous and not sender.previous.done()
+            }
+            if busy_tasks:
+                done, pending = await asyncio.wait(list(busy_tasks.keys()), return_when=asyncio.FIRST_COMPLETED)
+                finished_task = done.pop()
+                idle_sender = busy_tasks[finished_task]
+
+        # Start uploading on the idle sender
+        await idle_sender.start_upload(part_index, part)
 
     async def finish_upload(self) -> None:
         if self.senders:
@@ -324,7 +331,7 @@ async def parallel_upload_file(client, file_wrapper, file_size, filename, progre
             if not chunk:
                 break
 
-            await uploader.upload(chunk)
+            await uploader.upload(part_index, chunk)
             part_index += 1
 
         await uploader.finish_upload()
@@ -534,42 +541,55 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "3600"
             )
             
-            limits = httpx.Limits(max_keepalive_connections=5, max_connections=10)
-            async with httpx.AsyncClient(limits=limits, timeout=120.0, follow_redirects=True) as httpx_client:
-                async with httpx_client.stream("GET", file_url) as r:
-                    r.raise_for_status()
-                    
-                    exact_size = size
-                    content_len_header = r.headers.get("content-length")
-                    if content_len_header:
-                        try:
-                            exact_size = int(content_len_header)
-                        except ValueError:
-                            pass
-                    
-                    # Larger buffer (16 × 512 KB = 8 MB) prevents upload
-                    # workers from stalling while waiting for the next
-                    # Seedr chunk to arrive.
-                    queue = asyncio.Queue(maxsize=16)
-                    producer_task = asyncio.create_task(producer(r, queue))
-                    
-                    wrapper = AsyncQueueStreamWrapper(queue)
-                    wrapper.name = filename
-                    
-                    tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
-                    
-                    uploaded = await parallel_upload_file(
-                        client,
-                        wrapper,
-                        file_size=exact_size,
-                        filename=filename,
-                        progress_callback=tracker,
-                        concurrency=8
-                    )
-                    
-                    await producer_task
-                    
-                    await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
+            exact_size = size
+            import requests
+            r = requests.get(file_url, stream=True, timeout=120.0)
+            r.raise_for_status()
+            
+            content_len_header = r.headers.get("content-length")
+            if content_len_header:
+                try:
+                    exact_size = int(content_len_header)
+                except ValueError:
+                    pass
+            
+            queue = asyncio.Queue(maxsize=16)
+            
+            def download_worker():
+                try:
+                    for chunk in r.iter_content(chunk_size=512 * 1024):
+                        if cancel_flag[0]:
+                            break
+                        fut = asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
+                        fut.result()
+                    asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
+                except Exception as de:
+                    log.warning("Background download worker error: %s", de)
+                    asyncio.run_coroutine_threadsafe(queue.put(de), loop).result()
+                finally:
+                    r.close()
+
+            download_thread = threading.Thread(target=download_worker, name="seedr-downloader")
+            download_thread.daemon = True
+            download_thread.start()
+            
+            wrapper = AsyncQueueStreamWrapper(queue)
+            wrapper.name = filename
+            
+            tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
+            
+            uploaded = await parallel_upload_file(
+                client,
+                wrapper,
+                file_size=exact_size,
+                filename=filename,
+                progress_callback=tracker,
+                concurrency=8
+            )
+            
+            await loop.run_in_executor(None, download_thread.join)
+            
+            await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
             rs._execute(
                 "SET",
