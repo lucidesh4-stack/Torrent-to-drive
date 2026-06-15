@@ -771,6 +771,7 @@
     // Clear inputs
     $("tgPhone").value = "";
     $("tgCode").value = "";
+    if ($("tgProxyUrl")) $("tgProxyUrl").value = "";
     
     try {
       // Check auth status
@@ -787,6 +788,16 @@
           $("tgCodeStep").classList.add("hidden");
         }
       }
+      
+      // Load proxy settings
+      const settingsRes = await fetch("/api/telegram/settings", { credentials: "same-origin" });
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        if (settingsData.cloudflare_worker_proxy && $("tgProxyUrl")) {
+          $("tgProxyUrl").value = settingsData.cloudflare_worker_proxy;
+        }
+      }
+      
       status($("tgAuthStatus"), "", "");
     } catch (err) {
       console.error("Error loading Telegram status:", err);

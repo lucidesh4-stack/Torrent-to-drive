@@ -337,6 +337,17 @@
         </div>
       </div>
       
+      <!-- Cloudflare Worker Proxy Settings -->
+      <hr style="border: 0; border-top: 1px solid var(--line); margin: 8px 0;">
+      <div id="tgProxySettings" style="display: grid; gap: 8px;">
+        <label for="tgProxyUrl" style="font-size: 13px; font-weight: 600;">Cloudflare Worker Proxy (Optional)</label>
+        <div style="display: flex; gap: 8px;">
+          <input id="tgProxyUrl" type="text" placeholder="https://your-worker.workers.dev" style="flex: 1; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 10px; border-radius: var(--radius-sm); font-size: 13px;">
+          <button id="tgSaveProxyBtn" type="button" class="primary" style="padding: 10px 14px; font-size: 13px; font-weight: bold; border-radius: var(--radius-sm);">Save</button>
+        </div>
+        <p class="muted" style="font-size: 0.75rem; margin: 0; line-height: 1.3;">Bypasses Seedr speed limits. Route downloads through your Cloudflare Worker URL to get maximum speeds.</p>
+      </div>
+      
       <div id="tgAuthStatus" class="status" style="margin: 0;"></div>
     </div>
   </section>

@@ -71,38 +71,7 @@ def get_projected_bandwidth(rs, ym, current_file_size=0):
                 
     return projected
 
-class AsyncQueueStreamWrapper:
-    def __init__(self, queue: asyncio.Queue):
-        self.queue = queue
-        self.buffer = b""
-        self.name = "file"
-        self.producer_done = False
-        self.exception = None
 
-    async def read(self, n):
-        if self.exception:
-            raise self.exception
-
-        while len(self.buffer) < n and not (self.producer_done and self.queue.empty()):
-            try:
-                item = await self.queue.get()
-                self.queue.task_done()
-                if item is None:
-                    self.producer_done = True
-                elif isinstance(item, Exception):
-                    self.exception = item
-                    raise item
-                else:
-                    self.buffer += item
-            except Exception as e:
-                if isinstance(e, Exception) and not isinstance(e, ValueError):
-                    self.exception = e
-                    raise e
-                break
-
-        data = self.buffer[:n]
-        self.buffer = self.buffer[n:]
-        return data
 
 
 class ProgressTracker:
@@ -308,7 +277,7 @@ class ParallelUploader:
             await asyncio.gather(*[sender.disconnect() for sender in self.senders])
             self.senders = []
 
-async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=8):
+async def parallel_upload_file(client, output_queue, file_size, filename, progress_callback):
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
@@ -321,18 +290,23 @@ async def parallel_upload_file(client, file_wrapper, file_size, filename, progre
     await uploader.init_upload(file_id, file_size, part_size, connections)
 
     try:
-        part_index = 0
-        while True:
+        uploaded_parts = 0
+        while uploaded_parts < parts_count:
             for sender in uploader.senders:
                 if sender.exception:
                     raise sender.exception
 
-            chunk = await file_wrapper.read(part_size)
-            if not chunk:
-                break
+            item = await output_queue.get()
+            output_queue.task_done()
 
+            if isinstance(item, Exception):
+                raise item
+            if item is None:
+                raise ValueError("Download connection closed prematurely (received EOF before all parts were downloaded)")
+
+            part_index, chunk = item
             await uploader.upload(part_index, chunk)
-            part_index += 1
+            uploaded_parts += 1
 
         await uploader.finish_upload()
 
@@ -549,61 +523,115 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 "Accept-Encoding": "identity",
                 "Connection": "keep-alive"
             }
-            r = requests.get(file_url, stream=True, timeout=120.0, headers=headers)
-            r.raise_for_status()
             
+            # Resolve proxy settings
+            proxy_url = rs.get("streamly:cloudflare_worker_proxy")
+            if proxy_url:
+                if isinstance(proxy_url, bytes):
+                    proxy_url = proxy_url.decode("utf-8")
+                proxy_url = proxy_url.strip()
+            if not proxy_url:
+                proxy_url = current_app.config.get("CLOUDFLARE_WORKER_PROXY", "").strip()
+
+            if proxy_url:
+                import urllib.parse
+                download_url = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(file_url)}"
+                log.info("Routing download through Cloudflare Worker Proxy: %s", proxy_url)
+            else:
+                download_url = file_url
+                log.info("Downloading directly from Seedr (no proxy configured)")
+
+            # Query Content-Length using a streaming request
+            r = requests.get(download_url, stream=True, timeout=30.0, headers=headers)
+            r.raise_for_status()
             content_len_header = r.headers.get("content-length")
             if content_len_header:
                 try:
                     exact_size = int(content_len_header)
                 except ValueError:
                     pass
+            r.close()
             
-            queue = asyncio.Queue(maxsize=16)
-            
-            def download_worker():
+            import queue as py_queue
+            index_queue = py_queue.Queue()
+            part_size = 512 * 1024
+            parts_count = (exact_size + part_size - 1) // part_size
+            for idx in range(parts_count):
+                index_queue.put(idx)
+
+            output_queue = asyncio.Queue(maxsize=16)
+            active_threads = 2
+            threads_lock = threading.Lock()
+
+            def download_worker(worker_id):
+                nonlocal active_threads
                 try:
                     start_time = time.time()
-                    chunk_count = 0
-                    for chunk in r.iter_content(chunk_size=512 * 1024):
-                        if cancel_flag[0]:
+                    downloaded_bytes = 0
+                    session = requests.Session()
+                    while not cancel_flag[0]:
+                        try:
+                            part_index = index_queue.get_nowait()
+                        except py_queue.Empty:
                             break
-                        chunk_count += 1
+
+                        start = part_index * part_size
+                        end = min(exact_size - 1, (part_index + 1) * part_size - 1)
+                        if start > end:
+                            index_queue.task_done()
+                            continue
+
+                        headers = {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "Accept": "*/*",
+                            "Range": f"bytes={start}-{end}",
+                            "Connection": "keep-alive"
+                        }
                         
-                        if chunk_count % 10 == 0:
+                        r = session.get(download_url, headers=headers, timeout=60.0)
+                        r.raise_for_status()
+                        chunk = r.content
+                        
+                        downloaded_bytes += len(chunk)
+                        
+                        if part_index % 10 == 0:
                             elapsed = time.time() - start_time
                             if elapsed > 0:
-                                download_speed = (chunk_count * 512 * 1024) / (elapsed * 1024 * 1024)
-                                log.info("Seedr download speed: %.2f MB/s", download_speed)
-                                
-                        fut = asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
-                        fut.result()
-                    asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
-                except Exception as de:
-                    log.warning("Background download worker error: %s", de)
-                    asyncio.run_coroutine_threadsafe(queue.put(de), loop).result()
-                finally:
-                    r.close()
+                                speed = downloaded_bytes / (elapsed * 1024 * 1024)
+                                log.info("Downloader %d speed: %.2f MB/s", worker_id, speed)
 
-            download_thread = threading.Thread(target=download_worker, name="seedr-downloader")
-            download_thread.daemon = True
-            download_thread.start()
-            
-            wrapper = AsyncQueueStreamWrapper(queue)
-            wrapper.name = filename
+                        fut = asyncio.run_coroutine_threadsafe(output_queue.put((part_index, chunk)), loop)
+                        fut.result()
+                        index_queue.task_done()
+                        
+                except Exception as de:
+                    log.warning("Background download worker %d error: %s", worker_id, de)
+                    asyncio.run_coroutine_threadsafe(output_queue.put(de), loop).result()
+                finally:
+                    with threads_lock:
+                        active_threads -= 1
+                        if active_threads == 0:
+                            asyncio.run_coroutine_threadsafe(output_queue.put(None), loop).result()
+
+            download_threads = []
+            for w_id in range(2):
+                t = threading.Thread(target=download_worker, args=(w_id,), name=f"seedr-downloader-{w_id}")
+                t.daemon = True
+                t.start()
+                download_threads.append(t)
             
             tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
             
             uploaded = await parallel_upload_file(
                 client,
-                wrapper,
+                output_queue,
                 file_size=exact_size,
                 filename=filename,
-                progress_callback=tracker,
-                concurrency=8
+                progress_callback=tracker
             )
             
-            await loop.run_in_executor(None, download_thread.join)
+            for t in download_threads:
+                await loop.run_in_executor(None, t.join)
             
             await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
@@ -1138,6 +1166,50 @@ def telegram_logout():
         return json_error(503, "redis_unavailable", "Redis is required")
         
     rs._execute("DEL", "streamly:telegram_session")
+    return jsonify({"success": True})
+
+
+@telegram_bp.get("/api/telegram/settings")
+def get_telegram_settings():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    proxy_url = rs.get("streamly:cloudflare_worker_proxy")
+    if proxy_url:
+        if isinstance(proxy_url, bytes):
+            proxy_url = proxy_url.decode("utf-8")
+        proxy_url = proxy_url.strip()
+    else:
+        proxy_url = ""
+        
+    return jsonify({
+        "success": True,
+        "cloudflare_worker_proxy": proxy_url
+    })
+
+
+@telegram_bp.post("/api/telegram/settings")
+@csrf_required
+def save_telegram_settings():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        from ..security import json_error
+        return json_error(503, "redis_unavailable", "Redis is required")
+        
+    data = require_json_body(current_app.config)
+    proxy_url = data.get("cloudflare_worker_proxy", "").strip()
+    
+    if proxy_url:
+        # Perform minor validation (should start with http:// or https://)
+        if not (proxy_url.startswith("http://") or proxy_url.startswith("https://")):
+            from ..security import json_error
+            return json_error(400, "invalid_url", "Proxy URL must start with http:// or https://")
+        rs.set("streamly:cloudflare_worker_proxy", proxy_url)
+    else:
+        rs.delete("streamly:cloudflare_worker_proxy")
+        
     return jsonify({"success": True})
 
 

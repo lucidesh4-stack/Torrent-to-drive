@@ -41,6 +41,7 @@ class AppConfig:
     telegram_api_hash: str = ""
     telegram_phone: str = ""
     telegram_chat_id: str = "-1004247146382"
+    cloudflare_worker_proxy: str = ""
 
     @staticmethod
     def from_env() -> "AppConfig":
@@ -76,6 +77,7 @@ class AppConfig:
             telegram_api_hash=os.getenv("TELEGRAM_API_HASH", ""),
             telegram_phone=os.getenv("TELEGRAM_PHONE", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "-1004247146382"),
+            cloudflare_worker_proxy=os.getenv("CLOUDFLARE_WORKER_PROXY", ""),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             search_providers=tuple(
                 p.strip() for p in os.getenv(

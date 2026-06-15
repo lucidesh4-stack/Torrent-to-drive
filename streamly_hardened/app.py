@@ -187,6 +187,7 @@ def create_app(
         TELEGRAM_API_HASH=config.telegram_api_hash,
         TELEGRAM_PHONE=config.telegram_phone,
         TELEGRAM_CHAT_ID=config.telegram_chat_id,
+        CLOUDFLARE_WORKER_PROXY=config.cloudflare_worker_proxy,
         # Validation limits
         max_folder_id=config.max_folder_id,
         max_file_id=config.max_file_id,

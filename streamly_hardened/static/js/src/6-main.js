@@ -334,6 +334,20 @@
     });
   }
 
+  if ($("tgSaveProxyBtn")) {
+    $("tgSaveProxyBtn").addEventListener("click", async () => {
+      const proxyUrl = $("tgProxyUrl").value.trim();
+      status($("tgAuthStatus"), "Saving proxy URL...", "");
+      try {
+        await postJson("/api/telegram/settings", { cloudflare_worker_proxy: proxyUrl });
+        status($("tgAuthStatus"), "Proxy settings saved!", "ok");
+        toast("Proxy settings saved successfully.");
+      } catch (err) {
+        status($("tgAuthStatus"), err.message || "Failed to save proxy", "error");
+      }
+    });
+  }
+
     $("clearSearchBtn").addEventListener("click", () => {
       // Clear only the search text (and hide stale suggestions); keep results on screen
       clearTimeout(suggestTimer);
