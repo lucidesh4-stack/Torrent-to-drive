@@ -47,6 +47,10 @@ class RedisStore:
             return self._execute("SET", key, cleaned, "EX", str(ex)) == "OK"
         return self._execute("SET", key, cleaned) == "OK"
 
+    def delete(self, key: str) -> bool:
+        return self._execute("DEL", key) is not None
+
+
     @staticmethod
     def _strip_wrapping_quotes(value: str) -> str:
         s = (value or "").strip()

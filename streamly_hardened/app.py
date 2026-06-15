@@ -8,7 +8,7 @@ import uuid
 import datetime
 from typing import Any
 
-from flask import Flask, Response, jsonify, render_template, request, g, render_template_string, session
+from flask import Flask, Response, jsonify, render_template, request, g, render_template_string, session, make_response
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .config import AppConfig
@@ -361,9 +361,13 @@ def create_app(
             ))
         except ValueError:
             asset_ver = 1
-        return render_template(
+        response = make_response(render_template(
             "index.html", csrf_token=get_csrf_token(), asset_ver=asset_ver
-        )
+        ))
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
 
     @app.get("/healthz")
     def healthz():
