@@ -692,6 +692,7 @@ def telegram_status():
             "authenticated": False,
             "cryptg_active": cryptg_active,
             "error": str(e)
+        })
 
 
 @telegram_bp.get("/api/telegram/test-download")
@@ -702,7 +703,10 @@ def test_download_speed():
         import requests
         start_time = time.time()
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "*/*",
+            "Accept-Encoding": "identity",
+            "Connection": "keep-alive"
         }
         r = requests.get(test_url, stream=True, timeout=30.0, headers=headers)
         r.raise_for_status()
