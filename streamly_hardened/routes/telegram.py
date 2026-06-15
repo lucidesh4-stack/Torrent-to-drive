@@ -1029,9 +1029,19 @@ def transfer_status_route():
     task_id = rs.get(f"streamly:active_transfer:{sid}")
     if not task_id:
         return jsonify({"status": "IDLE"})
+    if isinstance(task_id, bytes):
+        task_id = task_id.decode("utf-8")
     raw = rs.get(f"streamly:transfer_status:{task_id}")
     if not raw:
         return jsonify({"status": "IDLE"})
+        
+    try:
+        data = _json.loads(raw)
+        if data.get("status") in ("COMPLETED", "FAILED"):
+            rs.delete(f"streamly:active_transfer:{sid}")
+    except Exception:
+        pass
+        
     return Response(raw, mimetype="application/json")
 
 
