@@ -17,7 +17,10 @@ _REDIS_EXECUTOR = ThreadPoolExecutor(max_workers=6, thread_name_prefix="redis-io
 from flask import Blueprint, jsonify, current_app, request, Response
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpIntermediate
+from telethon.network import ConnectionTcpIntermediate, MTProtoSender
+from telethon.tl.alltlobjects import LAYER
+from telethon.tl.functions import InvokeWithLayerRequest
+from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 from telethon.tl.types import Channel, Chat
 from ..auth_utils import current_client
 from ..security import csrf_required, rate_limited, require_json_body, validate_positive_int, ensure_sid
@@ -188,67 +191,147 @@ class ProgressTracker:
             
             self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
 
+class UploadSender:
+    def __init__(self, uploader, client, sender, file_id, part_count, big, index, stride, loop):
+        self.uploader = uploader
+        self.client = client
+        self.sender = sender
+        self.part_count = part_count
+        if big:
+            self.request = functions.upload.SaveBigFilePartRequest(
+                file_id=file_id,
+                file_part=index,
+                file_total_parts=part_count,
+                bytes=b""
+            )
+        else:
+            self.request = functions.upload.SaveFilePartRequest(
+                file_id=file_id,
+                file_part=index,
+                bytes=b""
+            )
+        self.stride = stride
+        self.previous = None
+        self.loop = loop
+        self.exception = None
+
+    async def next(self, data: bytes) -> None:
+        if self.exception:
+            raise self.exception
+        if self.previous:
+            await self.previous
+        self.previous = self.loop.create_task(self._next(data))
+
+    async def _next(self, data: bytes) -> None:
+        try:
+            self.request.bytes = data
+            await self.client._call(self.sender, self.request)
+            self.request.file_part += self.stride
+            self.uploader.update_progress(len(data))
+        except Exception as e:
+            self.exception = e
+            raise e
+
+    async def disconnect(self) -> None:
+        if self.exception:
+            raise self.exception
+        if self.previous:
+            await self.previous
+        await self.sender.disconnect()
+
+class ParallelUploader:
+    def __init__(self, client, dc_id=None, progress_callback=None, file_size=0):
+        self.client = client
+        self.loop = client.loop
+        self.dc_id = dc_id or client.session.dc_id
+        self.auth_key = (None if dc_id and client.session.dc_id != dc_id
+                         else client.session.auth_key)
+        self.senders = []
+        self.upload_ticker = 0
+        self.progress_callback = progress_callback
+        self.file_size = file_size
+        self.uploaded_bytes = 0
+
+    def update_progress(self, sent):
+        self.uploaded_bytes += sent
+        if self.progress_callback:
+            self.progress_callback(self.uploaded_bytes, self.file_size)
+
+    async def _create_sender(self) -> MTProtoSender:
+        dc = await self.client._get_dc(self.dc_id)
+        sender = MTProtoSender(self.auth_key, loggers=self.client._log)
+        await sender.connect(self.client._connection(
+            dc.ip_address,
+            dc.port,
+            dc.id,
+            loggers=self.client._log,
+            proxy=self.client._proxy
+        ))
+        if not self.auth_key:
+            log.info("Exporting auth key to DC %d", self.dc_id)
+            auth = await self.client(ExportAuthorizationRequest(self.dc_id))
+            self.client._init_request.query = ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
+            req = InvokeWithLayerRequest(LAYER, self.client._init_request)
+            await sender.send(req)
+            self.auth_key = sender.auth_key
+        return sender
+
+    async def init_upload(self, file_id: int, file_size: int, part_size: int, connections: int) -> None:
+        part_count = (file_size + part_size - 1) // part_size
+        big = file_size > 10 * 1024 * 1024
+
+        self.senders = [
+            await self._create_upload_sender(file_id, part_count, big, 0, connections),
+            *await asyncio.gather(*[
+                self._create_upload_sender(file_id, part_count, big, i, connections)
+                for i in range(1, connections)
+            ])
+        ]
+
+    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, index: int, stride: int) -> UploadSender:
+        sender_conn = await self._create_sender()
+        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, index, stride, loop=self.loop)
+
+    async def upload(self, part: bytes) -> None:
+        await self.senders[self.upload_ticker].next(part)
+        self.upload_ticker = (self.upload_ticker + 1) % len(self.senders)
+
+    async def finish_upload(self) -> None:
+        if self.senders:
+            await asyncio.gather(*[sender.disconnect() for sender in self.senders])
+            self.senders = []
+
 async def parallel_upload_file(client, file_wrapper, file_size, filename, progress_callback, concurrency=8):
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    uploaded_bytes = 0
-    failed = False
+    connections = 12 if file_size > 50 * 1024 * 1024 else (8 if file_size > 10 * 1024 * 1024 else 4)
+    connections = min(connections, parts_count)
 
-    async def upload_part(part_index, data):
-        nonlocal uploaded_bytes
-        try:
-            if is_big:
-                req = functions.upload.SaveBigFilePartRequest(
-                    file_id=file_id,
-                    file_part=part_index,
-                    file_total_parts=parts_count,
-                    bytes=data
-                )
-            else:
-                req = functions.upload.SaveFilePartRequest(
-                    file_id=file_id,
-                    file_part=part_index,
-                    bytes=data
-                )
-            await client(req)
-            uploaded_bytes += len(data)
-            if progress_callback:
-                progress_callback(uploaded_bytes, file_size)
-        except Exception as e:
-            log.warning("Failed to upload part %d: %s", part_index, e)
-            raise e
+    uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
+    await uploader.init_upload(file_id, file_size, part_size, connections)
 
-    # Sliding window: keep exactly `concurrency` tasks in-flight at a time.
-    # This prevents pre-creating thousands of tasks for large files, which
-    # congests the asyncio scheduler and causes event-loop stalls.
-    sem = asyncio.Semaphore(concurrency)
-    active_tasks: list[asyncio.Task] = []
+    try:
+        part_index = 0
+        while True:
+            for sender in uploader.senders:
+                if sender.exception:
+                    raise sender.exception
 
-    async def bounded_upload(part_index, data):
-        async with sem:
-            await upload_part(part_index, data)
+            chunk = await file_wrapper.read(part_size)
+            if not chunk:
+                break
 
-    part_index = 0
-    while True:
-        chunk = await file_wrapper.read(part_size)
-        if not chunk:
-            break
-        task = asyncio.create_task(bounded_upload(part_index, chunk))
-        active_tasks.append(task)
-        part_index += 1
+            await uploader.upload(chunk)
+            part_index += 1
 
-        # Prune completed tasks from the list to keep memory usage flat
-        active_tasks = [t for t in active_tasks if not t.done()]
+        await uploader.finish_upload()
 
-    # Wait for all remaining in-flight tasks
-    if active_tasks:
-        results = await asyncio.gather(*active_tasks, return_exceptions=True)
-        errors = [r for r in results if isinstance(r, Exception)]
-        if errors:
-            raise errors[0]
+    except Exception as e:
+        await uploader.finish_upload()
+        raise e
 
     if is_big:
         return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
