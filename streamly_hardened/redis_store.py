@@ -22,20 +22,28 @@ _LOGS_MAX_LINES = 2000
 
 
 class RedisStore:
-    def __init__(self, url: str, token: str, timeout: float = 5.0):
+    def __init__(self, url: str, token: str, timeout: float = 3.0):
         self.url = url.rstrip("/")
         self.token = token
         self.timeout = timeout
         self._headers = {"Authorization": f"Bearer {token}"}
 
     def _execute(self, *command: str) -> Optional[Any]:
-        try:
-            r = requests.post(self.url, headers=self._headers, json=list(command), timeout=self.timeout)
-            r.raise_for_status()
-            return r.json().get("result")
-        except requests.RequestException as e:
-            log.warning("Upstash request failed: %s", e)
-            return None
+        import time
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                r = requests.post(self.url, headers=self._headers, json=list(command), timeout=self.timeout)
+                r.raise_for_status()
+                return r.json().get("result")
+            except requests.RequestException as e:
+                cmd_name = command[0] if command else "UNKNOWN"
+                if attempt < max_attempts:
+                    log.warning("Upstash request failed (attempt %d/%d) for command %s: %s. Retrying...", attempt, max_attempts, cmd_name, e)
+                    time.sleep(0.5)
+                else:
+                    log.warning("Upstash request failed final (attempt %d/%d) for command %s: %s", attempt, max_attempts, cmd_name, e)
+                    return None
 
     def get(self, key: str) -> Optional[str]:
         result = self._execute("GET", key)
@@ -48,7 +56,8 @@ class RedisStore:
         return self._execute("SET", key, cleaned) == "OK"
 
     def delete(self, key: str) -> bool:
-        return self._execute("DEL", key) is not None
+        res = self._execute("DEL", key)
+        return bool(isinstance(res, int) and res > 0)
 
 
     @staticmethod
@@ -56,7 +65,7 @@ class RedisStore:
         s = (value or "").strip()
         while len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
             s = s[1:-1].strip()
-        s = s.replace('\\"', '"').replace("\\", "\\")
+        s = s.replace('\\"', '"').replace("\\\\", "\\")
         return s
 
     def get_or_create_secret(self) -> str:

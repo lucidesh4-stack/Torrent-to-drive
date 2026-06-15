@@ -23,7 +23,26 @@ from telethon.tl.functions import InvokeWithLayerRequest
 from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 from telethon.tl.types import Channel, Chat
 from ..auth_utils import current_client
-from ..security import csrf_required, rate_limited, require_json_body, validate_positive_int, ensure_sid
+from ..security import (
+    csrf_required,
+    rate_limited,
+    require_json_body,
+    validate_positive_int,
+    ensure_sid,
+    validate_public_url,
+    ValidationError,
+)
+
+# --- Queue robustness (additive; happy path unchanged) ---
+_ACTIVE_TTL_SECONDS = 90
+_DISPATCH_LOCK_KEY = "streamly:transfer_dispatch_lock"
+_DISPATCH_LOCK_TTL = 15
+
+# --- Telegram upload limits (standard accounts) ---
+_TG_MAX_PARTS = 4000
+_TG_PART_SIZE = 512 * 1024
+_TG_HARD_MAX = _TG_MAX_PARTS * _TG_PART_SIZE
+
 
 log = logging.getLogger(__name__)
 
@@ -90,13 +109,14 @@ def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None, queue
 
 
 class ProgressTracker:
-    def __init__(self, rs, task_id, filename, total_bytes, loop, cancel_flag):
+    def __init__(self, rs, task_id, filename, total_bytes, loop, cancel_flag, sid=None):
         self.rs = rs
         self.task_id = task_id
         self.filename = filename
         self.total_bytes = total_bytes
         self.loop = loop
         self.cancel_flag = cancel_flag
+        self.sid = sid
         self.last_pct = 0.0
         self.last_bandwidth_sent_bytes = 0
         self.last_write_time = time.time()
@@ -153,6 +173,9 @@ class ProgressTracker:
                     if bw > 0:
                         self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(bw))
                         self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000")
+                    # Heartbeat: keep the global active marker alive while this
+                    # transfer is genuinely progressing.
+                    self.rs._execute("EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS))
                     self.rs._execute(
                         "SET",
                         f"streamly:transfer_status:{self.task_id}",
@@ -163,7 +186,8 @@ class ProgressTracker:
                             "sent_bytes": sb,
                             "total_bytes": tot,
                             "speed_mb": smb,
-                            "error": None
+                            "error": None,
+                            "sid": self.sid
                         }),
                         "EX",
                         "3600"
@@ -319,7 +343,10 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
                 if sender.exception:
                     raise sender.exception
 
-            item = await output_queue.get()
+            try:
+                item = await asyncio.wait_for(output_queue.get(), timeout=90.0)
+            except asyncio.TimeoutError:
+                raise TimeoutError("Timeout waiting for downloaded data from queue")
             output_queue.task_done()
 
             if isinstance(item, Exception):
@@ -411,6 +438,24 @@ async def validate_telegram_target(client, target_chat):
     return resolved_chat
 
 def trigger_next_transfer(rs):
+    """Atomic, multi-worker-safe dispatch wrapper (lock auto-expires; degrades to old behaviour)."""
+    try:
+        acquired = rs._execute("SET", _DISPATCH_LOCK_KEY, "1", "EX", str(_DISPATCH_LOCK_TTL), "NX")
+    except Exception:
+        acquired = "OK"  # Redis hiccup: don't drop the dispatch, fall back to unlocked path
+    if acquired != "OK":
+        log.info("Queue check: another worker is dispatching; skipping (will be handled there).")
+        return
+    try:
+        _trigger_next_transfer_locked(rs)
+    finally:
+        try:
+            rs._execute("DEL", _DISPATCH_LOCK_KEY)
+        except Exception:
+            pass
+
+
+def _trigger_next_transfer_locked(rs):
     active = rs.get("streamly:active_transfer_global")
     if active:
         log.info("Queue check: transfer %s is active. Skipping.", active)
@@ -478,18 +523,18 @@ def trigger_next_transfer(rs):
             rs._execute("DEL", f"streamly:task_args:{task_id}")
             continue
         
-    rs.set("streamly:active_transfer_global", task_id, ex=3600)
+    rs.set("streamly:active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS)
     rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
     
     t = threading.Thread(
         target=run_telethon_upload,
-        args=(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id)
+        args=(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid)
     )
     t.daemon = True
     t.start()
     log.info("Queue check: started transfer thread for task %s", task_id)
 
-def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id):
+def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -566,19 +611,41 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 download_url = file_url
                 log.info("Downloading directly from Seedr (no proxy configured)")
 
-            # Query Content-Length using a streaming request
-            r = requests.get(download_url, stream=True, timeout=30.0, headers=headers)
-            r.raise_for_status()
-            content_len_header = r.headers.get("content-length")
-            if content_len_header:
-                try:
+            # Query Content-Length using a streaming request (with fallback to direct Seedr URL)
+            used_fallback = False
+            try:
+                if not proxy_url:
+                    raise ValueError("No proxy configured")
+                log.info("Querying Content-Length via proxy: %s", download_url)
+                r = requests.get(download_url, stream=True, timeout=15.0, headers=headers)
+                r.raise_for_status()
+                content_len_header = r.headers.get("content-length")
+                if content_len_header:
                     exact_size = int(content_len_header)
-                except ValueError:
-                    pass
-            r.close()
+                else:
+                    raise ValueError("Missing Content-Length header")
+                if exact_size <= 0:
+                    raise ValueError(f"Implausible Content-Length: {exact_size}")
+                r.close()
+            except Exception as e:
+                log.warning("Proxy Content-Length check failed: %s. Falling back to direct Seedr URL.", e)
+                download_url = file_url
+                used_fallback = True
+                exact_size = size  # Fall back to the Seedr-reported size
+                try:
+                    r = requests.get(download_url, stream=True, timeout=15.0, headers=headers)
+                    r.raise_for_status()
+                    content_len_header = r.headers.get("content-length")
+                    if content_len_header:
+                        exact_size = int(content_len_header)
+                    r.close()
+                except Exception as de:
+                    log.warning("Direct Seedr Content-Length check failed: %s. Using reported size.", de)
             
-            part_size = 512 * 1024
+            part_size = _TG_PART_SIZE
             parts_count = (exact_size + part_size - 1) // part_size
+            if parts_count > _TG_MAX_PARTS:
+                raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
 
             output_queue = asyncio.Queue(maxsize=16)
 
@@ -588,8 +655,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 try:
                     fut = asyncio.run_coroutine_threadsafe(output_queue.put(item), loop)
                     fut.result()
-                except BaseException:
-                    pass
+                except Exception as ex:
+                    log.warning("safe_put failed: %s", ex)
 
             def download_worker():
                 try:
@@ -604,8 +671,18 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     }
                     
                     session = requests.Session()
-                    r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
-                    r.raise_for_status()
+                    try:
+                        log.info("Downloading file from: %s", download_url)
+                        r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
+                        r.raise_for_status()
+                    except Exception as e:
+                        if not used_fallback:
+                            log.warning("Proxy download failed: %s. Retrying directly against Seedr URL.", e)
+                            download_url = file_url
+                            r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
+                            r.raise_for_status()
+                        else:
+                            raise e
                     
                     part_index = 0
                     buffer = bytearray()
@@ -660,7 +737,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             t.daemon = True
             t.start()
             
-            tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
+            tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag, sid)
             
             uploaded = await parallel_upload_file(
                 client,
@@ -683,7 +760,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     "filename": filename,
                     "sent_bytes": exact_size,
                     "total_bytes": exact_size,
-                    "error": None
+                    "error": None,
+                    "sid": sid
                 }),
                 "EX",
                 "3600"
@@ -699,7 +777,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     "error": str(e),
                     "filename": filename,
                     "sent_bytes": 0,
-                    "total_bytes": size
+                    "total_bytes": exact_size,
+                    "sid": sid
                 }),
                 "EX",
                 "3600"
@@ -724,10 +803,7 @@ def telegram_status():
     rs = getattr(current_app, "rs", None)
     if not rs:
         return jsonify({"authenticated": False, "error": "Redis unavailable"})
-    session_str = rs.get("streamly:telegram_session")
-    if not session_str:
-        return jsonify({"authenticated": False})
-    
+        
     cryptg_active = False
     try:
         import cryptg
@@ -735,6 +811,27 @@ def telegram_status():
     except ImportError:
         pass
 
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    cache_key = f"streamly:tg_auth_cache:{sid}"
+    
+    # Try reading from cache
+    cached = rs.get(cache_key)
+    if cached:
+        try:
+            cached_data = _json.loads(cached)
+            return jsonify({
+                "authenticated": cached_data.get("authenticated", False),
+                "cryptg_active": cryptg_active,
+                "cached": True
+            })
+        except Exception:
+            pass
+
+    session_str = rs.get("streamly:telegram_session")
+    if not session_str:
+        return jsonify({"authenticated": False})
+    
     try:
         import asyncio
         loop = asyncio.new_event_loop()
@@ -749,6 +846,10 @@ def telegram_status():
             
         authorized = loop.run_until_complete(test_auth())
         loop.close()
+        
+        # Cache the result for 60 seconds
+        rs.set(cache_key, _json.dumps({"authenticated": bool(authorized)}), ex=60)
+        
         return jsonify({
             "authenticated": bool(authorized),
             "cryptg_active": cryptg_active
@@ -762,9 +863,25 @@ def telegram_status():
         })
 
 
+_DEFAULT_SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10485760"
+
+
 @telegram_bp.get("/api/telegram/test-download")
+@rate_limited(cost=3.0)
 def test_download_speed():
-    test_url = request.args.get("url", "https://speed.cloudflare.com/__down?bytes=10485760")
+    # SECURITY: server-side fetch -> user `url` is an SSRF primitive. Now (1) requires
+    # site auth (removed from exempt_routes), (2) rate limited, (3) rejects non-http(s)
+    # schemes and any host resolving to a private/loopback/link-local/reserved address.
+    raw_url = request.args.get("url")
+    try:
+        if raw_url is None or not raw_url.strip():
+            test_url = _DEFAULT_SPEEDTEST_URL
+        else:
+            test_url, _pinned_ip = validate_public_url(raw_url)
+    except ValidationError as ve:
+        from ..security import json_error
+        return json_error(400, "invalid_url", str(ve))
+
     max_bytes = 10 * 1024 * 1024  # Limit speed test to 10MB to avoid server overload
     try:
         import time
@@ -776,7 +893,8 @@ def test_download_speed():
             "Accept-Encoding": "identity",
             "Connection": "keep-alive"
         }
-        r = requests.get(test_url, stream=True, timeout=30.0, headers=headers)
+        # allow_redirects=False so a public URL cannot 30x-redirect into a private address.
+        r = requests.get(test_url, stream=True, timeout=30.0, headers=headers, allow_redirects=False)
         r.raise_for_status()
         total_downloaded = 0
         for chunk in r.iter_content(chunk_size=64 * 1024):
@@ -784,7 +902,7 @@ def test_download_speed():
             if total_downloaded >= max_bytes:
                 break
         elapsed = time.time() - start_time
-        speed_mb = total_downloaded / (elapsed * 1024 * 1024)
+        speed_mb = total_downloaded / (elapsed * 1024 * 1024) if elapsed > 0 else 0.0
         return jsonify({
             "success": True,
             "bytes_downloaded": total_downloaded,
@@ -901,13 +1019,29 @@ def verify_code():
         final_session = loop.run_until_complete(sign_in_user())
         loop.close()
         
+        from flask import session
+        sid = session.get("sid") or ensure_sid()
         rs.set("streamly:telegram_session", final_session)
         rs._execute("DEL", "streamly:telegram_temp_setup")
+        rs._execute("DEL", f"streamly:tg_auth_cache:{sid}")
         return jsonify({"success": True})
     except Exception as e:
         log.exception("Failed to verify Telegram code")
         from ..security import json_error
         return json_error(400, "auth_failed", f"Verification failed: {str(e)}")
+
+def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_delay=0.1):
+    import time
+    for _ in range(max_retries):
+        try:
+            acquired = rs._execute("SET", lock_key, "1", "EX", str(ttl_seconds), "NX")
+            if acquired == "OK":
+                return True
+        except Exception:
+            return True
+        time.sleep(retry_delay)
+    return False
+
 
 @telegram_bp.post("/api/telegram/send")
 @rate_limited(cost=3.0)
@@ -953,7 +1087,7 @@ def telegram_send_file():
         # Absolute safety net: Telegram's MTProto upload has a strict limit of 4000 parts of 512 KB
         # for standard accounts, which is exactly 2,097,152,000 bytes (1.95 GiB).
         if max_file_size_gb <= 2.0:
-            max_bytes = min(max_bytes, 2097152000)
+            max_bytes = min(max_bytes, _TG_HARD_MAX)
             
         if size > max_bytes:
             from ..security import json_error
@@ -964,7 +1098,7 @@ def telegram_send_file():
         from ..security import json_error
         return json_error(502, "provider_error", "Failed to retrieve file from Seedr")
         
-    # Bandwidth limit check (warning at 4.0 GB / 90 GB, block at 4.5 GB / 99 GB, tracking projected bandwidth)
+    # Bandwidth limit check under atomic lock (warning at 4.0 GB / 90 GB, block at 4.5 GB / 99 GB, tracking projected bandwidth)
     import datetime
     import os
     try:
@@ -972,65 +1106,76 @@ def telegram_send_file():
     except AttributeError:
         ym = datetime.datetime.utcnow().strftime("%Y-%m")
         
-    projected_bytes = get_projected_bandwidth(rs, ym, size)
+    lock_key = "streamly:enqueue_lock"
+    lock_acquired = acquire_redis_lock(rs, lock_key, ttl_seconds=5, max_retries=30, retry_delay=0.1)
     
-    is_hf = "SPACE_ID" in os.environ
-    if is_hf:
-        limit_bytes = int(99 * 1024 * 1024 * 1024)
-        warning_bytes = int(90 * 1024 * 1024 * 1024)
-        limit_label = "99 GB"
-        warning_label = "90 GB"
-    else:
-        limit_bytes = int(4.5 * 1024 * 1024 * 1024)
-        warning_bytes = int(4.0 * 1024 * 1024 * 1024)
-        limit_label = "4.5 GB"
-        warning_label = "4.0 GB"
-    
-    if projected_bytes > limit_bytes:
-        from ..security import json_error
-        return json_error(400, "bandwidth_limit_exceeded", 
-                          f"Queuing this file would exceed the monthly bandwidth limit of {limit_label}. Transfer blocked.")
-                          
-    warning_message = None
-    if projected_bytes >= warning_bytes:
-        warning_message = f"Monthly bandwidth consumption is projected to reach {warning_label} or more."
+    try:
+        projected_bytes = get_projected_bandwidth(rs, ym, size)
         
-    api_id = config.get("TELEGRAM_API_ID")
-    api_hash = config.get("TELEGRAM_API_HASH")
-    
-    task_id = str(uuid.uuid4())[:8]
-    from flask import session
-    sid = session.get("sid") or ensure_sid()
-    
-    rs._execute(
-        "SET",
-        f"streamly:transfer_status:{task_id}",
-        _json.dumps({
-            "progress": 0.0,
-            "status": "QUEUED",
+        is_hf = "SPACE_ID" in os.environ
+        if is_hf:
+            limit_bytes = int(99 * 1024 * 1024 * 1024)
+            warning_bytes = int(90 * 1024 * 1024 * 1024)
+            limit_label = "99 GB"
+            warning_label = "90 GB"
+        else:
+            limit_bytes = int(4.5 * 1024 * 1024 * 1024)
+            warning_bytes = int(4.0 * 1024 * 1024 * 1024)
+            limit_label = "4.5 GB"
+            warning_label = "4.0 GB"
+        
+        if projected_bytes > limit_bytes:
+            from ..security import json_error
+            return json_error(400, "bandwidth_limit_exceeded", 
+                              f"Queuing this file would exceed the monthly bandwidth limit of {limit_label}. Transfer blocked.")
+                              
+        warning_message = None
+        if projected_bytes >= warning_bytes:
+            warning_message = f"Monthly bandwidth consumption is projected to reach {warning_label} or more."
+            
+        api_id = config.get("TELEGRAM_API_ID")
+        api_hash = config.get("TELEGRAM_API_HASH")
+        
+        task_id = uuid.uuid4().hex
+        from flask import session
+        sid = session.get("sid") or ensure_sid()
+        
+        rs._execute(
+            "SET",
+            f"streamly:transfer_status:{task_id}",
+            _json.dumps({
+                "progress": 0.0,
+                "status": "QUEUED",
+                "filename": filename,
+                "sent_bytes": 0,
+                "total_bytes": size,
+                "error": None,
+                "sid": sid
+            }),
+            "EX",
+            "3600"
+        )
+        
+        args = {
+            "session_str": session_str,
+            "api_id": api_id,
+            "api_hash": api_hash,
+            "file_url": file_url,
+            "chat_id": chat_id,
             "filename": filename,
-            "sent_bytes": 0,
-            "total_bytes": size,
-            "error": None
-        }),
-        "EX",
-        "3600"
-    )
-    
-    args = {
-        "session_str": session_str,
-        "api_id": api_id,
-        "api_hash": api_hash,
-        "file_url": file_url,
-        "chat_id": chat_id,
-        "filename": filename,
-        "size": size,
-        "sid": sid
-    }
-    rs.set(f"streamly:task_args:{task_id}", _json.dumps(args), ex=3600)
-    
-    rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
-    rs._execute("LPUSH", "streamly:transfer_queue", task_id)
+            "size": size,
+            "sid": sid
+        }
+        rs.set(f"streamly:task_args:{task_id}", _json.dumps(args), ex=3600)
+        
+        rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
+        rs._execute("LPUSH", "streamly:transfer_queue", task_id)
+    finally:
+        if lock_acquired:
+            try:
+                rs._execute("DEL", lock_key)
+            except Exception:
+                pass
     
     trigger_next_transfer(rs)
     
@@ -1052,6 +1197,19 @@ def telegram_task_status(task_id):
     if not raw:
         from ..security import json_error
         return json_error(404, "not_found", "Task not found")
+        
+    # Verify ownership
+    from flask import session
+    req_sid = session.get("sid") or ensure_sid()
+    try:
+        data = _json.loads(raw)
+        owner_sid = data.get("sid")
+        if owner_sid and owner_sid != req_sid:
+            from ..security import json_error
+            return json_error(403, "forbidden", "You do not own this task")
+    except Exception:
+        pass
+        
     return Response(raw, mimetype="application/json")
 
 @telegram_bp.get("/api/transfer/status")
@@ -1177,6 +1335,32 @@ def telegram_cancel_transfer():
     if not task_id:
         from ..security import json_error
         return json_error(400, "not_found", "No active transfer to cancel")
+
+    # Fetch task args to verify ownership
+    args_raw = rs.get(f"streamly:task_args:{task_id}")
+    owner_sid = None
+    if not args_raw:
+        # Fallback to checking the status key if the task finished/failed
+        raw_status = rs.get(f"streamly:transfer_status:{task_id}")
+        if raw_status:
+            try:
+                status_data = _json.loads(raw_status)
+                owner_sid = status_data.get("sid")
+            except Exception:
+                pass
+        if not owner_sid:
+            from ..security import json_error
+            return json_error(404, "not_found", "Task not found or already completed")
+    else:
+        try:
+            args = _json.loads(args_raw)
+            owner_sid = args.get("sid")
+        except Exception:
+            owner_sid = None
+
+    if owner_sid and owner_sid != sid:
+        from ..security import json_error
+        return json_error(403, "forbidden", "You do not own this task")
         
     active_global = rs.get("streamly:active_transfer_global")
     if isinstance(active_global, bytes):
@@ -1190,7 +1374,17 @@ def telegram_cancel_transfer():
     # Case 2: The task is queued but not yet active
     removed = rs._execute("LREM", "streamly:transfer_queue", "0", task_id)
     
-    # Set status to FAILED/CANCELLED in Redis
+    # Set status to FAILED/CANCELLED in Redis (preserving metadata)
+    filename = "file"
+    total_bytes = 0
+    if args_raw:
+        try:
+            args = _json.loads(args_raw)
+            filename = args.get("filename", "file")
+            total_bytes = args.get("size", 0)
+        except Exception:
+            pass
+
     rs._execute(
         "SET",
         f"streamly:transfer_status:{task_id}",
@@ -1198,16 +1392,17 @@ def telegram_cancel_transfer():
             "progress": 0.0,
             "status": "FAILED",
             "error": "Cancelled by user",
-            "filename": "file",
+            "filename": filename,
             "sent_bytes": 0,
-            "total_bytes": 0
+            "total_bytes": total_bytes,
+            "sid": owner_sid
         }),
         "EX",
         "3600"
     )
     
-    # Clean up keys for this task
-    rs._execute("DEL", f"streamly:active_transfer:{sid}")
+    # Clean up keys for this task (using owner_sid)
+    rs._execute("DEL", f"streamly:active_transfer:{owner_sid}")
     rs._execute("DEL", f"streamly:task_args:{task_id}")
     
     return jsonify({"success": True, "message": "Queued transfer cancelled successfully"})
@@ -1222,7 +1417,10 @@ def telegram_logout():
         from ..security import json_error
         return json_error(503, "redis_unavailable", "Redis is required")
         
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
     rs._execute("DEL", "streamly:telegram_session")
+    rs._execute("DEL", f"streamly:tg_auth_cache:{sid}")
     return jsonify({"success": True})
 
 

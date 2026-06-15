@@ -124,3 +124,29 @@
     return isNaN(d.getTime()) ? String(value).slice(0, 19) : d.toLocaleString();
   }
 
+  // Client-side error reporting (Phase 4 / S16)
+  window.onerror = function(message, source, lineno, colno, error) {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+      body: JSON.stringify({
+        message: message,
+        url: source,
+        line: lineno,
+        column: colno,
+        stack: error ? error.stack : ''
+      })
+    }).catch(() => {});
+  };
+  window.onunhandledrejection = function(event) {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+      body: JSON.stringify({
+        message: 'Unhandled promise rejection: ' + event.reason,
+        url: window.location.href,
+        stack: event.reason && event.reason.stack ? event.reason.stack : ''
+      })
+    }).catch(() => {});
+  };
+

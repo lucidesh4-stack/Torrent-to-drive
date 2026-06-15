@@ -250,6 +250,7 @@ def create_app(
                     log.info("Startup lock acquired. Initializing active transfer state and triggering next transfer.")
                     rs._execute("DEL", "streamly:active_transfer_global")
                     rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
+                    rs._execute("DEL", "streamly:transfer_dispatch_lock")
                     from .routes.telegram import trigger_next_transfer
                     trigger_next_transfer(rs)
                 else:
@@ -285,7 +286,7 @@ def create_app(
 
     @app.before_request
     def check_site_auth():
-        exempt_routes = ["static", "healthz", "site_login", "telegram.test_download_speed"]
+        exempt_routes = ["static", "healthz", "healthz_deep", "site_login"]
         if request.endpoint in exempt_routes:
             return
             
@@ -371,7 +372,53 @@ def create_app(
 
     @app.get("/healthz")
     def healthz():
+        # Liveness ONLY — always 200 so the probe never restart-loops on a Redis hiccup.
         return jsonify({"ok": True})
+
+    @app.get("/healthz/deep")
+    def healthz_deep():
+        """Readiness/diagnostics probe — reports dependency status, gates NOTHING."""
+        checks: dict[str, str] = {}
+        rs = getattr(app, "rs", None)
+        if rs is None:
+            checks["redis"] = "not_configured"
+        else:
+            try:
+                pong = rs._execute("PING")
+                checks["redis"] = "ok" if pong else "unreachable"
+            except Exception:
+                checks["redis"] = "unreachable"
+        checks["seedr"] = "configured" if app.config.get("SEEDR_EMAIL") else "not_configured"
+        checks["telegram"] = "configured" if app.config.get("TELEGRAM_API_ID") else "not_configured"
+        degraded = checks.get("redis") == "unreachable"
+        return jsonify({"ok": not degraded, "checks": checks}), (503 if degraded else 200)
+
+    @app.post("/api/client-log")
+    def client_log():
+        """Rate-limited client-side error logger (Phase 4)."""
+        try:
+            from .security import require_json_body
+            data = require_json_body(app.config)
+            msg = data.get("message", "")
+            url = data.get("url", "")
+            line = data.get("line", "")
+            col = data.get("column", "")
+            stack = data.get("stack", "")
+            
+            rs = getattr(app, "rs", None)
+            if rs:
+                ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
+                log_count_key = f"streamly:client_log_count:{ip}"
+                count = rs._execute("INCR", log_count_key)
+                if count == 1:
+                    rs._execute("EXPIRE", log_count_key, "60")
+                if count and int(count) > 10:
+                    return jsonify({"success": False, "error": "rate_limited"}), 429
+                
+            log.warning("Client-side error: %s | URL: %s | Line: %s | Col: %s | Stack: %s", msg, url, line, col, stack)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
 
     @app.get("/api/logs")
     def logs_gate():

@@ -1,4 +1,4 @@
-
+﻿
 (() => {
   let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let currentFolder = 0;
@@ -126,6 +126,32 @@
     return isNaN(d.getTime()) ? String(value).slice(0, 19) : d.toLocaleString();
   }
 
+  // Client-side error reporting (Phase 4 / S16)
+  window.onerror = function(message, source, lineno, colno, error) {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+      body: JSON.stringify({
+        message: message,
+        url: source,
+        line: lineno,
+        column: colno,
+        stack: error ? error.stack : ''
+      })
+    }).catch(() => {});
+  };
+  window.onunhandledrejection = function(event) {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+      body: JSON.stringify({
+        message: 'Unhandled promise rejection: ' + event.reason,
+        url: window.location.href,
+        stack: event.reason && event.reason.stack ? event.reason.stack : ''
+      })
+    }).catch(() => {});
+  };
+
   let storageSnapshotLoading = false;
   let storageSnapshotLoaded = false;
   let seedrQueue = [];
@@ -182,8 +208,10 @@
     $("openBtn").disabled = count !== 1;
     const copyBtn = $("copyLinkBtn");
     if (copyBtn) copyBtn.disabled = count === 0;
+    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && x.type === "file");
+    const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
-    if (telegramBtn) telegramBtn.disabled = count !== 1 || (selected && selected.type === "folder");
+    if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
 
     // ----- Mobile selection sync -----
     document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
@@ -196,7 +224,7 @@
       if (bc) bc.textContent = String(count);
     }
     const tgBtn = $("cmBulkTelegram");
-    if (tgBtn) tgBtn.disabled = count !== 1 || (selected && selected.type === "folder");
+    if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;
     // Mobile select-all checkbox state
     const cmAll = $("cmSelectAll");
     if (cmAll) {
@@ -844,51 +872,60 @@
 
   async function sendSelectedToTelegram() {
     if (selectedKeys.size === 0) return toast("Select a file first");
-    refreshSelectedShim();
-    const item = selected;
-    if (!item) return toast("Select a file first");
-    if (item.type === "folder") return toast("Folders cannot be sent to Telegram directly; download them as a zip first.");
-    if (item.size >= 2 * 1024 * 1024 * 1024) {
-      toast("Telegram uploads are capped at 2 GB.");
-      return status($("cloudStatus"), "File exceeds 2 GB limit", "error");
+    
+    const filesToSend = [];
+    for (const key of selectedKeys) {
+      const it = items.find(x => x.key === key);
+      if (it && it.type === "file") {
+        filesToSend.push(it);
+      }
     }
     
-    status($("cloudStatus"), "Preparing Telegram transfer...", "");
+    if (filesToSend.length === 0) {
+      return toast("Select at least one file. Folders cannot be sent directly.");
+    }
     
-    try {
-      const data = await postJson("/api/telegram/send", { file_id: item.id });
-      if (data.success) {
-        toast("Upload started");
-        isTgTransferring = true;
-        
-        // Open the transfers overlay automatically
-        const overlay = $("telegramTransfersOverlay");
-        if (overlay) {
-          overlay.classList.remove("hidden");
-          if (typeof window.updateBottomNavHighlight === "function") {
-            window.updateBottomNavHighlight(3);
-          }
-          if (typeof window.triggerQueuePolling === "function") {
-            window.triggerQueuePolling();
-          }
-        }
-        
-        if (data.warning) {
-          toast(`Warning: ${data.warning}`);
-          status($("cloudStatus"), `Warning: ${data.warning}`, "error");
-        }
-        pollActiveTransfer();
+    // Check sizes
+    for (const item of filesToSend) {
+      if (item.size > 2097152000) {
+        toast(`File "${item.name}" exceeds 1.95 GB limit.`);
+        return status($("cloudStatus"), `File "${item.name}" exceeds 1.95 GB limit`, "error");
       }
-    } catch (err) {
-      if ((err.message || "").includes("Telegram is not authenticated") || (err.message || "").includes("telegram_not_authenticated")) {
-        status($("cloudStatus"), "Telegram authentication required", "error");
-        showTelegramAuthModal();
-      } else {
-        toast(err.message || "Failed to send to Telegram");
-        status($("cloudStatus"), err.message || "Telegram transfer failed", "error");
+    }
+    
+    status($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
+    
+    let successCount = 0;
+    for (const item of filesToSend) {
+      try {
+        const data = await postJson("/api/telegram/send", { file_id: item.id });
+        if (data.success) {
+          successCount++;
+          if (data.warning) {
+            toast(`Warning: ${data.warning}`);
+          }
+        }
+      } catch (err) {
+        toast(`Failed to send "${item.name}": ${err.message || "Error"}`);
+      }
+    }
+    
+    if (successCount > 0) {
+      toast(`Started upload for ${successCount} file(s)`);
+      isTgTransferring = true;
+      const overlay = $("telegramTransfersOverlay");
+      if (overlay) {
+        overlay.classList.remove("hidden");
+        if (typeof window.updateBottomNavHighlight === "function") {
+          window.updateBottomNavHighlight(3);
+        }
+        if (typeof window.triggerQueuePolling === "function") {
+          window.triggerQueuePolling();
+        }
       }
     }
   }
+
 
   let telegramPollTimer = null;
   let isTgTransferring = false;

@@ -9,6 +9,9 @@ import secrets
 import threading
 import time
 from typing import Any, Callable, Mapping
+import ipaddress
+import socket
+from urllib.parse import urlsplit
 
 from flask import abort, g, jsonify, request, session
 
@@ -30,6 +33,61 @@ def _get_cfg(config: Any, key: str, default: Any = None) -> Any:
     if isinstance(config, Mapping):
         return config.get(key, default)
     return default
+
+
+def _ip_is_public(ip_str: str) -> bool:
+    """True only for globally-routable unicast addresses.
+
+    Rejects loopback, private (RFC1918), link-local (incl. 169.254.0.0/16 cloud
+    metadata), unique-local, multicast, reserved and unspecified ranges — for
+    both IPv4 and IPv6 (including IPv4-mapped IPv6).
+    """
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http", "https")) -> tuple[str, str]:
+    """Validate a user-supplied URL for safe server-side fetching (anti-SSRF)."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError("url is required")
+    url = value.strip()
+    if len(url) > 2048:
+        raise ValidationError("url too long")
+
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in allowed_schemes:
+        raise ValidationError("url scheme not allowed")
+    host = parts.hostname
+    if not host:
+        raise ValidationError("url host is missing")
+
+    try:
+        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80),
+                                   proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        raise ValidationError("url host could not be resolved") from None
+
+    resolved = {ai[4][0] for ai in infos}
+    if not resolved:
+        raise ValidationError("url host could not be resolved")
+    for ip_str in resolved:
+        if not _ip_is_public(ip_str):
+            raise ValidationError("url resolves to a non-public address")
+
+    return url, sorted(resolved)[0]
 
 
 def require_json_body(config: Any) -> dict[str, Any]:
