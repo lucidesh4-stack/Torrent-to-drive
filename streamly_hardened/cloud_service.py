@@ -317,7 +317,6 @@ class CloudService:
 
 def format_size(num_bytes: int) -> str:
     b = max(0, int(num_bytes))
-    if b == 0: return ""          # Return empty so JS falls back to "-" for unknown sizes
     if b >= 1024**4: return f"{b / (1024**4):.2f} TB"
     if b >= 1024**3: return f"{b / (1024**3):.2f} GB"
     if b >= 1024**2: return f"{b / (1024**2):.1f} MB"
