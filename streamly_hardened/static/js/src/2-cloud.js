@@ -489,16 +489,8 @@
     
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
-      // Fetch Seedr contents and site queue concurrently
-      const folderPromise = fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" });
-      const queuePromise = folderId === 0
-        ? fetch("/api/queue", { credentials: "same-origin", cache: "no-store" }).catch(err => {
-            console.error("Queue fetch failed:", err);
-            return null;
-          })
-        : Promise.resolve(null);
-
-      const [folderRes, queueRes] = await Promise.all([folderPromise, queuePromise]);
+      // Fetch Seedr folder contents (backend already embeds queue in root response via data.queue)
+      const folderRes = await fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" });
       const data = await parseResponse(folderRes);
       
       // If the user has navigated to another folder in the meantime, ignore this stale response
@@ -508,24 +500,15 @@
       parentFolder = Number(data.parent) || 0;
       items = [];
       transfers = [];
-      seedrQueue = [];
+      // Only reset seedrQueue when loading root (non-root folders don't carry queue data)
+      if (folderId === 0) seedrQueue = [];
       for (const transfer of data.transfers || []) transfers.push({ ...transfer, type: "transfer", key: `transfer:${transfer.id}` });
       for (const folder of data.folders || []) items.push({ ...folder, type: "folder", key: `folder:${folder.id}` });
       for (const file of data.files || []) items.push({ ...file, type: "file", key: `file:${file.id}` });
       
-      // Populate local queue directly from the site API response data at root folder
+      // Populate queue from data.queue (already injected by backend for root folder)
       if (currentFolder == 0) {
-        let rawQueue = [];
-        if (queueRes && queueRes.ok) {
-          try {
-            const qData = await queueRes.json();
-            if (qData.success) {
-              rawQueue = qData.items || [];
-            }
-          } catch (e) {
-            console.error("Error parsing queue json:", e);
-          }
-        }
+        const rawQueue = Array.isArray(data.queue) ? data.queue : [];
         
         // Deduplicate: remove any queued items that are already active in transfers
         const activeMagnets = new Set(transfers.map(t => (t.magnet || "").toLowerCase()));
