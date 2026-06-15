@@ -554,16 +554,10 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     pass
             r.close()
             
-            import queue as py_queue
-            index_queue = py_queue.Queue()
             part_size = 512 * 1024
             parts_count = (exact_size + part_size - 1) // part_size
-            for idx in range(parts_count):
-                index_queue.put(idx)
 
             output_queue = asyncio.Queue(maxsize=16)
-            active_threads = 2
-            threads_lock = threading.Lock()
 
             def safe_put(item):
                 if loop.is_closed():
@@ -574,34 +568,26 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 except BaseException:
                     pass
 
-            def download_worker(worker_id):
-                nonlocal active_threads
+            def download_worker():
                 try:
                     start_time = time.time()
                     downloaded_bytes = 0
+                    
+                    headers = {
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "*/*",
+                        "Accept-Encoding": "identity",
+                        "Connection": "keep-alive"
+                    }
+                    
                     session = requests.Session()
-                    while not cancel_flag[0]:
-                        try:
-                            part_index = index_queue.get_nowait()
-                        except py_queue.Empty:
+                    r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
+                    r.raise_for_status()
+                    
+                    part_index = 0
+                    for chunk in r.iter_content(chunk_size=part_size):
+                        if cancel_flag[0]:
                             break
-
-                        start = part_index * part_size
-                        end = min(exact_size - 1, (part_index + 1) * part_size - 1)
-                        if start > end:
-                            index_queue.task_done()
-                            continue
-
-                        headers = {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                            "Accept": "*/*",
-                            "Range": f"bytes={start}-{end}",
-                            "Connection": "keep-alive"
-                        }
-                        
-                        r = session.get(download_url, headers=headers, timeout=60.0)
-                        r.raise_for_status()
-                        chunk = r.content
                         
                         downloaded_bytes += len(chunk)
                         
@@ -609,26 +595,21 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                             elapsed = time.time() - start_time
                             if elapsed > 0:
                                 speed = downloaded_bytes / (elapsed * 1024 * 1024)
-                                log.info("Downloader %d speed: %.2f MB/s", worker_id, speed)
+                                log.info("Downloader speed: %.2f MB/s", speed)
 
                         safe_put((part_index, chunk))
-                        index_queue.task_done()
+                        part_index += 1
                         
+                    r.close()
                 except Exception as de:
-                    log.warning("Background download worker %d error: %s", worker_id, de)
+                    log.warning("Background download worker error: %s", de)
                     safe_put(de)
                 finally:
-                    with threads_lock:
-                        active_threads -= 1
-                        if active_threads == 0:
-                            safe_put(None)
+                    safe_put(None)
 
-            download_threads = []
-            for w_id in range(2):
-                t = threading.Thread(target=download_worker, args=(w_id,), name=f"seedr-downloader-{w_id}")
-                t.daemon = True
-                t.start()
-                download_threads.append(t)
+            t = threading.Thread(target=download_worker, name="seedr-downloader")
+            t.daemon = True
+            t.start()
             
             tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag)
             
@@ -640,8 +621,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 progress_callback=tracker
             )
             
-            for t in download_threads:
-                await loop.run_in_executor(None, t.join)
+            await loop.run_in_executor(None, t.join)
             
             await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
