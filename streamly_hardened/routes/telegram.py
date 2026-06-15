@@ -692,7 +692,34 @@ def telegram_status():
             "authenticated": False,
             "cryptg_active": cryptg_active,
             "error": str(e)
+
+
+@telegram_bp.get("/api/telegram/test-download")
+def test_download_speed():
+    test_url = "https://speed.cloudflare.com/__down?bytes=10485760"
+    try:
+        import time
+        import requests
+        start_time = time.time()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        r = requests.get(test_url, stream=True, timeout=30.0, headers=headers)
+        r.raise_for_status()
+        total_downloaded = 0
+        for chunk in r.iter_content(chunk_size=64 * 1024):
+            total_downloaded += len(chunk)
+        elapsed = time.time() - start_time
+        speed_mb = total_downloaded / (elapsed * 1024 * 1024)
+        return jsonify({
+            "success": True,
+            "bytes_downloaded": total_downloaded,
+            "elapsed_seconds": round(elapsed, 2),
+            "speed_mb_s": round(speed_mb, 2)
         })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 
 @telegram_bp.post("/api/telegram/setup/send-code")
 @rate_limited(cost=3.0)
