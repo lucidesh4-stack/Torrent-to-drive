@@ -585,22 +585,48 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     r.raise_for_status()
                     
                     part_index = 0
-                    for chunk in r.iter_content(chunk_size=part_size):
+                    buffer = bytearray()
+                    remaining_bytes = exact_size
+                    
+                    for raw_chunk in r.iter_content(chunk_size=64 * 1024):
                         if cancel_flag[0]:
                             break
                         
-                        downloaded_bytes += len(chunk)
+                        if len(raw_chunk) > remaining_bytes:
+                            raw_chunk = raw_chunk[:remaining_bytes]
+                            
+                        buffer.extend(raw_chunk)
+                        remaining_bytes -= len(raw_chunk)
                         
-                        if part_index % 10 == 0:
-                            elapsed = time.time() - start_time
-                            if elapsed > 0:
-                                speed = downloaded_bytes / (elapsed * 1024 * 1024)
-                                log.info("Downloader speed: %.2f MB/s", speed)
-
+                        while len(buffer) >= part_size:
+                            chunk = bytes(buffer[:part_size])
+                            del buffer[:part_size]
+                            
+                            downloaded_bytes += len(chunk)
+                            
+                            if part_index % 10 == 0:
+                                elapsed = time.time() - start_time
+                                if elapsed > 0:
+                                    speed = downloaded_bytes / (elapsed * 1024 * 1024)
+                                    log.info("Downloader speed: %.2f MB/s", speed)
+                                    
+                            safe_put((part_index, chunk))
+                            part_index += 1
+                            
+                        if remaining_bytes <= 0:
+                            break
+                            
+                    if not cancel_flag[0] and len(buffer) > 0:
+                        chunk = bytes(buffer)
+                        downloaded_bytes += len(chunk)
                         safe_put((part_index, chunk))
                         part_index += 1
                         
                     r.close()
+                    
+                    if not cancel_flag[0] and downloaded_bytes != exact_size:
+                        raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded_bytes} bytes")
+                        
                 except Exception as de:
                     log.warning("Background download worker error: %s", de)
                     safe_put(de)
