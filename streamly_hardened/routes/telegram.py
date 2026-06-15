@@ -101,6 +101,7 @@ class ProgressTracker:
         self.last_bandwidth_sent_bytes = 0
         self.last_write_time = time.time()
         self.last_write_bytes = 0
+        self.last_speed_mb = None
 
     def __call__(self, sent_bytes, total_bytes):
         # Check for cancel request via the non-blocking shared list flag
@@ -119,7 +120,14 @@ class ProgressTracker:
             else:
                 speed_bytes_sec = 0.0
                 
-            speed_mb = round(speed_bytes_sec / (1024 * 1024), 2)
+            raw_speed_mb = speed_bytes_sec / (1024 * 1024)
+            if self.last_speed_mb is None:
+                self.last_speed_mb = raw_speed_mb
+            else:
+                # 70% weight to previous speed, 30% weight to current measurement
+                self.last_speed_mb = (0.7 * self.last_speed_mb) + (0.3 * raw_speed_mb)
+                
+            speed_mb = round(self.last_speed_mb, 2)
             
             self.last_write_time = now
             self.last_write_bytes = sent_bytes
@@ -129,7 +137,7 @@ class ProgressTracker:
             bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
             if bw_diff > 0:
                 self.last_bandwidth_sent_bytes = sent_bytes
-
+ 
             status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
             
             # Perform both bandwidth tracking and status update in a single
