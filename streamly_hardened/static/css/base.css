@@ -1149,3 +1149,28 @@ button.icon-btn {
     box-shadow: 0 2px 8px rgba(47,127,224,0.4) !important;
   }
 }
+
+/* Telegram Tab Badge */
+.tab-badge {
+  position: absolute;
+  top: 6px;
+  right: calc(50% - 18px);
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--panel);
+  z-index: 10;
+}
+.tab-badge.hidden {
+  display: none !important;
+}
+

@@ -716,15 +716,26 @@
     try {
       const data = await postJson("/api/telegram/send", { file_id: item.id });
       if (data.success) {
-        toast("Telegram transfer started!");
+        toast("Upload started");
+        isTgTransferring = true;
+        
+        // Open the transfers overlay automatically
+        const overlay = $("telegramTransfersOverlay");
+        if (overlay) {
+          overlay.classList.remove("hidden");
+          if (typeof window.updateBottomNavHighlight === "function") {
+            window.updateBottomNavHighlight(3);
+          }
+          if (typeof window.triggerQueuePolling === "function") {
+            window.triggerQueuePolling();
+          }
+        }
+        
         if (data.warning) {
           toast(`Warning: ${data.warning}`);
           status($("cloudStatus"), `Warning: ${data.warning}`, "error");
         }
         pollActiveTransfer();
-        if (typeof window.triggerQueuePolling === "function") {
-          window.triggerQueuePolling();
-        }
       }
     } catch (err) {
       if ((err.message || "").includes("Telegram is not authenticated") || (err.message || "").includes("telegram_not_authenticated")) {
@@ -738,6 +749,7 @@
   }
 
   let telegramPollTimer = null;
+  let isTgTransferring = false;
 
   async function pollActiveTransfer() {
     if (telegramPollTimer) clearTimeout(telegramPollTimer);
@@ -752,10 +764,13 @@
           telegramPollTimer = setTimeout(pollActiveTransfer, 5000);
         } else if (data.status === "COMPLETED") {
           status($("cloudStatus"), "", "");
-          toast(`Sent to Telegram: ${data.filename}`);
+          isTgTransferring = false;
         } else if (data.status === "FAILED") {
           status($("cloudStatus"), `Telegram upload failed: ${data.error || "unknown error"}`, "error");
-          toast(`Telegram upload failed: ${data.error || "unknown error"}`);
+          if (isTgTransferring) {
+            toast("Upload failed");
+            isTgTransferring = false;
+          }
         }
       }
     } catch (err) {

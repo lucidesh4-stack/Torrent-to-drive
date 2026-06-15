@@ -112,6 +112,21 @@
       qBody.innerHTML = `<tr><td colspan="3" class="muted" style="text-align: center; padding: 20px; font-size: 13px;">No transfers in queue.</td></tr>`;
     }
 
+    // 4. Update tab badge count
+    const activeCount = (data.active && (data.active.status === "UPLOADING" || data.active.status === "QUEUED")) ? 1 : 0;
+    const queueCount = data.queue ? data.queue.length : 0;
+    const totalCount = activeCount + queueCount;
+    
+    const badge = $("tgBadge");
+    if (badge) {
+      if (totalCount > 0) {
+        badge.textContent = totalCount;
+        badge.classList.remove("hidden");
+      } else {
+        badge.classList.add("hidden");
+      }
+    }
+
     // Wire up cancel events
     document.querySelectorAll(".tg-cancel-btn, #tgQueueBody button").forEach((btn) => {
       btn.onclick = (e) => {
