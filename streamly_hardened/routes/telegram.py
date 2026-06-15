@@ -543,7 +543,13 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             exact_size = size
             import requests
-            r = requests.get(file_url, stream=True, timeout=120.0)
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+                "Accept-Encoding": "identity",
+                "Connection": "keep-alive"
+            }
+            r = requests.get(file_url, stream=True, timeout=120.0, headers=headers)
             r.raise_for_status()
             
             content_len_header = r.headers.get("content-length")
