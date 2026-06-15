@@ -899,7 +899,6 @@
     // Clear inputs
     $("tgPhone").value = "";
     $("tgCode").value = "";
-    if ($("tgProxyUrl")) $("tgProxyUrl").value = "";
     
     try {
       // Check auth status
@@ -916,16 +915,6 @@
           $("tgCodeStep").classList.add("hidden");
         }
       }
-      
-      // Load proxy settings
-      const settingsRes = await fetch("/api/telegram/settings", { credentials: "same-origin" });
-      if (settingsRes.ok) {
-        const settingsData = await settingsRes.json();
-        if (settingsData.cloudflare_worker_proxy && $("tgProxyUrl")) {
-          $("tgProxyUrl").value = settingsData.cloudflare_worker_proxy;
-        }
-      }
-      
       status($("tgAuthStatus"), "", "");
     } catch (err) {
       console.error("Error loading Telegram status:", err);
@@ -2502,20 +2491,6 @@
         }, 1500);
       } catch (err) {
         status($("tgAuthStatus"), err.message || "Verification failed", "error");
-      }
-    });
-  }
-
-  if ($("tgSaveProxyBtn")) {
-    $("tgSaveProxyBtn").addEventListener("click", async () => {
-      const proxyUrl = $("tgProxyUrl").value.trim();
-      status($("tgAuthStatus"), "Saving proxy URL...", "");
-      try {
-        await postJson("/api/telegram/settings", { cloudflare_worker_proxy: proxyUrl });
-        status($("tgAuthStatus"), "Proxy settings saved!", "ok");
-        toast("Proxy settings saved successfully.");
-      } catch (err) {
-        status($("tgAuthStatus"), err.message || "Failed to save proxy", "error");
       }
     });
   }
