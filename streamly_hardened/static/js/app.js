@@ -1,4 +1,4 @@
-﻿
+
 (() => {
   let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let currentFolder = 0;
