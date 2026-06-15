@@ -571,7 +571,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 try:
                     fut = asyncio.run_coroutine_threadsafe(output_queue.put(item), loop)
                     fut.result()
-                except (RuntimeError, AssertionError):
+                except BaseException:
                     pass
 
             def download_worker(worker_id):
