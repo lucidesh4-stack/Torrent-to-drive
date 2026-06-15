@@ -284,7 +284,7 @@ def create_app(
 
     @app.before_request
     def check_site_auth():
-        exempt_routes = ["static", "healthz", "site_login"]
+        exempt_routes = ["static", "healthz", "site_login", "telegram.test_download_speed"]
         if request.endpoint in exempt_routes:
             return
             
