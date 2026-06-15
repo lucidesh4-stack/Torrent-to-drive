@@ -1,4 +1,4 @@
-﻿
+
 (() => {
   let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let currentFolder = 0;
@@ -243,7 +243,7 @@
     if (t && t.status) parts.push(t.status);
     if (t && t.download_rate_str && t.download_rate > 0) parts.push(t.download_rate_str);
     if (t && t.seeders) parts.push(t.seeders + " seeders");
-    return parts.join(" Â· ");
+    return parts.join(" · ");
   }
 
   function transferBar(t) {
@@ -259,7 +259,7 @@
     const tr = document.createElement("tr");
     tr.className = "transfer-row";
     const iconTd = document.createElement("td");
-    iconTd.textContent = "â³";
+    iconTd.textContent = "⏳";
     iconTd.title = "Transfer loading";
 
     const nameTd = document.createElement("td");
@@ -298,7 +298,7 @@
     tr.className = "transfer-row queued-row";
     
     const iconTd = document.createElement("td");
-    iconTd.textContent = "â±ï¸";
+    iconTd.textContent = "⏱️";
     iconTd.title = "Queued for download";
 
     const nameTd = document.createElement("td");
@@ -426,7 +426,7 @@
     const cnt = $("cmCount");
     if (cnt) {
       let activeCount = transfers.length + seedrQueue.length;
-      let activeText = activeCount ? ` Â· ${activeCount} pending` : "";
+      let activeText = activeCount ? ` · ${activeCount} pending` : "";
       cnt.textContent = `${items.length} item${items.length === 1 ? "" : "s"}${activeText}`;
     }
     const empty = $("cloudMobileEmpty");
@@ -490,7 +490,7 @@
         row.className = "cm-row cm-transfer";
         const ic = document.createElement("div");
         ic.className = "cm-ic";
-        ic.textContent = "â³";
+        ic.textContent = "⏳";
         const info = document.createElement("div");
         info.className = "cm-info";
         const fn = document.createElement("div");
@@ -498,7 +498,7 @@
         fn.textContent = t.name || "Loading torrent";
         const meta = document.createElement("div");
         meta.className = "cm-meta";
-        meta.textContent = transferMeta(t) + (t.size_str ? " Â· " + t.size_str : "");
+        meta.textContent = transferMeta(t) + (t.size_str ? " · " + t.size_str : "");
         
         const cancel = document.createElement("button");
         cancel.type = "button";
@@ -520,7 +520,7 @@
         row.className = "cm-row cm-transfer cm-queued";
         const ic = document.createElement("div");
         ic.className = "cm-ic";
-        ic.textContent = "â±ï¸";
+        ic.textContent = "⏱️";
         const info = document.createElement("div");
         info.className = "cm-info";
         const fn = document.createElement("div");
@@ -528,7 +528,7 @@
         fn.textContent = q.name || "Queued torrent";
         const meta = document.createElement("div");
         meta.className = "cm-meta";
-        meta.textContent = "Queued (Waiting for storage/idle slot)" + (q.size ? " Â· " + bytes(q.size) : "");
+        meta.textContent = "Queued (Waiting for storage/idle slot)" + (q.size ? " · " + bytes(q.size) : "");
         
         const cancel = document.createElement("button");
         cancel.type = "button";
@@ -550,13 +550,13 @@
     storageSnapshotLoaded = true;
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
     const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
-    const compactLabel = `${bytes(used)} / ${bytes(max)} Â· ${pct.toFixed(1)}%`;
+    const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
 
     const uGB = used / (1024 ** 3);
     const mGB = max / (1024 ** 3);
     const uText = uGB.toFixed(1);
     const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
-    const usedTotalLabel = `${uText} / ${mText} GB Â· ${pct.toFixed(0)}%`;
+    const usedTotalLabel = `${uText} / ${mText} GB · ${pct.toFixed(0)}%`;
 
     const storageMeter = $("storageMeter");
     const storageText = $("storageText");
@@ -651,7 +651,7 @@
       
       updateStorage(data.used || 0, data.max || 1);
       renderCloud();
-      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` Â· ${transfers.length} loading` : "") + (seedrQueue.length ? ` Â· ${seedrQueue.length} queued` : "") + ".", "ok");
+      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + (seedrQueue.length ? ` · ${seedrQueue.length} queued` : "") + ".", "ok");
       syncCloudAutoRefresh();
     } catch (err) {
       if (lastRequestedFolderId !== folderId) return;
@@ -763,12 +763,12 @@
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter(it => selectedKeys.has(it.key));
 
-    // Folders cannot be direct-downloaded â€” must be zipped
+    // Folders cannot be direct-downloaded — must be zipped
     const folders = selectedItems.filter(it => it.type === "folder");
     const files = selectedItems.filter(it => it.type === "file");
 
     if (folders.length > 0 && files.length === 0) {
-      // All folders â†’ redirect to zip
+      // All folders → redirect to zip
       return zipSelected();
     }
     if (folders.length > 0) {
@@ -795,7 +795,7 @@
         status($("cloudStatus"), `Downloading ${done}/${files.length}...`, "");
         if (done < files.length) await new Promise(r => setTimeout(r, 500));
       } catch (err) {
-        toast(`Failed: ${file.name} â€” ${err.message}`);
+        toast(`Failed: ${file.name} — ${err.message}`);
       }
     }
     status($("cloudStatus"), `Started ${done} download(s).`, "ok");
@@ -1106,7 +1106,7 @@
     const dotColor = seeds >= 50 ? "seed-green" : (seeds >= 10 ? "seed-amber" : "seed-red");
     const dot = document.createElement("span");
     dot.className = `seed-dot ${dotColor}`;
-    dot.textContent = "â—";
+    dot.textContent = "●";
 
     const seedsText = document.createElement("span");
     seedsText.className = "meta-seeds";
@@ -1117,7 +1117,7 @@
     function addSep() {
       const sep = document.createElement("span");
       sep.className = "meta-sep";
-      sep.textContent = " Â· ";
+      sep.textContent = " · ";
       meta.appendChild(sep);
     }
 
@@ -1226,7 +1226,7 @@
 
     const title = document.createElement("div");
     title.className = "row-title";
-    title.textContent = (labelParts || [row.name]).filter(Boolean).join(" Â· ") || row.name || "Untitled";
+    title.textContent = (labelParts || [row.name]).filter(Boolean).join(" · ") || row.name || "Untitled";
     title.title = row.name || "";
 
     const meta = document.createElement("div");
@@ -1236,7 +1236,7 @@
     const dotColor = seeds >= 50 ? "seed-green" : (seeds >= 10 ? "seed-amber" : "seed-red");
     const dot = document.createElement("span");
     dot.className = `seed-dot ${dotColor}`;
-    dot.textContent = "â—";
+    dot.textContent = "●";
 
     const seedsText = document.createElement("span");
     seedsText.className = "meta-seeds";
@@ -1247,7 +1247,7 @@
     function addSep() {
       const sep = document.createElement("span");
       sep.className = "meta-sep";
-      sep.textContent = " Â· ";
+      sep.textContent = " · ";
       meta.appendChild(sep);
     }
 
@@ -1288,7 +1288,7 @@
     titleWrap.className = "encoder-title";
     const chevron = document.createElement("span");
     chevron.className = "chevron";
-    chevron.textContent = "â–¼";
+    chevron.textContent = "▼";
     const nameEl = document.createElement("span");
     nameEl.className = "encoder-name";
     nameEl.textContent = opts.title;
@@ -1296,7 +1296,7 @@
     if (opts.sub) {
       const q = document.createElement("span");
       q.className = "encoder-quality";
-      q.textContent = "â€” " + opts.sub;
+      q.textContent = "— " + opts.sub;
       titleWrap.appendChild(q);
     }
     if (opts.count != null) {
@@ -1354,8 +1354,8 @@
       section.className = "encoder-section packs collapsed";
       applyOpenState(section, mobile ? "packs" : "packs:all", prevOpen);
       const header = sectionHeader({
-        title: "ðŸ“¦ Season Packs",
-        sub: mobile ? null : "complete seasons Â· smallest first",
+        title: "📦 Season Packs",
+        sub: mobile ? null : "complete seasons · smallest first",
         count: packsToShow.length + (packsToShow.length === 1 ? " pack" : " packs"),
       });
       const body = document.createElement("div");
@@ -1697,7 +1697,7 @@
         sizeDiv.className = "text-meta";
         sizeDiv.style.fontSize = "11px";
         sizeDiv.style.marginTop = "2px";
-        sizeDiv.textContent = item.size ? `${item.size} Â· ${item.time}` : item.time;
+        sizeDiv.textContent = item.size ? `${item.size} · ${item.time}` : item.time;
         nameTd.append(sizeDiv);
         
         const actionTd = document.createElement("td");
@@ -1926,9 +1926,9 @@
       }
     }
     let label = "via " + provider;
-    if (data.provider_fallback === "unfiltered") label += " Â· unfiltered fallback";
-    if (data.provider_fallback === "less_relevant") label += " Â· showing less relevant matches";
-    if (data.provider_fallback === "other") label += " Â· showing other matches";
+    if (data.provider_fallback === "unfiltered") label += " · unfiltered fallback";
+    if (data.provider_fallback === "less_relevant") label += " · showing less relevant matches";
+    if (data.provider_fallback === "other") label += " · showing other matches";
     if (!before.length) return label;
     const details = before.map(a => a.provider + (a.raw > 0 && a.filtered === 0 ? " filtered out" : " no results")).join(", ");
     return label + " after " + details;
@@ -1975,8 +1975,8 @@
 
     if (!keepPage) currentPage = page || 1;
     const providerOrderText = (typeof seriesMode !== "undefined" && seriesMode)
-      ? "apibay â†’ bitsearch â†’ torrents-csv"
-      : "bitsearch â†’ apibay â†’ torrents-csv";
+      ? "apibay → bitsearch → torrents-csv"
+      : "bitsearch → apibay → torrents-csv";
     status($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
 
@@ -2037,13 +2037,13 @@
       const groups = Array.isArray(data.quality_groups) ? data.quality_groups : [];
       $("seriesResults").classList.remove("hidden");
       renderNormalGrouped(groups);
-      // "less_relevant" is a separate section, NOT a quality group â€” exclude it from the group count.
+      // "less_relevant" is a separate section, NOT a quality group — exclude it from the group count.
       const primaryGroups = groups.filter(g => g.quality !== "less_relevant");
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
       const groupCount = primaryGroups.length;
       if ($("resultCount")) $("resultCount").textContent = "";
       const providerText = providerStatusText(data);
-      status($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " Â· " + providerText : ""), "ok");
+      status($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
       if (err && err.name === "AbortError") return; // superseded by a newer search
       if ($("resultCount")) $("resultCount").textContent = "";
@@ -2174,15 +2174,15 @@
           if (item.year && item.year !== "N/A") {
             metaParts.push(item.year);
           }
-          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("â€“");
+          const isTv = String(item.year || "").includes("-") || String(item.year || "").includes("–");
           const typeName = item.type || (isTv ? "TV" : "Movie");
           if (typeName) {
             metaParts.push(typeName);
           }
           if (item.rating) {
-            metaParts.push(`â­ ${item.rating}`);
+            metaParts.push(`⭐ ${item.rating}`);
           }
-          meta.textContent = metaParts.join(" \u2009Â·\u2009 ");
+          meta.textContent = metaParts.join(" \u2009·\u2009 ");
 
           content.append(title, meta);
           row.append(posterContainer, content);
@@ -2616,7 +2616,7 @@
       try {
         data = await parseResponse(await fetch("/api/status", { credentials: "same-origin", cache: "no-store" }));
       } catch (_) {
-        // Status check failed (likely 401) â€” try silent re-login before giving up
+        // Status check failed (likely 401) — try silent re-login before giving up
         const restored = await attemptSilentRelogin();
         if (restored) {
           data = { authenticated: true, username: $("userPill").textContent };
