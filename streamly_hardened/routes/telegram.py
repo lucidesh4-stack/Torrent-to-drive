@@ -697,7 +697,8 @@ def telegram_status():
 
 @telegram_bp.get("/api/telegram/test-download")
 def test_download_speed():
-    test_url = "https://speed.cloudflare.com/__down?bytes=10485760"
+    test_url = request.args.get("url", "https://speed.cloudflare.com/__down?bytes=10485760")
+    max_bytes = 10 * 1024 * 1024  # Limit speed test to 10MB to avoid server overload
     try:
         import time
         import requests
@@ -713,13 +714,16 @@ def test_download_speed():
         total_downloaded = 0
         for chunk in r.iter_content(chunk_size=64 * 1024):
             total_downloaded += len(chunk)
+            if total_downloaded >= max_bytes:
+                break
         elapsed = time.time() - start_time
         speed_mb = total_downloaded / (elapsed * 1024 * 1024)
         return jsonify({
             "success": True,
             "bytes_downloaded": total_downloaded,
             "elapsed_seconds": round(elapsed, 2),
-            "speed_mb_s": round(speed_mb, 2)
+            "speed_mb_s": round(speed_mb, 2),
+            "url": test_url
         })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
