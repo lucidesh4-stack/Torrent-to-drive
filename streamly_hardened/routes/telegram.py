@@ -565,6 +565,15 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             active_threads = 2
             threads_lock = threading.Lock()
 
+            def safe_put(item):
+                if loop.is_closed():
+                    return
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(output_queue.put(item), loop)
+                    fut.result()
+                except (RuntimeError, AssertionError):
+                    pass
+
             def download_worker(worker_id):
                 nonlocal active_threads
                 try:
@@ -602,18 +611,17 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                                 speed = downloaded_bytes / (elapsed * 1024 * 1024)
                                 log.info("Downloader %d speed: %.2f MB/s", worker_id, speed)
 
-                        fut = asyncio.run_coroutine_threadsafe(output_queue.put((part_index, chunk)), loop)
-                        fut.result()
+                        safe_put((part_index, chunk))
                         index_queue.task_done()
                         
                 except Exception as de:
                     log.warning("Background download worker %d error: %s", worker_id, de)
-                    asyncio.run_coroutine_threadsafe(output_queue.put(de), loop).result()
+                    safe_put(de)
                 finally:
                     with threads_lock:
                         active_threads -= 1
                         if active_threads == 0:
-                            asyncio.run_coroutine_threadsafe(output_queue.put(None), loop).result()
+                            safe_put(None)
 
             download_threads = []
             for w_id in range(2):
