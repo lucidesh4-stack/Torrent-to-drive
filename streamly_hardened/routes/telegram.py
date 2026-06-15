@@ -557,9 +557,19 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             def download_worker():
                 try:
+                    start_time = time.time()
+                    chunk_count = 0
                     for chunk in r.iter_content(chunk_size=512 * 1024):
                         if cancel_flag[0]:
                             break
+                        chunk_count += 1
+                        
+                        if chunk_count % 10 == 0:
+                            elapsed = time.time() - start_time
+                            if elapsed > 0:
+                                download_speed = (chunk_count * 512 * 1024) / (elapsed * 1024 * 1024)
+                                log.info("Seedr download speed: %.2f MB/s", download_speed)
+                                
                         fut = asyncio.run_coroutine_threadsafe(queue.put(chunk), loop)
                         fut.result()
                     asyncio.run_coroutine_threadsafe(queue.put(None), loop).result()
@@ -645,6 +655,13 @@ def telegram_status():
     if not session_str:
         return jsonify({"authenticated": False})
     
+    cryptg_active = False
+    try:
+        import cryptg
+        cryptg_active = True
+    except ImportError:
+        pass
+
     try:
         import asyncio
         loop = asyncio.new_event_loop()
@@ -659,10 +676,17 @@ def telegram_status():
             
         authorized = loop.run_until_complete(test_auth())
         loop.close()
-        return jsonify({"authenticated": bool(authorized)})
+        return jsonify({
+            "authenticated": bool(authorized),
+            "cryptg_active": cryptg_active
+        })
     except Exception as e:
         log.exception("Error checking Telegram auth status")
-        return jsonify({"authenticated": False, "error": str(e)})
+        return jsonify({
+            "authenticated": False,
+            "cryptg_active": cryptg_active,
+            "error": str(e)
+        })
 
 @telegram_bp.post("/api/telegram/setup/send-code")
 @rate_limited(cost=3.0)
