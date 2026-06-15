@@ -1609,14 +1609,15 @@
         const hasWork = data.active || (data.queue && data.queue.length > 0);
         if (isOverlayOpen || hasWork) {
           if (pollTimer) clearTimeout(pollTimer);
-          pollTimer = setTimeout(refreshQueueStatus, 5000);
+          const interval = hasWork ? 5000 : 30000; // Poll every 5s if active, 30s if idle
+          pollTimer = setTimeout(refreshQueueStatus, interval);
         }
       }
     } catch (e) {
       console.error("Error refreshing Telegram queue status:", e);
       if (isOverlayOpen) {
         if (pollTimer) clearTimeout(pollTimer);
-        pollTimer = setTimeout(refreshQueueStatus, 8000);
+        pollTimer = setTimeout(refreshQueueStatus, 15000); // Poll every 15s on error if overlay open
       }
     }
   }

@@ -29,45 +29,60 @@ log = logging.getLogger(__name__)
 
 telegram_bp = Blueprint("telegram", __name__)
 
-def get_projected_bandwidth(rs, ym, current_file_size=0):
+def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None, queue_items=None):
     raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
     
     projected = bw_bytes + current_file_size
     
     # 1. Add remaining bytes of the active transfer (if any)
-    active_task_id = rs.get("streamly:active_transfer_global")
-    if active_task_id:
-        if isinstance(active_task_id, bytes):
-            active_task_id = active_task_id.decode("utf-8")
-        raw_status = rs.get(f"streamly:transfer_status:{active_task_id}")
-        if raw_status:
-            try:
-                if isinstance(raw_status, bytes):
-                    raw_status = raw_status.decode("utf-8")
-                status_data = _json.loads(raw_status)
-                total = int(status_data.get("total_bytes", 0))
-                sent = int(status_data.get("sent_bytes", 0))
-                remaining = max(0, total - sent)
-                projected += remaining
-            except Exception:
-                pass
+    if active_item is not None:
+        try:
+            total = int(active_item.get("total_bytes", 0))
+            sent = int(active_item.get("sent_bytes", 0))
+            projected += max(0, total - sent)
+        except Exception:
+            pass
+    else:
+        active_task_id = rs.get("streamly:active_transfer_global")
+        if active_task_id:
+            if isinstance(active_task_id, bytes):
+                active_task_id = active_task_id.decode("utf-8")
+            raw_status = rs.get(f"streamly:transfer_status:{active_task_id}")
+            if raw_status:
+                try:
+                    if isinstance(raw_status, bytes):
+                        raw_status = raw_status.decode("utf-8")
+                    status_data = _json.loads(raw_status)
+                    total = int(status_data.get("total_bytes", 0))
+                    sent = int(status_data.get("sent_bytes", 0))
+                    remaining = max(0, total - sent)
+                    projected += remaining
+                except Exception:
+                    pass
                 
     # 2. Add sizes of all transfers in the queue
-    queue_task_ids = rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
-    if queue_task_ids:
-        for tid in queue_task_ids:
+    if queue_items is not None:
+        for item in queue_items:
             try:
-                if isinstance(tid, bytes):
-                    tid = tid.decode("utf-8")
-                raw_args = rs.get(f"streamly:task_args:{tid}")
-                if raw_args:
-                    if isinstance(raw_args, bytes):
-                        raw_args = raw_args.decode("utf-8")
-                    args = _json.loads(raw_args)
-                    projected += int(args.get("size", 0))
+                projected += int(item.get("total_bytes", 0))
             except Exception:
                 pass
+    else:
+        queue_task_ids = rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
+        if queue_task_ids:
+            for tid in queue_task_ids:
+                try:
+                    if isinstance(tid, bytes):
+                        tid = tid.decode("utf-8")
+                    raw_args = rs.get(f"streamly:task_args:{tid}")
+                    if raw_args:
+                        if isinstance(raw_args, bytes):
+                            raw_args = raw_args.decode("utf-8")
+                        args = _json.loads(raw_args)
+                        projected += int(args.get("size", 0))
+                except Exception:
+                    pass
                 
     return projected
 
@@ -1107,7 +1122,7 @@ def get_telegram_queue():
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
     bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
     
-    projected_bytes = get_projected_bandwidth(rs, ym, 0)
+    projected_bytes = get_projected_bandwidth(rs, ym, 0, active_item=active_item, queue_items=queue_items)
     projected_gb = round(projected_bytes / (1024 * 1024 * 1024), 2)
     
     is_hf = "SPACE_ID" in os.environ
