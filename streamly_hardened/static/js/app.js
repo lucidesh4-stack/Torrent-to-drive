@@ -388,7 +388,7 @@
 
       const sizeTd = document.createElement("td");
       sizeTd.className = "muted";
-      sizeTd.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
+      sizeTd.textContent = item.size_str || "-";
 
       const dateTd = document.createElement("td");
       dateTd.className = "muted";
@@ -458,7 +458,7 @@
       const meta = document.createElement("div");
       meta.className = "cm-meta";
       const s1 = document.createElement("span");
-      s1.textContent = item.type === "folder" ? "-" : (item.size_str || "-");
+      s1.textContent = item.size_str || "-";
       const s2 = document.createElement("span");
       s2.textContent = fmtDate(item.last_update);
       meta.append(s1, s2);
