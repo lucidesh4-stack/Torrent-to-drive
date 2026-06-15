@@ -227,7 +227,8 @@ def install_security_headers(app) -> None:
             "img-src 'self' data: https://m.media-amazon.com https://*.media-imdb.com; "
             "media-src 'self' blob: https:; "
             "connect-src 'self' https://bitsearch.eu https://v3.sg.media-imdb.com https://www.seedr.cc https:; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self' 'unsafe-inline'; "
             f"base-uri 'none'; object-src 'none'; {csp_ancestors}",
         )
