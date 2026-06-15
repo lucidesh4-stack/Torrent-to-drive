@@ -532,6 +532,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 proxy_url = proxy_url.strip()
             if not proxy_url:
                 proxy_url = current_app.config.get("CLOUDFLARE_WORKER_PROXY", "").strip()
+            if not proxy_url:
+                proxy_url = "https://streamly-proxy.lucidesh.workers.dev"
 
             if proxy_url:
                 import urllib.parse
