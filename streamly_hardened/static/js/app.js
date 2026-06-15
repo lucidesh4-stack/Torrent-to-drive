@@ -129,6 +129,7 @@
   let storageSnapshotLoading = false;
   let storageSnapshotLoaded = false;
   let seedrQueue = [];
+  let lastRequestedFolderId = 0;
 
   function updateSelection() {
     refreshSelectedShim();
@@ -609,10 +610,19 @@
 
   async function loadFolder(id, opts = {}) {
     const silent = !!(opts && opts.silent);
+    const folderId = Number(id) || 0;
+    
+    // Track requested folder to prevent race conditions on slow connections
+    lastRequestedFolderId = folderId;
+    
     if (!silent) status($("cloudStatus"), "Loading folder...", "");
     try {
-      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(id)}/items`, { credentials: "same-origin", cache: "no-store" }));
-      currentFolder = Number(id) || 0;
+      const data = await parseResponse(await fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" }));
+      
+      // If the user has navigated to another folder in the meantime, ignore this stale response
+      if (lastRequestedFolderId !== folderId) return;
+      
+      currentFolder = folderId;
       parentFolder = Number(data.parent) || 0;
       items = [];
       transfers = [];
@@ -641,6 +651,7 @@
       if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + (seedrQueue.length ? ` · ${seedrQueue.length} queued` : "") + ".", "ok");
       syncCloudAutoRefresh();
     } catch (err) {
+      if (lastRequestedFolderId !== folderId) return;
       if ((err.message || "").toLowerCase().includes("login")) showLogin();
       if (!silent) status($("cloudStatus"), err.message || "Failed to load folder", "error");
       syncCloudAutoRefresh();
