@@ -9,6 +9,7 @@ from ..security import (
     validate_item_type,
     validate_positive_int,
     validate_magnet,
+    ValidationError,
 )
 from ..cloud_service import format_size, _safe_int
 

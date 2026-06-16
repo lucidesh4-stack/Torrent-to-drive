@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Callable, Protocol
 import requests
@@ -280,7 +281,7 @@ class CloudService:
                 data={
                     "access_token": token,
                     "func": "fetch_archive",
-                    "archive_arr": __import__("json").dumps(archive_arr, separators=(",", ":")),
+                    "archive_arr": json.dumps(archive_arr, separators=(",", ":")),
                 },
                 timeout=self.config.archive_timeout_seconds,
             )

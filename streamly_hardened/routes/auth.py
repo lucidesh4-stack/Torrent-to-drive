@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, current_app, session
 from ..auth_utils import current_client, ensure_sid
+from ..store import NotAuthenticated
 from ..security import (
     csrf_required,
     rate_limited,

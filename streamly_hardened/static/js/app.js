@@ -1654,6 +1654,17 @@
   let pollTimer = null;
   let isOverlayOpen = false;
 
+  // Escape HTML so server/torrent-supplied values (e.g. filenames) can't inject
+  // markup/script when inserted via innerHTML (XSS hardening).
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -1710,14 +1721,18 @@
       const active = data.active;
       const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
       const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
+      // Escape all server-supplied values before interpolating into innerHTML.
+      const fname = escapeHtml(active.filename || "file");
+      const fstatus = escapeHtml(active.status || "UPLOADING");
+      const ftask = escapeHtml(active.task_id || "");
       
       activeCard.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
           <div style="flex: 1; min-width: 0;">
-            <strong style="display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${active.filename || 'file'}">${active.filename || 'file'}</strong>
-            <span class="muted" style="font-size: 12px;">Status: <span style="color: var(--accent); font-weight: 600;">${active.status || 'UPLOADING'}</span></span>
+            <strong style="display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
+            <span class="muted" style="font-size: 12px;">Status: <span style="color: var(--accent); font-weight: 600;">${fstatus}</span></span>
           </div>
-          <button class="tg-cancel-btn danger ghost" data-task-id="${active.task_id}" style="padding: 6px 12px; font-size: 12px;">Cancel</button>
+          <button class="tg-cancel-btn danger ghost" data-task-id="${ftask}" style="padding: 6px 12px; font-size: 12px;">Cancel</button>
         </div>
         <div style="width: 100%; height: 6px; background: var(--panel-1); border-radius: 3px; overflow: hidden; border: 1px solid var(--line);">
           <div style="width: ${progress}%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>

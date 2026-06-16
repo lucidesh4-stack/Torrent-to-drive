@@ -23,6 +23,7 @@ def get_history():
         return jsonify({"success": True, "items": [], "_warning": "History temporarily unavailable"})
 
 @history_bp.post("/api/history/add")
+@rate_limited(cost=1.0)
 @csrf_required
 def add_history():
     config = current_app.config
@@ -57,6 +58,7 @@ def add_history():
     return jsonify({"success": True})
 
 @history_bp.post("/api/history/delete")
+@rate_limited(cost=1.0)
 @csrf_required
 def delete_history():
     config = current_app.config
@@ -74,6 +76,7 @@ def delete_history():
     return jsonify({"success": True})
 
 @history_bp.post("/api/history/clear")
+@rate_limited(cost=1.0)
 @csrf_required
 def clear_history():
     rs = getattr(current_app, "rs", None)

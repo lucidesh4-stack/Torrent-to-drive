@@ -44,6 +44,10 @@ _ACTIVE_TTL_SECONDS = 90
 # updates. Safe because the app runs a single gunicorn worker.
 _PROGRESS_PERSIST_SECONDS = 20      # how often to SET status to Redis (recovery)
 _BANDWIDTH_FLUSH_SECONDS = 60       # how often to flush accumulated bandwidth (INCRBY)
+# Let Telethon auto-sleep through flood waits up to this many seconds instead of
+# raising FloodWaitError (which is unhandled and would fail a transfer). Telegram
+# rarely returns waits beyond a few minutes for upload spam.
+_FLOOD_SLEEP_THRESHOLD = 300
 _LIVE_PROGRESS: dict[str, dict] = {}
 _LIVE_PROGRESS_LOCK = threading.Lock()
 
@@ -393,7 +397,9 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    connections = 12 if file_size > 50 * 1024 * 1024 else (8 if file_size > 10 * 1024 * 1024 else 4)
+    # Fewer parallel upload connections => fewer SaveBigFilePart flood waits, with
+    # negligible throughput loss (uploads are network-bound, not connection-bound).
+    connections = 6 if file_size > 50 * 1024 * 1024 else (4 if file_size > 10 * 1024 * 1024 else 2)
     connections = min(connections, parts_count)
 
     uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
@@ -441,7 +447,8 @@ def get_telegram_client(session_str):
         StringSession(session_str),
         api_id,
         api_hash,
-        connection=ConnectionTcpIntermediate
+        connection=ConnectionTcpIntermediate,
+        flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
     )
 
 async def validate_telegram_target(client, target_chat):
@@ -622,7 +629,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 StringSession(session_str),
                 api_id,
                 api_hash,
-                connection=ConnectionTcpIntermediate
+                connection=ConnectionTcpIntermediate,
+                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
             )
             await client.connect()
             
@@ -1016,7 +1024,8 @@ def send_code():
                 StringSession(),
                 api_id,
                 api_hash,
-                connection=ConnectionTcpIntermediate
+                connection=ConnectionTcpIntermediate,
+                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
             )
             await client.connect()
             res = await client.send_code_request(phone)
@@ -1078,7 +1087,8 @@ def verify_code():
                 StringSession(temp_session),
                 api_id,
                 api_hash,
-                connection=ConnectionTcpIntermediate
+                connection=ConnectionTcpIntermediate,
+                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
             )
             await client.connect()
             await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
@@ -1526,6 +1536,7 @@ def get_telegram_settings():
 
 
 @telegram_bp.post("/api/telegram/settings")
+@rate_limited(cost=1.0)
 @csrf_required
 def save_telegram_settings():
     rs = getattr(current_app, "rs", None)
