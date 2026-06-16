@@ -759,15 +759,10 @@
     if (successCount > 0) {
       toast(`Started upload for ${successCount} file(s)`);
       isTgTransferring = true;
-      const overlay = $("telegramTransfersOverlay");
-      if (overlay) {
-        overlay.classList.remove("hidden");
-        if (typeof window.updateBottomNavHighlight === "function") {
-          window.updateBottomNavHighlight(3);
-        }
-        if (typeof window.triggerQueuePolling === "function") {
-          window.triggerQueuePolling();
-        }
+      // Do NOT auto-open the Transfers overlay. Just start background polling so the
+      // tab badge updates; the user opens the overlay themselves when they want it.
+      if (typeof window.triggerQueuePolling === "function") {
+        window.triggerQueuePolling();
       }
     }
   }
