@@ -1174,3 +1174,12 @@ button.icon-btn {
   display: none !important;
 }
 
+/* Telegram Exports modal: allow grid/flex children to shrink so a long filename
+   truncates (…) instead of forcing the content wider than the box and clipping
+   the right side. Applies on desktop AND mobile. */
+#telegramTransfersOverlay .player-box,
+#telegramTransfersOverlay .player-box * {
+  min-width: 0;
+}
+
+
