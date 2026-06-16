@@ -269,26 +269,24 @@ def cancel_queued_item():
     
     try:
         raw_items = rs._execute("LRANGE", "streamly:seedr_queue", "0", "-1") or []
-        remaining = []
         removed_item = None
+        removed_raw = None
         for raw in raw_items:
             try:
-                if isinstance(raw, bytes):
-                    raw = raw.decode("utf-8")
-                item = _json.loads(raw)
+                decoded = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                item = _json.loads(decoded)
                 if item.get("task_id") == task_id:
                     removed_item = item
-                else:
-                    remaining.append(raw)
+                    removed_raw = decoded
+                    break
             except Exception:
                 pass
-                
-        if removed_item:
-            rs._execute("DEL", "streamly:seedr_queue")
-            if remaining:
-                rs._execute("RPUSH", "streamly:seedr_queue", *remaining)
+ 
+        if removed_item and removed_raw is not None:
+            # Atomic: remove only this exact element (no empty-queue window).
+            rs._execute("LREM", "streamly:seedr_queue", "0", removed_raw)
             return jsonify({"success": True, "message": f"Cancelled queued item: {removed_item.get('name', 'torrent')}"})
-            
+ 
         from ..security import json_error
         return json_error(404, "not_found", "Queued item not found")
     except Exception as e:

@@ -20,6 +20,7 @@ from .security import (
     install_security_headers,
     json_error,
     TokenBucketRateLimiter,
+    rate_limited,
 )
 from .cloud_service import CloudService
 from .search_service import SearchService
@@ -309,7 +310,7 @@ def create_app(
             sp_len = len(site_password) if site_password else 0
             match = False
             if password and site_password:
-                match = (password.strip() == site_password.strip())
+                match = hmac.compare_digest(password.strip(), site_password.strip())
             
             log.info("Site login attempt: password_len=%d, site_password_len=%d, match=%s", p_len, sp_len, match)
             
@@ -394,6 +395,7 @@ def create_app(
         return jsonify({"ok": not degraded, "checks": checks}), (503 if degraded else 200)
 
     @app.post("/api/client-log")
+    @rate_limited(cost=1.0)
     def client_log():
         """Rate-limited client-side error logger (Phase 4)."""
         try:
@@ -407,8 +409,9 @@ def create_app(
             
             rs = getattr(app, "rs", None)
             if rs:
-                ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown")
-                log_count_key = f"streamly:client_log_count:{ip}"
+                from flask import session
+                key_id = session.get("sid") or (request.remote_addr or "unknown")
+                log_count_key = f"streamly:client_log_count:{key_id}"
                 count = rs._execute("INCR", log_count_key)
                 if count == 1:
                     rs._execute("EXPIRE", log_count_key, "60")
@@ -421,6 +424,7 @@ def create_app(
             return jsonify({"success": False, "error": str(e)}), 400
 
     @app.get("/api/logs")
+    @rate_limited(cost=1.0)
     def logs_gate():
         """Renders the secure log access credential form."""
         html = """
@@ -457,6 +461,7 @@ def create_app(
         return render_template_string(html)
 
     @app.post("/api/logs")
+    @rate_limited(cost=3.0)
     def logs_download():
         """Verifies credentials and serves recent logs from Upstash Redis."""
         email = request.form.get("email")
