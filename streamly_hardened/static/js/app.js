@@ -10,7 +10,7 @@
   let selected = null;
   let transfers = [];
   let cloudAutoRefreshTimer = null;
-  const CLOUD_TRANSFER_REFRESH_MS = 5000;
+  const CLOUD_TRANSFER_REFRESH_MS = 8000;
   function refreshSelectedShim() {
     if (selectedKeys.size === 0) { selected = null; return; }
     const firstKey = selectedKeys.values().next().value;
@@ -940,7 +940,7 @@
         
         if (data.status === "QUEUED" || data.status === "UPLOADING") {
           status($("cloudStatus"), "", "");
-          telegramPollTimer = setTimeout(pollActiveTransfer, 5000);
+          telegramPollTimer = setTimeout(pollActiveTransfer, 10000);
         } else if (data.status === "COMPLETED") {
           status($("cloudStatus"), "", "");
           isTgTransferring = false;
@@ -1785,7 +1785,7 @@
         const hasWork = data.active || (data.queue && data.queue.length > 0);
         if (isOverlayOpen || hasWork) {
           if (pollTimer) clearTimeout(pollTimer);
-          const interval = hasWork ? 5000 : 30000; // Poll every 5s if active, 30s if idle
+          const interval = hasWork ? 10000 : 30000; // Poll every 10s if active, 30s if idle
           pollTimer = setTimeout(refreshQueueStatus, interval);
         }
       }

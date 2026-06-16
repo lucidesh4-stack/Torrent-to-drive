@@ -147,7 +147,7 @@
         const hasWork = data.active || (data.queue && data.queue.length > 0);
         if (isOverlayOpen || hasWork) {
           if (pollTimer) clearTimeout(pollTimer);
-          const interval = hasWork ? 5000 : 30000; // Poll every 5s if active, 30s if idle
+          const interval = hasWork ? 10000 : 30000; // Poll every 10s if active, 30s if idle
           pollTimer = setTimeout(refreshQueueStatus, interval);
         }
       }

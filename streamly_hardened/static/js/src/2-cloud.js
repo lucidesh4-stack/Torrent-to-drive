@@ -786,7 +786,7 @@
         
         if (data.status === "QUEUED" || data.status === "UPLOADING") {
           status($("cloudStatus"), "", "");
-          telegramPollTimer = setTimeout(pollActiveTransfer, 5000);
+          telegramPollTimer = setTimeout(pollActiveTransfer, 10000);
         } else if (data.status === "COMPLETED") {
           status($("cloudStatus"), "", "");
           isTgTransferring = false;

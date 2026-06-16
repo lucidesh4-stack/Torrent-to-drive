@@ -86,10 +86,11 @@ log = logging.getLogger(__name__)
 
 telegram_bp = Blueprint("telegram", __name__)
 
-def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None, queue_items=None):
-    raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
-    bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
-    
+def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None, queue_items=None, bw_bytes=None):
+    if bw_bytes is None:
+        raw_bw = rs.get(f"streamly:monthly_bandwidth:{ym}")
+        bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
+        
     projected = bw_bytes + current_file_size
     
     # 1. Add remaining bytes of the active transfer (if any)
@@ -1367,7 +1368,7 @@ def get_telegram_queue():
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
     bw_gb = round(bw_bytes / (1024 * 1024 * 1024), 2)
     
-    projected_bytes = get_projected_bandwidth(rs, ym, 0, active_item=active_item, queue_items=queue_items)
+    projected_bytes = get_projected_bandwidth(rs, ym, 0, active_item=active_item, queue_items=queue_items, bw_bytes=bw_bytes)
     projected_gb = round(projected_bytes / (1024 * 1024 * 1024), 2)
     
     is_hf = "SPACE_ID" in os.environ

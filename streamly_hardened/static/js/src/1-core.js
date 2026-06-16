@@ -8,7 +8,7 @@
   let selected = null;
   let transfers = [];
   let cloudAutoRefreshTimer = null;
-  const CLOUD_TRANSFER_REFRESH_MS = 5000;
+  const CLOUD_TRANSFER_REFRESH_MS = 8000;
   function refreshSelectedShim() {
     if (selectedKeys.size === 0) { selected = null; return; }
     const firstKey = selectedKeys.values().next().value;
