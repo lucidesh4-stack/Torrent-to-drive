@@ -42,6 +42,17 @@ jobs:
             pip install flask telethon requests httpx
           fi
 
+      - name: Lint — fail on real bug class (undefined names, use-before-assign, redefinition)
+        run: |
+          python -m pip install "ruff>=0.5"
+          # BLOCKING: this is the bug class that shipped twice (B1/B2 = caught-but-not-imported names).
+          #   F821 undefined name        F822 undefined name in __all__
+          #   F811 redefinition          (F823 use-before-assign is intentionally NOT blocking: it
+          #                               false-positives on conditional reassignment in telegram.py)
+          ruff check --select F821,F822,F811 streamly_hardened/
+          # NON-BLOCKING visibility: surface unused imports / dead locals without breaking the build.
+          ruff check --select F401,F841,F823 --output-format concise streamly_hardened/ || true
+
       - name: Run verification harness against the checked-out code
         env:
           # CLOUDFLOW_ROOT points the harness at the dir CONTAINING streamly_hardened/.

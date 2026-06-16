@@ -21,6 +21,9 @@ jobs:
           else
             pip install flask telethon requests httpx
           fi
+          # BLOCKING lint gate (same as ci.yml): undefined-name bug class must not deploy.
+          python -m pip install "ruff>=0.5"
+          ruff check --select F821,F822,F811 streamly_hardened/
           CLOUDFLOW_ROOT="${{ github.workspace }}" python3 bughunt/auto/run.py
           # If the gate fails (non-zero), the job stops here and does NOT deploy.
 
