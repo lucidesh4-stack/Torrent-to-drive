@@ -13,6 +13,6 @@ pinned: false
 A high-performance, private Seedr-to-Telegram direct streaming application.
 
 ## Hosting Details
-This application is unified to build and run on both Hugging Face Spaces and Render.
+This application builds and runs on Hugging Face Spaces.
 * **SDK**: Docker
 * **Port**: 7860 (default for Hugging Face) / dynamically bound on other platforms

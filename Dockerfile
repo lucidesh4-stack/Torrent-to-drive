@@ -25,7 +25,7 @@ COPY --chown=user:user streamly_hardened /app/streamly_hardened
 # Switch to the non-root user
 USER user
 
-# Hugging Face default port is 7860; Render/others inject PORT env var
+# Hugging Face default port is 7860 (PORT env var is respected if set)
 ENV PORT=7860
 EXPOSE 7860
 

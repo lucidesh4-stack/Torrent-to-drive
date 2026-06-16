@@ -213,7 +213,7 @@ def create_app(
         "%(asctime)s | %(levelname)s | [%(request_id)s] | %(name)s:%(lineno)d | %(message)s"
     )
 
-    # Console Handler — captured by Render's dashboard log viewer.
+    # Console Handler — captured by the host's dashboard log viewer.
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.addFilter(RequestIDFilter())
@@ -221,7 +221,7 @@ def create_app(
 
     # Redis Handler — persists the most recent log lines to Upstash so they
     # survive restarts and can be downloaded via /api/logs. Disk is ephemeral
-    # on Render, so we deliberately do NOT use a file handler.
+    # on the host, so we deliberately do NOT use a file handler.
     if rs is not None:
         redis_handler = RedisLogHandler(rs)
         redis_handler.setFormatter(formatter)
