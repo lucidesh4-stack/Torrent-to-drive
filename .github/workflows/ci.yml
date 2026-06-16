@@ -1,0 +1,61 @@
+# CloudFlow regression gate — runs the verification harness on every push/PR.
+#
+# WHERE THIS RUNS: GitHub Actions. Your code lives on Hugging Face Spaces, so this
+# only fires on push if the repo is ALSO on GitHub (e.g. you push to GitHub and
+# mirror to HF, or you add a GitHub remote). If you do NOT use GitHub, use
+# live-monitor.yml instead (it polls the deployed Space on a schedule).
+#
+# INSTALL: copy this file to  .github/workflows/ci.yml  in the GitHub repo, and
+# make sure the bughunt/ folder (auto/run.py + auto/checks.py) is committed too.
+#
+# WHAT IT DOES: builds the real Flask app from the checked-out code and runs every
+# issue check. Exit code = number of FAILs, so a regression fails the build.
+
+name: regression-gate
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:   # lets you run it manually from the Actions tab
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install app + harness deps
+        run: |
+          python -m pip install --upgrade pip
+          # App deps (needed so the real Flask app boots for dynamic checks).
+          if [ -f streamly_hardened/requirements.txt ]; then
+            pip install -r streamly_hardened/requirements.txt
+          else
+            pip install flask telethon requests httpx
+          fi
+
+      - name: Run verification harness against the checked-out code
+        env:
+          # CLOUDFLOW_ROOT points the harness at the dir CONTAINING streamly_hardened/.
+          # For a repo where streamly_hardened/ is at the root, that's the workspace.
+          CLOUDFLOW_ROOT: ${{ github.workspace }}
+        run: |
+          # Strict gate: BOM cleanup (case 13) shipped, so no --allow needed.
+          # If a future cosmetic check must be non-blocking, add: --allow <ID>
+          python3 bughunt/auto/run.py --json harness-report.json
+          # run.py exits with the number of BLOCKING FAILs -> non-zero fails the job.
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-report
+          path: harness-report.json

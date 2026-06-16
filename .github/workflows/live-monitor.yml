@@ -1,0 +1,58 @@
+# CloudFlow LIVE monitor — checks the DEPLOYED Hugging Face Space on a schedule.
+#
+# USE THIS IF you do NOT mirror to GitHub on every push (i.e. you can't gate on
+# push). It pulls the live deployed code via tools/pull.sh and runs the harness,
+# so you get continuous monitoring of PRODUCTION regardless of how you deploy.
+#
+# INSTALL: copy to  .github/workflows/live-monitor.yml  in ANY GitHub repo that
+# also contains the bughunt/ folder (it doesn't need the app code — pull.sh fetches
+# it from the live Space). The repo can be a tiny "ops" repo holding only bughunt/.
+#
+# NOTE: this checks PROD, so a FAIL means "a regression is LIVE right now" — treat
+# the scheduled run's red X as an alert. Adjust the cron to taste.
+
+name: live-monitor
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours (UTC)
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout (for the bughunt/ harness)
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install harness deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install flask telethon requests httpx
+
+      - name: Pull live Space + verify
+        run: |
+          # pull.sh fetches the deployed code into bughunt/live, then run.py checks it.
+          # Strict: BOM cleanup shipped, so no --allow needed.
+          python3 bughunt/auto/run.py --pull --json live-report.json
+
+      - name: Upload live report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-report
+          path: live-report.json
+
+      # OPTIONAL: notify on failure (uncomment + add a webhook secret).
+      # - name: Alert on regression
+      #   if: failure()
+      #   run: |
+      #     curl -X POST -H 'Content-type: application/json' \
+      #       --data '{"text":"🔴 CloudFlow live-monitor found a regression"}' \
+      #       "${{ secrets.SLACK_WEBHOOK }}"
