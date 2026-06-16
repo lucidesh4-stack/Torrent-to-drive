@@ -252,6 +252,7 @@ def create_app(
                     rs._execute("DEL", "streamly:active_transfer_global")
                     rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
                     rs._execute("DEL", "streamly:transfer_dispatch_lock")
+                    rs._execute("DEL", "streamly:seedr_active_monitor")
                     from .routes.telegram import trigger_next_transfer
                     trigger_next_transfer(rs)
                 else:

@@ -67,13 +67,36 @@ def get_daemon_client(app):
     return None
 
 def seedr_queue_daemon_loop(app):
+    idle_cycles = 0
     while True:
-        time.sleep(15)
+        # Adaptive sleep: 15s when there may be work, back off to 60s when idle.
+        time.sleep(60 if idle_cycles >= 3 else 15)
         rs = getattr(app, "rs", None)
         cloud = getattr(app, "cloud", None)
         if not rs or not cloud:
             continue
             
+        # CHEAP pre-check (1 Redis cmd): if the local queue is empty AND no Seedr
+        # transfer is currently active, there is nothing for the daemon to do, so
+        # skip the expensive body (lock + refresh-token GET + Seedr list_items).
+        try:
+            queue_len = rs._execute("LLEN", "streamly:seedr_queue")
+            has_queue = bool(queue_len) and int(queue_len) > 0
+        except Exception:
+            has_queue = True  # on error, fall through and let the full body run
+
+        active_marker = None
+        if not has_queue:
+            try:
+                active_marker = rs._execute("GET", "streamly:seedr_active_monitor")
+            except Exception:
+                active_marker = None
+
+        if not has_queue and not active_marker:
+            idle_cycles += 1
+            continue
+        idle_cycles = 0
+
         lock_held = False
         try:
             # Acquire distributed lock to prevent multi-worker concurrency conflicts
@@ -88,6 +111,17 @@ def seedr_queue_daemon_loop(app):
                 
             storage = cloud.list_items(client, 0)
             transfers = storage.get("transfers", [])
+            
+            # Keep a cheap marker so the next idle pre-check knows to keep working
+            # while Seedr transfers are active (so pruning/space logic still runs).
+            try:
+                if transfers:
+                    rs._execute("SET", "streamly:seedr_active_monitor", "1", "EX", "120")
+                else:
+                    rs._execute("DEL", "streamly:seedr_active_monitor")
+            except Exception:
+                pass
+
             used = max(0, _safe_int(storage.get("used")))
             maximum = max(1, _safe_int(storage.get("max")))
             
