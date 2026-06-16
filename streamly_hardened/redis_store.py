@@ -18,7 +18,9 @@ log = logging.getLogger(__name__)
 _SECRET_KEY = "streamly:secret_key"
 _REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 _LOGS_KEY = "streamly:logs"
-_LOGS_MAX_LINES = 2000
+# Retention: keep roughly a month of logs in Redis (~50k lines ≈ ~10 MB, well
+# under the 256 MB storage cap). This is separate from how often we FLUSH.
+_LOGS_MAX_LINES = 50000
 
 
 class RedisStore:
@@ -115,6 +117,27 @@ class RedisStore:
         """
         self._execute("LPUSH", _LOGS_KEY, line)
         self._execute("LTRIM", _LOGS_KEY, "0", str(max_lines - 1))
+
+    def push_logs(self, lines: list[str], max_lines: int = _LOGS_MAX_LINES) -> bool:
+        """Append MANY log lines in ONE batched LPUSH (+ one LTRIM).
+
+        This is the cost-efficient path: N lines cost 2 Redis commands total
+        instead of 2*N. `lines` should be oldest-first; we reverse so the list
+        stays newest-first (index 0 = newest), matching push_log/get_logs.
+        Returns True on success. Never raises (logging must not crash the app).
+        """
+        if not lines:
+            return True
+        try:
+            # LPUSH a b c  => list becomes c b a (last arg ends up at index 0).
+            # We want the newest line at index 0, so push oldest-first as given:
+            # LPUSH oldest ... newest  => newest at index 0. Correct.
+            self._execute("LPUSH", _LOGS_KEY, *lines)
+            self._execute("LTRIM", _LOGS_KEY, "0", str(max_lines - 1))
+            return True
+        except Exception as e:
+            log.warning("push_logs batch failed: %s", e)
+            return False
 
     def get_logs(self, limit: int = _LOGS_MAX_LINES) -> list[str]:
         """Return the most recent log lines in chronological (oldest-first) order."""

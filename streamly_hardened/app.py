@@ -6,6 +6,8 @@ import hmac
 import os
 import uuid
 import datetime
+import threading
+import atexit
 from typing import Any
 
 from flask import Flask, Response, jsonify, render_template, request, g, render_template_string, session, make_response
@@ -129,36 +131,71 @@ class RequestIDFilter(logging.Filter):
 
 
 class RedisLogHandler(logging.Handler):
-    """Persists formatted log lines to Upstash Redis (capped list).
+    """Buffers log lines in memory and flushes them to Redis in BATCHES.
 
-    Designed to be crash-proof and non-recursive:
-      * never raises out of emit() — logging must not break the app;
-      * skips records originating from the redis_store module to avoid an
-        infinite logging loop (a failed Redis write logs a warning, which
-        would otherwise trigger another Redis write);
-      * uses a re-entrancy guard as a second line of defense.
+    Why: writing each line immediately cost 2 Redis commands (LPUSH+LTRIM) — the
+    single biggest Redis-cost driver. Instead we collect lines in memory (RAM is
+    abundant) and flush them as ONE batched LPUSH on a few cheap triggers:
+      * a periodic background timer (default once/day),
+      * buffer overflow (safety: a very busy period can't balloon memory or lose
+        a huge batch),
+      * before a log download (so the download is always fresh),
+      * on process shutdown / pre-deploy (atexit).
+    Console (stdout) still gets every line live, so hard-crash context remains
+    visible in the host's log viewer even if the unflushed buffer is lost.
+
+    Crash-proof and non-recursive:
+      * never raises out of emit()/flush();
+      * skips records from redis_store to avoid an infinite logging loop;
+      * thread-safe buffer.
     """
 
     _SKIP_PREFIX = "streamly_hardened.redis_store"
 
-    def __init__(self, redis_store):
+    def __init__(self, redis_store, max_buffer: int = 5000):
         super().__init__()
         self._rs = redis_store
-        self._in_emit = False
+        self._max_buffer = max_buffer
+        self._buf: list[str] = []
+        self._lock = threading.Lock()
 
     def emit(self, record):
-        if self._in_emit:
-            return
+        # Skip our own Redis-layer logs to prevent a flush->log->flush loop.
         if record.name.startswith(self._SKIP_PREFIX):
             return
-        self._in_emit = True
         try:
-            self._rs.push_log(self.format(record))
+            line = self.format(record)
         except Exception:
-            # A logging handler must never propagate exceptions.
-            pass
-        finally:
-            self._in_emit = False
+            return
+        overflow = False
+        with self._lock:
+            self._buf.append(line)
+            if len(self._buf) >= self._max_buffer:
+                overflow = True
+        if overflow:
+            # Safety flush: never let the buffer grow unbounded.
+            self.flush_to_redis()
+
+    def flush_to_redis(self) -> int:
+        """Flush the in-memory buffer to Redis in one batch. Returns # flushed."""
+        with self._lock:
+            if not self._buf:
+                return 0
+            pending = self._buf
+            self._buf = []
+        try:
+            ok = self._rs.push_logs(pending)
+            if not ok:
+                # Re-queue on failure so we don't silently drop logs.
+                with self._lock:
+                    self._buf[:0] = pending
+                    # but cap so a persistent Redis outage can't OOM us
+                    if len(self._buf) > self._max_buffer:
+                        self._buf = self._buf[-self._max_buffer:]
+                return 0
+            return len(pending)
+        except Exception:
+            return 0
 
 
 def create_app(
@@ -228,6 +265,26 @@ def create_app(
         redis_handler.setFormatter(formatter)
         redis_handler.addFilter(RequestIDFilter())
         root_log.addHandler(redis_handler)
+        # Expose so the log-download route can flush-before-serve.
+        app.redis_log_handler = redis_handler
+
+        # Periodic flush (default once/day; override with LOG_FLUSH_SECONDS).
+        flush_interval = int(os.getenv("LOG_FLUSH_SECONDS", str(24 * 60 * 60)))
+
+        def _periodic_flush():
+            while True:
+                import time as _t
+                _t.sleep(flush_interval)
+                try:
+                    redis_handler.flush_to_redis()
+                except Exception:
+                    pass
+
+        _flush_thread = threading.Thread(target=_periodic_flush, name="LogFlush", daemon=True)
+        _flush_thread.start()
+
+        # Flush on clean shutdown / pre-deploy so nothing buffered is lost.
+        atexit.register(redis_handler.flush_to_redis)
     # ----------------------------
 
     if rs is not None:
@@ -481,6 +538,13 @@ def create_app(
             if rs is None:
                 log.warning("Log download requested but Redis log persistence is unavailable")
                 return json_error(503, "unavailable", "Log persistence is not configured")
+            # Flush the in-memory buffer first so the download includes the latest lines.
+            handler = getattr(app, "redis_log_handler", None)
+            if handler is not None:
+                try:
+                    handler.flush_to_redis()
+                except Exception:
+                    pass
             lines = rs.get_logs()
             if not lines:
                 return json_error(404, "not_found", "No logs recorded yet")
