@@ -35,6 +35,43 @@ from ..security import (
 
 # --- Queue robustness (additive; happy path unchanged) ---
 _ACTIVE_TTL_SECONDS = 90
+
+# --- Layer 2: in-memory live progress (single-worker) ---
+# Progress is updated in memory on every callback (free) and only PERSISTED to
+# Redis every _PROGRESS_PERSIST_SECONDS (for recovery after restart/refresh).
+# Read endpoints check memory first, then fall back to Redis. This cuts the
+# dominant Redis-write cost during active transfers by ~5x without losing live
+# updates. Safe because the app runs a single gunicorn worker.
+_PROGRESS_PERSIST_SECONDS = 10
+_LIVE_PROGRESS: dict[str, dict] = {}
+_LIVE_PROGRESS_LOCK = threading.Lock()
+
+
+def _live_set(task_id: str, data: dict) -> None:
+    with _LIVE_PROGRESS_LOCK:
+        _LIVE_PROGRESS[task_id] = data
+
+
+def _live_get(task_id: str):
+    with _LIVE_PROGRESS_LOCK:
+        v = _LIVE_PROGRESS.get(task_id)
+        return dict(v) if v is not None else None
+
+
+def _live_get_active():
+    """Most recent in-memory UPLOADING/QUEUED status, if any."""
+    with _LIVE_PROGRESS_LOCK:
+        for tid, v in _LIVE_PROGRESS.items():
+            if v.get("status") in ("UPLOADING", "QUEUED"):
+                out = dict(v)
+                out.setdefault("task_id", tid)
+                return out
+    return None
+
+
+def _live_clear(task_id: str) -> None:
+    with _LIVE_PROGRESS_LOCK:
+        _LIVE_PROGRESS.pop(task_id, None)
 _DISPATCH_LOCK_KEY = "streamly:transfer_dispatch_lock"
 _DISPATCH_LOCK_TTL = 15
 
@@ -122,6 +159,7 @@ class ProgressTracker:
         self.last_write_time = time.time()
         self.last_write_bytes = 0
         self.last_speed_mb = None
+        self.last_persist_time = 0.0  # force a Redis persist on the first callback
 
     def __call__(self, sent_bytes, total_bytes):
         # Check for cancel request via the non-blocking shared list flag
@@ -131,38 +169,48 @@ class ProgressTracker:
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
         pct = round((sent_bytes / tot) * 100, 1)
-        
+
+        # Recompute smoothed speed on the same ~2s cadence as before (cheap, in-proc).
         elapsed = now - self.last_write_time
         if elapsed >= 2.0 or pct >= 100.0 or pct - self.last_pct >= 5.0:
             bytes_sent_since_last_write = sent_bytes - self.last_write_bytes
-            if elapsed > 0:
-                speed_bytes_sec = bytes_sent_since_last_write / elapsed
-            else:
-                speed_bytes_sec = 0.0
-                
+            speed_bytes_sec = (bytes_sent_since_last_write / elapsed) if elapsed > 0 else 0.0
             raw_speed_mb = speed_bytes_sec / (1024 * 1024)
             if self.last_speed_mb is None:
                 self.last_speed_mb = raw_speed_mb
             else:
-                # 70% weight to previous speed, 30% weight to current measurement
                 self.last_speed_mb = (0.7 * self.last_speed_mb) + (0.3 * raw_speed_mb)
-                
-            speed_mb = round(self.last_speed_mb, 2)
-            
             self.last_write_time = now
             self.last_write_bytes = sent_bytes
             self.last_pct = pct
-            
-            # Accumulate bandwidth diff since last throttled write
-            bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
-            if bw_diff > 0:
-                self.last_bandwidth_sent_bytes = sent_bytes
- 
-            status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
-            
-            # Perform both bandwidth tracking and status update in a single
-            # thread executor call to keep Redis commands minimal (throttled to
-            # every 2 seconds instead of every 512 KB chunk).
+
+        speed_mb = round(self.last_speed_mb or 0.0, 2)
+        status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
+
+        # ---- ALWAYS update in-memory live state (free; read by status endpoints/SSE) ----
+        _live_set(self.task_id, {
+            "progress": pct,
+            "status": status,
+            "filename": self.filename,
+            "sent_bytes": sent_bytes,
+            "total_bytes": tot,
+            "speed_mb": speed_mb,
+            "error": None,
+            "sid": self.sid,
+        })
+
+        # ---- Persist to Redis only every _PROGRESS_PERSIST_SECONDS, or on completion ----
+        elapsed_persist = now - self.last_persist_time
+        if not (elapsed_persist >= _PROGRESS_PERSIST_SECONDS or pct >= 100.0):
+            return
+        self.last_persist_time = now
+
+        # Bandwidth diff since last PERSIST (so monthly counter stays accurate).
+        bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
+        if bw_diff > 0:
+            self.last_bandwidth_sent_bytes = sent_bytes
+
+        if True:
             def update_redis(st, p, sb, smb, bw):
                 try:
                     import datetime
@@ -751,35 +799,39 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
+            _completed_state = {
+                "progress": 100.0,
+                "status": "COMPLETED",
+                "filename": filename,
+                "sent_bytes": exact_size,
+                "total_bytes": exact_size,
+                "error": None,
+                "sid": sid
+            }
+            _live_set(task_id, _completed_state)  # reflect final state in memory
             rs._execute(
                 "SET",
                 f"streamly:transfer_status:{task_id}",
-                _json.dumps({
-                    "progress": 100.0,
-                    "status": "COMPLETED",
-                    "filename": filename,
-                    "sent_bytes": exact_size,
-                    "total_bytes": exact_size,
-                    "error": None,
-                    "sid": sid
-                }),
+                _json.dumps(_completed_state),
                 "EX",
                 "3600"
             )
         except Exception as e:
             log.exception("Telegram background upload failed")
+            _failed_state = {
+                "progress": 0.0,
+                "status": "FAILED",
+                "error": str(e),
+                "filename": filename,
+                "sent_bytes": 0,
+                "total_bytes": exact_size,
+                "sid": sid
+            }
+            _live_set(task_id, _failed_state)  # reflect final state in memory
             rs._execute(
                 "SET",
                 f"streamly:transfer_status:{task_id}",
-                _json.dumps({
-                    "progress": 0.0,
-                    "status": "FAILED",
-                    "error": str(e),
-                    "filename": filename,
-                    "sent_bytes": 0,
-                    "total_bytes": exact_size,
-                    "sid": sid
-                }),
+                _json.dumps(_failed_state),
                 "EX",
                 "3600"
             )
@@ -788,6 +840,9 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             if not cancel_poller.done():
                 cancel_poller.cancel()
             await client.disconnect()
+            # Final state already persisted to Redis above; drop the in-memory
+            # entry so the dict can't grow unbounded. Reads fall back to Redis.
+            _live_clear(task_id)
             rs._execute("DEL", "streamly:active_transfer_global")
             rs._execute("DEL", f"streamly:task_args:{task_id}")
             trigger_next_transfer(rs)
@@ -1191,7 +1246,9 @@ def telegram_task_status(task_id):
     if not rs:
         from ..security import json_error
         return json_error(503, "redis_unavailable", "Redis is required")
-    raw = rs.get(f"streamly:transfer_status:{task_id}")
+    # Layer 2: prefer fresh in-memory progress (no Redis read during live transfer).
+    live = _live_get(task_id)
+    raw = _json.dumps(live) if live is not None else rs.get(f"streamly:transfer_status:{task_id}")
     if not raw:
         raw = rs.get(f"streamly:telegram_task:{task_id}")
     if not raw:
@@ -1226,7 +1283,9 @@ def transfer_status_route():
         return jsonify({"status": "IDLE"})
     if isinstance(task_id, bytes):
         task_id = task_id.decode("utf-8")
-    raw = rs.get(f"streamly:transfer_status:{task_id}")
+    # Layer 2: prefer fresh in-memory progress, fall back to Redis (recovery).
+    live = _live_get(task_id)
+    raw = _json.dumps(live) if live is not None else rs.get(f"streamly:transfer_status:{task_id}")
     if not raw:
         return jsonify({"status": "IDLE"})
         
@@ -1253,12 +1312,18 @@ def get_telegram_queue():
     if active_task_id:
         if isinstance(active_task_id, bytes):
             active_task_id = active_task_id.decode("utf-8")
-        raw_status = rs.get(f"streamly:transfer_status:{active_task_id}")
-        if raw_status:
-            if isinstance(raw_status, bytes):
-                raw_status = raw_status.decode("utf-8")
-            active_item = _json.loads(raw_status)
+        # Layer 2: prefer fresh in-memory status for the active task.
+        live = _live_get(active_task_id)
+        if live is not None:
+            active_item = live
             active_item["task_id"] = active_task_id
+        else:
+            raw_status = rs.get(f"streamly:transfer_status:{active_task_id}")
+            if raw_status:
+                if isinstance(raw_status, bytes):
+                    raw_status = raw_status.decode("utf-8")
+                active_item = _json.loads(raw_status)
+                active_item["task_id"] = active_task_id
 
     queue_task_ids = rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
     queue_items = []
