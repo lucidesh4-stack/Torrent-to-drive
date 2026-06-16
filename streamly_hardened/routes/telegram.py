@@ -42,7 +42,8 @@ _ACTIVE_TTL_SECONDS = 90
 # Read endpoints check memory first, then fall back to Redis. This cuts the
 # dominant Redis-write cost during active transfers by ~5x without losing live
 # updates. Safe because the app runs a single gunicorn worker.
-_PROGRESS_PERSIST_SECONDS = 10
+_PROGRESS_PERSIST_SECONDS = 20      # how often to SET status to Redis (recovery)
+_BANDWIDTH_FLUSH_SECONDS = 60       # how often to flush accumulated bandwidth (INCRBY)
 _LIVE_PROGRESS: dict[str, dict] = {}
 _LIVE_PROGRESS_LOCK = threading.Lock()
 
@@ -159,7 +160,8 @@ class ProgressTracker:
         self.last_write_time = time.time()
         self.last_write_bytes = 0
         self.last_speed_mb = None
-        self.last_persist_time = 0.0  # force a Redis persist on the first callback
+        self.last_persist_time = 0.0   # force a status persist on the first callback
+        self.last_bw_flush_time = time.time()  # bandwidth flushed on its own slower cadence
 
     def __call__(self, sent_bytes, total_bytes):
         # Check for cancel request via the non-blocking shared list flag
@@ -199,31 +201,42 @@ class ProgressTracker:
             "sid": self.sid,
         })
 
-        # ---- Persist to Redis only every _PROGRESS_PERSIST_SECONDS, or on completion ----
-        elapsed_persist = now - self.last_persist_time
-        if not (elapsed_persist >= _PROGRESS_PERSIST_SECONDS or pct >= 100.0):
+        # ---- Decide which Redis writes (if any) are due this callback ----
+        # Layer 3 (write reduction): status persist and bandwidth flush run on
+        # SEPARATE, slower cadences so we minimise billable WRITE commands.
+        #   * status SET: 1 write, every _PROGRESS_PERSIST_SECONDS (recovery)
+        #   * bandwidth: INCRBY + 2x EXPIRE, only every _BANDWIDTH_FLUSH_SECONDS
+        # Both are forced once at 100% so final state + full bandwidth are recorded.
+        finished = pct >= 100.0
+        do_status = finished or (now - self.last_persist_time) >= _PROGRESS_PERSIST_SECONDS
+        do_bw = finished or (now - self.last_bw_flush_time) >= _BANDWIDTH_FLUSH_SECONDS
+        if not (do_status or do_bw):
             return
-        self.last_persist_time = now
 
-        # Bandwidth diff since last PERSIST (so monthly counter stays accurate).
-        bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
-        if bw_diff > 0:
-            self.last_bandwidth_sent_bytes = sent_bytes
+        bw_diff = 0
+        if do_bw:
+            self.last_bw_flush_time = now
+            bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
+            if bw_diff > 0:
+                self.last_bandwidth_sent_bytes = sent_bytes
+        if do_status:
+            self.last_persist_time = now
 
-        if True:
-            def update_redis(st, p, sb, smb, bw):
-                try:
+        def update_redis(st, p, sb, smb, bw, write_status, write_bw):
+            try:
+                if write_bw and bw > 0:
                     import datetime
                     try:
                         ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
                     except AttributeError:
                         ym = datetime.datetime.utcnow().strftime("%Y-%m")
-                    if bw > 0:
-                        self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(bw))
-                        self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000")
-                    # Heartbeat: keep the global active marker alive while this
-                    # transfer is genuinely progressing.
+                    self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(bw))
+                    self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", "5184000")
+                    # Refresh the active-marker heartbeat on the same slow cadence
+                    # as the bandwidth flush (still well within the 90s TTL).
                     self.rs._execute("EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS))
+                if write_status:
+                    # Single SET with inline EX = 1 write command.
                     self.rs._execute(
                         "SET",
                         f"streamly:transfer_status:{self.task_id}",
@@ -240,10 +253,11 @@ class ProgressTracker:
                         "EX",
                         "3600"
                     )
-                except Exception as e:
-                    log.warning("Failed to write transfer status in background: %s", e)
-            
-            self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis, status, pct, sent_bytes, speed_mb, bw_diff)
+            except Exception as e:
+                log.warning("Failed to write transfer status in background: %s", e)
+
+        self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis,
+                                  status, pct, sent_bytes, speed_mb, bw_diff, do_status, do_bw)
 
 class UploadSender:
     def __init__(self, uploader, client, sender, file_id, part_count, big, loop):
