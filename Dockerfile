@@ -33,4 +33,5 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
 # Runs flask app under gunicorn
-CMD ["sh", "-c", "gunicorn --workers 2 --threads 4 --timeout 60 --bind 0.0.0.0:${PORT} 'streamly_hardened.app:create_app()'"]
+CMD ["sh", "-c", "gunicorn --workers 1 --threads 8 --timeout 60 --bind 0.0.0.0:${PORT} 'streamly_hardened.app:create_app()'"]
+
