@@ -156,6 +156,21 @@
   let storageSnapshotLoaded = false;
   let seedrQueue = [];
   let lastRequestedFolderId = 0;
+  // Navigation stack of folder IDs we descended through. Bottom is always root (0),
+  // so going "up" from a top-level folder reliably returns to 0 (where queue +
+  // loading-transfers are shown) regardless of Seedr's non-zero root parent_id.
+  let folderStack = [];
+  // Expose a deterministic "go up" the Up buttons can call.
+  window.cloudGoUp = function () {
+    if (currentFolder === 0) return;
+    const target = folderStack.length ? folderStack.pop() : 0;
+    loadFolder(target, { _fromStack: true });
+  };
+  // Expose folder-open that records the stack.
+  window.cloudOpenFolder = function (id) {
+    folderStack.push(currentFolder || 0);
+    loadFolder(id);
+  };
 
   function updateSelection() {
     refreshSelectedShim();
@@ -640,6 +655,10 @@
     const silent = !!(opts && opts.silent);
     const folderId = Number(id) || 0;
     
+    // Loading root directly (initial load, cloud-tab click, or refresh) clears the
+    // navigation stack so "up" history stays consistent. _fromStack skips this.
+    if (folderId === 0 && !opts._fromStack && !silent) folderStack = [];
+    
     // Track requested folder to prevent race conditions on slow connections
     lastRequestedFolderId = folderId;
     
@@ -760,7 +779,7 @@
 
   async function openItem(item = selected) {
     if (!item) return toast("Select an item first");
-    if (item.type === "folder") return loadFolder(item.id);
+    if (item.type === "folder") return window.cloudOpenFolder(item.id);
     try {
       const url = await getFileUrl(item);
       const ext = String(item.name || "").split(".").pop().toLowerCase();
@@ -2316,7 +2335,7 @@
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
   });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
-  $("upBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
+  $("upBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
@@ -2440,7 +2459,7 @@
   });
 
   // ----- Mobile cloud wiring -----
-  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (currentFolder != 0) loadFolder(parentFolder || 0); });
+  if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
   if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   if ($("cmSelectAll")) $("cmSelectAll").addEventListener("change", (e) => {
     if (e.target.checked) { for (const it of items) selectedKeys.add(it.key); }
