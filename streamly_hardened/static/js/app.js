@@ -2780,18 +2780,28 @@
   // Enable instant touch active states on mobile (iOS/Android Safari/Chrome)
   document.addEventListener("touchstart", () => {}, { passive: true });
   // ============================ TRAILERS MODULE ============================
-  // Standalone: expects #trailersView and #trailersContainer in the DOM.
-  // Wire a tab button to call setTrailersTab() (see 6-main.js integration).
 
   const TRAILERS_API = "/api/trailers";
   const TRAILERS_STATUS_API = "/api/trailers/status";
   const TRAILERS_REFRESH_API = "/api/trailers/refresh";
 
-  // Spinner CSS (injected once)
+  // Inject styles (spinner + mobile horizontal layout)
   if (!document.getElementById("trailerSpinnerStyle")) {
     const style = document.createElement("style");
     style.id = "trailerSpinnerStyle";
-    style.textContent = "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }";
+    style.textContent = `
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      @media (max-width: 640px) {
+        .trailer-grid { display: flex !important; flex-direction: column !important; gap: 12px !important; }
+        .trailer-card { display: flex !important; flex-direction: row !important; gap: 12px !important; align-items: flex-start !important; background: rgba(22,27,34,0.6) !important; border-radius: 12px !important; border: 1px solid rgba(255,255,255,0.08) !important; overflow: hidden !important; padding: 0 !important; }
+        .trailer-thumb { width: 120px !important; min-width: 120px !important; height: auto !important; aspect-ratio: 16/9 !important; border-radius: 0 !important; overflow: hidden !important; position: relative !important; flex-shrink: 0 !important; }
+        .trailer-thumb img { width: 100% !important; height: 100% !important; object-fit: cover !important; display: block !important; }
+        .trailer-play { position: absolute !important; inset: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; background: rgba(0,0,0,0.4) !important; color: #fff !important; font-size: 24px !important; pointer-events: none !important; }
+        .trailer-info { flex: 1 !important; min-width: 0 !important; display: flex !important; flex-direction: column !important; justify-content: center !important; padding: 8px 12px 8px 0 !important; }
+        .trailer-title { font-size: 13px !important; font-weight: 600 !important; color: #f0f6fc !important; line-height: 1.35 !important; overflow: hidden !important; display: -webkit-box !important; -webkit-line-clamp: 2 !important; -webkit-box-orient: vertical !important; }
+        .trailer-channel { font-size: 11px !important; color: #8b949e !important; margin-top: 4px !important; }
+      }
+    `;
     document.head.appendChild(style);
   }
 
@@ -2807,7 +2817,11 @@
   function _trailers$(id) { return document.getElementById(id); }
 
   function _trailersFormatDate(iso) {
-    const d = new Date(iso + "T00:00:00");
+    // iso may be "2026-06-17" or "2026-06-17T10:00:00+00:00"
+    const datePart = (iso || "").split("T")[0];
+    if (!datePart) return "";
+    const d = new Date(datePart + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
 
@@ -2852,28 +2866,18 @@
     } catch (e) { return null; }
   }
 
-  function _trailersRenderBadge(video) {
-    const type = video.type === "teaser" ? "Teaser" : (video.number > 0 ? `Trailer ${video.number}` : "Trailer");
-    return `<span class="trailer-badge ${esc(video.type)}" data-vid="${esc(video.id)}">${esc(type)}</span>`;
-  }
-
   function _trailersRenderCard(movie) {
     const main = movie.videos[0];
     if (!main) return "";
-    const badges = movie.videos.map(_trailersRenderBadge).join("");
     return `
-      <div class="trailer-card" data-title="${esc(movie.title)}">
+      <div class="trailer-card" data-title="${esc(movie.title)}" data-vid="${esc(main.id)}">
         <div class="trailer-thumb" data-vid="${esc(main.id)}">
           <img src="${esc(main.thumbnail)}" alt="${esc(movie.title)}" loading="lazy" onerror="this.onerror=null;this.src='https://via.placeholder.com/480x270/161B22/8B949E?text=No+Thumbnail';">
           <div class="trailer-play">▶</div>
         </div>
         <div class="trailer-info">
           <div class="trailer-title" title="${esc(movie.title)}">${esc(movie.title)}</div>
-          <div class="trailer-badges">${badges}</div>
-          <div class="trailer-meta">
-            <span class="trailer-channel">${esc(main.channel)}</span>
-            <span class="trailer-when">${esc(_trailersFormatDate(main.published))}</span>
-          </div>
+          <div class="trailer-channel">${esc(main.channel)}</div>
         </div>
       </div>
     `;
@@ -2889,29 +2893,27 @@
     }
 
     const html = data.items.map(day => {
+      const dateStr = _trailersFormatDate(day.date);
       const cards = day.items.map(_trailersRenderCard).join("");
-      return `
-        <div class="trailer-day">
-          <h3 class="trailer-date">${_trailersFormatDate(day.date)}</h3>
-          <div class="trailer-grid">${cards}</div>
-        </div>
-      `;
+      return dateStr
+        ? `<div class="trailer-day"><h3 class="trailer-date">${esc(dateStr)}</h3><div class="trailer-grid">${cards}</div></div>`
+        : `<div class="trailer-day"><div class="trailer-grid">${cards}</div></div>`;
     }).join("");
 
     container.innerHTML = html;
 
-    container.querySelectorAll(".trailer-thumb").forEach(el => {
-      el.addEventListener("click", () => {
-        const vid = el.dataset.vid;
-        if (vid) openTrailerModal(vid, el.closest(".trailer-card")?.dataset.title || "");
-      });
-    });
-
-    container.querySelectorAll(".trailer-badge").forEach(el => {
+    // Wire clicks on cards (both thumb and info area)
+    container.querySelectorAll(".trailer-card").forEach(el => {
       el.addEventListener("click", (e) => {
-        e.stopPropagation();
         const vid = el.dataset.vid;
-        if (vid) openTrailerModal(vid, el.closest(".trailer-card")?.dataset.title || "");
+        const title = el.dataset.title || "";
+        if (!vid) return;
+        // On mobile, open directly in YouTube app or browser
+        if (window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/.test(navigator.userAgent)) {
+          window.open(`https://www.youtube.com/watch?v=${vid}`, "_blank", "noopener,noreferrer");
+          return;
+        }
+        openTrailerModal(vid, title);
       });
     });
   }
@@ -2926,13 +2928,16 @@
         <div class="modal-panel" style="max-width: 900px; padding: 0; overflow: hidden;">
           <div class="panel-head" style="border-radius: 14px 14px 0 0;">
             <div style="flex:1; min-width:0;">
-              <h2 id="trailerModalTitle" class="truncate" style="font-size:16px;">Trailer</h2>
+              <h2 id="trailerModalTitle" class="truncate" style="font-size:16px;">${esc(title || "Trailer")}</h2>
             </div>
             <button id="closeTrailerModal" class="ghost" type="button" aria-label="Close trailer">✕</button>
           </div>
           <div class="panel-body" style="padding:0;">
-            <div id="trailerEmbedContainer" class="trailer-embed-wrap" style="aspect-ratio:16/9; background:#000; position:relative; display:flex; align-items:center; justify-content:center;">
-              <!-- iframe injected here dynamically -->
+            <div id="trailerEmbedContainer" style="width:100%; aspect-ratio:16/9; background:#000; position:relative; min-height:200px;">
+              <!-- iframe injected here -->
+            </div>
+            <div style="padding:10px 16px; text-align:center; border-top:1px solid rgba(255,255,255,0.08);">
+              <a id="trailerFallbackLink" href="#" target="_blank" rel="noopener noreferrer" style="color:#58a6ff; font-size:13px; text-decoration:none;">Open on YouTube ↗</a>
             </div>
           </div>
         </div>
@@ -2941,40 +2946,28 @@
       ov.addEventListener("click", (e) => { if (e.target === ov) closeTrailerModal(); });
       _trailers$("closeTrailerModal")?.addEventListener("click", closeTrailerModal);
     }
-    const t = _trailers$("trailerModalTitle");
-    if (t) t.textContent = title || "Trailer";
+
+    const fallbackLink = _trailers$("trailerFallbackLink");
+    if (fallbackLink) {
+      fallbackLink.href = `https://www.youtube.com/watch?v=${esc(videoId)}`;
+    }
 
     const container = _trailers$("trailerEmbedContainer");
     if (container) container.innerHTML = "";
 
-    // Show overlay FIRST, then create iframe after it is visible
     ov.classList.remove("hidden");
 
     requestAnimationFrame(() => {
       if (!container) return;
 
-      // Create iframe dynamically after overlay is visible
       const iframe = document.createElement("iframe");
-      iframe.style.cssText = "width:100%; height:100%; border:0; position:absolute; inset:0;";
-      iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+      iframe.style.cssText = "width:100%; height:100%; border:0; display:block; position:absolute; top:0; left:0; right:0; bottom:0;";
+      iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen";
       iframe.allowFullscreen = true;
-      iframe.src = `https://www.youtube-nocookie.com/embed/${esc(videoId)}?rel=0&modestbranding=1`;
       iframe.title = title || "YouTube video player";
       iframe.loading = "eager";
+      iframe.src = `https://www.youtube.com/embed/${esc(videoId)}?rel=0&modestbranding=1&autoplay=1`;
       container.appendChild(iframe);
-
-      // Add fallback link in case iframe fails
-      const fallback = document.createElement("a");
-      fallback.href = `https://www.youtube.com/watch?v=${esc(videoId)}`;
-      fallback.target = "_blank";
-      fallback.rel = "noopener noreferrer";
-      fallback.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;font-size:14px;flex-direction:column;gap:8px;z-index:10;opacity:0;transition:opacity 0.3s;background:rgba(0,0,0,0.6);";
-      fallback.innerHTML = `<span style="font-size:24px;">▶</span><span>Watch on YouTube</span>`;
-      fallback.addEventListener("mouseenter", () => { fallback.style.opacity = "1"; });
-      fallback.addEventListener("mouseleave", () => { fallback.style.opacity = "0"; });
-      // Also show on iframe error
-      iframe.addEventListener("error", () => { fallback.style.opacity = "1"; });
-      container.appendChild(fallback);
     });
   }
 

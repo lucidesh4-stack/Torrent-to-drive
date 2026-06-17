@@ -184,7 +184,10 @@ def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | No
         if "trailer" not in title_lower and "teaser" not in title_lower:
             continue
 
-        if not any(h in title_lower for h in _TITLE_HEURISTICS) and (len(title) < 8 or len(title) > 120):
+        # Heuristic keyword check (fallback filter)
+        if any(h in title_lower for h in _TITLE_HEURISTICS):
+            continue
+        if len(title) < 8 or len(title) > 120:
             continue
 
         published_elem = entry.find("atom:published", ns)
@@ -208,12 +211,25 @@ def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | No
             continue
         vid = id_elem.text.split(":")[-1]
 
+        # Parse thumbnail and filter out Shorts (vertical aspect ratio > 1.2:1)
         thumb = entry.find("media:group/media:thumbnail", ns)
-        thumb_url = (
-            thumb.get("url")
-            if thumb is not None
-            else f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
-        )
+        thumb_url = None
+        is_shorts = False
+        if thumb is not None:
+            thumb_url = thumb.get("url")
+            tw = thumb.get("width")
+            th = thumb.get("height")
+            if tw and th:
+                try:
+                    w, h = int(tw), int(th)
+                    if h > w * 1.2:
+                        is_shorts = True
+                except ValueError:
+                    pass
+        if not thumb_url:
+            thumb_url = f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+        if is_shorts:
+            continue  # Skip YouTube Shorts
 
         norm_name, media_type, num = _extract_trailer_info(title)
 
