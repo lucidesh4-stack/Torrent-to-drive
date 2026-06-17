@@ -951,11 +951,12 @@ def test_download_speed():
     # site auth (removed from exempt_routes), (2) rate limited, (3) rejects non-http(s)
     # schemes and any host resolving to a private/loopback/link-local/reserved address.
     raw_url = request.args.get("url")
+    pinned_ip = None
     try:
         if raw_url is None or not raw_url.strip():
-            test_url = _DEFAULT_SPEEDTEST_URL
+            test_url, pinned_ip = validate_public_url(_DEFAULT_SPEEDTEST_URL)
         else:
-            test_url, _pinned_ip = validate_public_url(raw_url)
+            test_url, pinned_ip = validate_public_url(raw_url)
     except ValidationError as ve:
         from ..security import json_error
         return json_error(400, "invalid_url", str(ve))
@@ -971,8 +972,10 @@ def test_download_speed():
             "Accept-Encoding": "identity",
             "Connection": "keep-alive"
         }
-        # allow_redirects=False so a public URL cannot 30x-redirect into a private address.
-        r = requests.get(test_url, stream=True, timeout=30.0, headers=headers, allow_redirects=False)
+        # SSRF-safe: connect to the already-vetted IP (no DNS re-resolution =>
+        # no rebinding) and refuse redirects (a 30x could point at a private host).
+        from ..security import pinned_get
+        r = pinned_get(test_url, pinned_ip, stream=True, timeout=30.0, headers=headers, allow_redirects=False)
         r.raise_for_status()
         total_downloaded = 0
         for chunk in r.iter_content(chunk_size=64 * 1024):
@@ -1041,7 +1044,12 @@ def send_code():
             "temp_session": temp_session,
             "phone_code_hash": phone_code_hash
         }
-        rs.set("streamly:telegram_temp_setup", _json.dumps(setup_data))
+        # Bind setup state to THIS session and expire it (5 min) so an abandoned
+        # setup can't linger, and so user B can't verify against user A's pending
+        # code request. Key is per-sid.
+        from flask import session
+        sid = session.get("sid") or ensure_sid()
+        rs.set(f"streamly:telegram_temp_setup:{sid}", _json.dumps(setup_data), ex=300)
         return jsonify({"success": True})
     except Exception as e:
         log.exception("Failed to request Telegram verification code")
@@ -1064,7 +1072,9 @@ def verify_code():
         return json_error(400, "bad_request", "Verification code is required")
     code = str(code).strip()
     
-    setup_raw = rs.get("streamly:telegram_temp_setup")
+    from flask import session
+    sid = session.get("sid") or ensure_sid()
+    setup_raw = rs.get(f"streamly:telegram_temp_setup:{sid}")
     if not setup_raw:
         from ..security import json_error
         return json_error(400, "session_expired", "Setup session expired. Please enter phone number again.")
@@ -1099,10 +1109,9 @@ def verify_code():
         final_session = loop.run_until_complete(sign_in_user())
         loop.close()
         
-        from flask import session
-        sid = session.get("sid") or ensure_sid()
+        # sid already resolved above (used to read the per-sid setup key).
         rs.set("streamly:telegram_session", final_session)
-        rs._execute("DEL", "streamly:telegram_temp_setup")
+        rs._execute("DEL", f"streamly:telegram_temp_setup:{sid}")
         rs._execute("DEL", f"streamly:tg_auth_cache:{sid}")
         return jsonify({"success": True})
     except Exception as e:

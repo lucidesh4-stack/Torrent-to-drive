@@ -90,6 +90,40 @@ def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http
     return url, sorted(resolved)[0]
 
 
+def pinned_get(url: str, pinned_ip: str, **kwargs):
+    """requests.get that connects to `pinned_ip` instead of re-resolving the host.
+
+    Anti-DNS-rebinding: validate_public_url() resolves+vets the host's IP, but a
+    plain requests.get(host) re-resolves DNS, letting an attacker flip the record
+    to a private address (TOCTOU). We mount a tiny adapter that overrides the
+    connection pool's resolved address to the already-vetted IP while keeping the
+    original Host header and TLS SNI (server_hostname) intact.
+
+    `allow_redirects` defaults to False here: a 30x could point at a fresh host
+    that would NOT be pinned. Callers that must follow redirects should re-validate
+    each hop themselves.
+    """
+    import requests
+    from urllib3.util import connection as _urllib3_conn
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    kwargs.setdefault("allow_redirects", False)
+
+    _orig_create_conn = _urllib3_conn.create_connection
+
+    def _pinned_create_connection(address, *a, **kw):
+        _h, port = address
+        # Force the connection to the vetted IP; SNI/Host stay = original host.
+        return _orig_create_conn((pinned_ip, port), *a, **kw)
+
+    _urllib3_conn.create_connection = _pinned_create_connection
+    try:
+        return requests.get(url, **kwargs)
+    finally:
+        _urllib3_conn.create_connection = _orig_create_conn
+
+
 def require_json_body(config: Any) -> dict[str, Any]:
     max_bytes = _get_cfg(config, "max_json_bytes", 16 * 1024)
     if request.content_length is not None and request.content_length > max_bytes:
@@ -216,18 +250,24 @@ class TokenBucketRateLimiter:
     limiter keyed by user + route. The interface is deliberately tiny for easy replacement.
     """
 
-    def __init__(self, capacity: int, refill_per_second: float, clock: Callable[[], float] = time.monotonic):
+    def __init__(self, capacity: int, refill_per_second: float, clock: Callable[[], float] = time.monotonic,
+                 max_keys: int = 50_000):
         self.capacity = float(capacity)
         self.refill_per_second = float(refill_per_second)
         self.clock = clock
         self._lock = threading.RLock()
         self._buckets: dict[str, Bucket] = {}
+        # Cap the number of tracked keys so a spoofed-XFF / many-endpoint flood
+        # cannot grow this dict without bound (memory-DoS) in the long-lived worker.
+        self.max_keys = max_keys
 
     def allow(self, key: str, cost: float = 1.0) -> bool:
         now = self.clock()
         with self._lock:
             bucket = self._buckets.get(key)
             if bucket is None:
+                if len(self._buckets) >= self.max_keys:
+                    self._evict_locked(now)
                 bucket = Bucket(tokens=self.capacity, updated_at=now)
                 self._buckets[key] = bucket
             elapsed = max(0.0, now - bucket.updated_at)
@@ -237,6 +277,19 @@ class TokenBucketRateLimiter:
                 bucket.tokens -= cost
                 return True
             return False
+
+    def _evict_locked(self, now: float) -> None:
+        """Drop buckets that have fully refilled (idle) — they carry no rate state.
+        If none are idle (all actively limited), evict the least-recently-updated
+        one so the map stays bounded. Caller holds the lock."""
+        idle = [k for k, b in self._buckets.items()
+                if min(self.capacity, b.tokens + max(0.0, now - b.updated_at) * self.refill_per_second) >= self.capacity]
+        if idle:
+            for k in idle:
+                del self._buckets[k]
+            return
+        oldest = min(self._buckets, key=lambda k: self._buckets[k].updated_at)
+        del self._buckets[oldest]
 
 
 

@@ -396,12 +396,27 @@ def create_app(
     def handle_404(exc):
         return json_error(404, "not_found", "Not found")
 
+    @app.errorhandler(405)
+    def handle_405(exc):
+        return json_error(405, "method_not_allowed", "Method not allowed")
+
+    @app.errorhandler(413)
+    def handle_payload_too_large(exc):
+        # Bodies over MAX_CONTENT_LENGTH raise RequestEntityTooLarge (413). Return a
+        # clean JSON 413 instead of letting the catch-all log it as a 500.
+        return json_error(413, "payload_too_large", "Request body too large")
+
     @app.errorhandler(ConnectionError)
     def handle_connection_error(exc: ConnectionError):
         return json_error(502, "bad_gateway", "Upstream provider error")
 
     @app.errorhandler(Exception)
     def handle_exception(exc: Exception):
+        # Let Werkzeug HTTP exceptions (404/405/413/...) keep their real status and
+        # be handled by their own handlers — never re-label a 4xx as a logged 500.
+        from werkzeug.exceptions import HTTPException
+        if isinstance(exc, HTTPException):
+            return exc
         # Use the Request ID from g for consistency
         rid = getattr(g, "request_id", secrets.token_hex(4))
         log.exception("Unhandled error request_id=%s", rid)
@@ -459,11 +474,17 @@ def create_app(
         try:
             from .security import require_json_body
             data = require_json_body(app.config)
-            msg = data.get("message", "")
-            url = data.get("url", "")
-            line = data.get("line", "")
-            col = data.get("column", "")
-            stack = data.get("stack", "")
+
+            def _clean(v, limit):
+                # Strip CR/LF so client input can't forge extra log lines, and cap
+                # length so it can't bloat the persisted Redis log.
+                return str(v).replace("\r", " ").replace("\n", " ")[:limit]
+
+            msg = _clean(data.get("message", ""), 500)
+            url = _clean(data.get("url", ""), 300)
+            line = _clean(data.get("line", ""), 16)
+            col = _clean(data.get("column", ""), 16)
+            stack = _clean(data.get("stack", ""), 1000)
             
             rs = getattr(app, "rs", None)
             if rs:
