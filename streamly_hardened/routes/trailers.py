@@ -24,6 +24,7 @@ trailers_bp = Blueprint("trailers", __name__)
 _CRAWL_INTERVAL_SECONDS = 600
 _CRAWL_LOCK_TTL = 600
 _FEED_TTL_SECONDS = 86400
+_STALE_HOURS = 2  # Trigger auto-crawl if feed is older than 2 hours
 
 _BLOCKED_KEYWORDS = {
     "gameplay", "story trailer", "game", "behind the scenes", "bts",
@@ -37,6 +38,25 @@ _TITLE_HEURISTICS = {
     "gameplay", "vlog", "reaction", "review", "unboxing", "lego", "funko",
     "toy", "merchandise", "comic con", "bts", "behind the scenes",
 }
+
+# Shorts detection patterns (title-based, case-insensitive)
+_SHORTS_PATTERNS = [
+    '#shorts', '#short', '#shortsfeed', '#ytshorts', '#youtubeshorts',
+    '#reels', '#tiktok', '#vertical',
+]
+
+def _is_shorts_by_title(title: str) -> bool:
+    t = title.lower()
+    # Check for hashtag patterns
+    if any(p in t for p in _SHORTS_PATTERNS):
+        return True
+    # Check for standalone word "shorts" (e.g., "funny shorts", "movie shorts")
+    if re.search(r'(^|\s)#?shorts($|\s)', t):
+        return True
+    # Check for standalone word "short" at end (e.g., "a short")
+    if re.search(r'\bshort\b', t) and 'trailer' not in t and 'teaser' not in t:
+        return True
+    return False
 
 _CHANNEL_PRIORITY = {
     "Marvel Entertainment": 0, "Warner Bros": 0, "Sony Pictures": 0,
@@ -183,11 +203,10 @@ def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | No
         if "trailer" not in title_lower and "teaser" not in title_lower:
             continue
 
-        # Filter out YouTube Shorts by title tag (most reliable signal)
-        if '#shorts' in title_lower or '#short' in title_lower:
+        # Filter out YouTube Shorts by title
+        if _is_shorts_by_title(title):
             continue
 
-        # Heuristic keyword check (fallback filter)
         if any(h in title_lower for h in _TITLE_HEURISTICS):
             continue
         if len(title) < 8 or len(title) > 120:
@@ -310,6 +329,7 @@ def _crawl_trailers_incremental(app) -> None:
         proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
         proxy_url = proxy_url.strip() if proxy_url else None
 
+        # Load existing digest and flatten
         existing_digest = None
         known_keys: set[tuple[str, str]] = set()
         raw_feed = rs.get("streamly:trailers:feed")
@@ -391,6 +411,9 @@ def _crawl_trailers_incremental(app) -> None:
                                 }
                             )
 
+            # Post-filter: remove any existing entries that are Shorts (catches stale data)
+            merged_entries = [e for e in merged_entries if not _is_shorts_by_title(e["title"])]
+
             digest = _build_digest(merged_entries)
             rs.set(
                 "streamly:trailers:feed",
@@ -452,11 +475,12 @@ def get_trailers():
 
     try:
         data = _json.loads(raw_feed)
+        # Trigger stale refresh if feed is older than _STALE_HOURS (2 hours)
         if isinstance(data, dict) and data.get("items"):
             newest_date = data["items"][0].get("date")
             if newest_date:
                 newest_dt = datetime.strptime(newest_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                if (datetime.now(timezone.utc) - newest_dt).days > 2:
+                if (datetime.now(timezone.utc) - newest_dt) > timedelta(hours=_STALE_HOURS):
                     _start_crawl_thread(current_app._get_current_object(), name="TrailerDaemon-stale")
         return jsonify(data)
     except Exception:
@@ -468,15 +492,25 @@ def get_trailers():
 def trailers_status():
     rs = getattr(current_app, "rs", None)
     if not rs:
-        return jsonify({"status": "unknown", "last_crawl": None, "running": False, "channels": 0})
+        return jsonify({"status": "unknown", "last_crawl": None, "running": False, "channels": 0, "stale_hours": _STALE_HOURS})
 
     last_crawl = rs.get("streamly:trailers:last_crawl_time")
     lock = rs.get("streamly:trailers:crawl_lock")
+    is_stale = False
+    if last_crawl:
+        try:
+            lc = int(last_crawl)
+            if (time.time() - lc) > (_STALE_HOURS * 3600):
+                is_stale = True
+        except Exception:
+            pass
     return jsonify({
         "status": "ok",
         "last_crawl": int(last_crawl) if last_crawl and str(last_crawl).isdigit() else None,
         "running": bool(lock),
         "channels": len([c for c in TRAILER_CHANNELS if c[0] != "???"]),
+        "stale_hours": _STALE_HOURS,
+        "is_stale": is_stale,
     })
 
 

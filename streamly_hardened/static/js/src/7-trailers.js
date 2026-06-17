@@ -32,6 +32,13 @@
     return `${Math.floor(diff / 1440)}d ago`;
   }
 
+  function _isNewVideo(publishedIso) {
+    if (!publishedIso) return false;
+    const d = new Date(publishedIso);
+    if (isNaN(d.getTime())) return false;
+    return (Date.now() - d.getTime()) < (24 * 60 * 60 * 1000); // 24 hours
+  }
+
   async function _trailersPostJson(url, body) {
     if (typeof postJson === "function") {
       return postJson(url, body);
@@ -67,11 +74,13 @@
   function _trailersRenderCard(movie) {
     const main = movie.videos[0];
     if (!main) return "";
+    const isNew = _isNewVideo(main.published);
     return `
       <a class="trailer-card" href="${esc(main.url)}" target="_blank" rel="noopener noreferrer" data-title="${esc(movie.title)}">
         <div class="trailer-thumb">
           <img src="${esc(main.thumbnail)}" alt="${esc(movie.title)}" loading="lazy" onerror="this.onerror=null;this.src='https://via.placeholder.com/480x270/161B22/8B949E?text=No+Thumbnail';">
           <div class="trailer-play">▶</div>
+          ${isNew ? '<span class="trailer-new">NEW</span>' : ''}
         </div>
         <div class="trailer-info">
           <div class="trailer-title" title="${esc(movie.title)}">${esc(movie.title)}</div>
@@ -218,6 +227,10 @@
           statusText.textContent = "Checking for new trailers…";
         } else {
           statusText.textContent = `Last updated ${status.last_crawl ? _trailersTimeAgo(status.last_crawl) : "Never"}`;
+          // Auto-trigger refresh if feed is stale (>2 hours old)
+          if (status.is_stale) {
+            refreshTrailers();
+          }
         }
       }
     } catch (e) {
