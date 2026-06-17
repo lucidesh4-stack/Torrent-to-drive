@@ -8,6 +8,7 @@ import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from typing import Any
@@ -21,13 +22,8 @@ log = logging.getLogger(__name__)
 
 trailers_bp = Blueprint("trailers", __name__)
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
 _CRAWL_INTERVAL_SECONDS = 600
 _CRAWL_LOCK_TTL = 600
-_TMD_CACHE_TTL_SECONDS = 21600
 _FEED_TTL_SECONDS = 86400
 
 _BLOCKED_KEYWORDS = {
@@ -44,45 +40,22 @@ _TITLE_HEURISTICS = {
 }
 
 _CHANNEL_PRIORITY = {
-    "Marvel Entertainment": 0,
-    "Warner Bros": 0,
-    "Sony Pictures": 0,
-    "Universal Pictures": 0,
-    "Paramount Pictures": 0,
-    "Netflix": 0,
-    "A24": 0,
-    "Amazon MGM Studios": 0,
-    "HBO": 0,
-    "Searchlight Pictures": 0,
-    "Lionsgate Movies": 0,
-    "YRF": 0,
-    "Dharma Productions": 0,
-    "T-Series": 0,
-    "Zee Studios": 0,
-    "Red Chillies Entertainment": 0,
-    "Excel Entertainment": 0,
-    "Pen Movies": 0,
-    "AA Films": 0,
-    "Geetha Arts": 0,
-    "Mythri Movie Makers": 0,
-    "Sithara Entertainments": 0,
-    "Sun Pictures": 0,
-    "Lyca Productions": 0,
-    "Hombale Films": 0,
-    "Vyjayanthi Movies": 0,
-    "Prithviraj Productions": 0,
-    "ONE Media": 1,
-    "Movieclips Trailers": 1,
-    "Rotten Tomatoes Trailers": 1,
-    "Bollywood Hungama": 1,
-    "Telugu Filmnagar": 1,
-    "123 Telugu": 1,
+    "Marvel Entertainment": 0, "Warner Bros": 0, "Sony Pictures": 0,
+    "Universal Pictures": 0, "Paramount Pictures": 0, "Netflix": 0,
+    "Disney": 0, "A24": 0, "Amazon MGM Studios": 0, "HBO": 0,
+    "Searchlight Pictures": 0, "Lionsgate Movies": 0, "YRF": 0,
+    "Dharma Productions": 0, "T-Series": 0, "Zee Studios": 0,
+    "Red Chillies Entertainment": 0, "Excel Entertainment": 0,
+    "Pen Movies": 0, "AA Films": 0, "Geetha Arts": 0,
+    "Mythri Movie Makers": 0, "Sithara Entertainments": 0,
+    "Sun Pictures": 0, "Lyca Productions": 0, "Hombale Films": 0,
+    "Vyjayanthi Movies": 0, "Prithviraj Productions": 0,
+    "ONE Media": 1, "Movieclips Trailers": 1, "Rotten Tomatoes Trailers": 1,
+    "Bollywood Hungama": 1, "Telugu Filmnagar": 1, "123 Telugu": 1,
     "Goldmines Telefilms": 1,
 }
 
-# Corrected IDs (verified against live RSS feeds)
 TRAILER_CHANNELS = [
-    # Hollywood (minute 0)
     ("UCjmJDM5pRKbUlVIzDYYWb6g", "Warner Bros"),
     ("UCvC4D8onUfXzvjTOM-dBfEA", "Marvel Entertainment"),
     ("UCz97F7dMxBNOfGYu3rx8aCw", "Sony Pictures"),
@@ -97,7 +70,6 @@ TRAILER_CHANNELS = [
     ("UCVTQuK2CaWaTgSsoNkn5AiQ", "HBO"),
     ("UCor9rW6PgxSQ9vUPWQdnaYQ", "Searchlight Pictures"),
     ("UCJ6nMHaJPZvsJ-HmUmj1SeA", "Lionsgate Movies"),
-    # Bollywood (minute 3)
     ("UCbTLwN10NoCU4WDzLf1JMOA", "YRF"),
     ("UCGdHCtXEzkCB7-g_NXYZPcw", "Dharma Productions"),
     ("UCq-Fj5jknLsUf-MWSy4_brA", "T-Series"),
@@ -106,7 +78,6 @@ TRAILER_CHANNELS = [
     ("UCn9BuiRZGR_tPM2GGT4jN-w", "Excel Entertainment"),
     ("UC3ar28GS6o1p0m_wabfk2zw", "Pen Movies"),
     ("UCdfXaARoko58ZraSegLA-4A", "AA Films"),
-    # South Indian (minute 6)
     ("UCiJfiEg1FImWsVuEu0L8X6Q", "Geetha Arts"),
     ("UCKZSn5C-RzrLjuWJF8wWiDw", "Mythri Movie Makers"),
     ("UC2woPAI_KMAR25R_oezEQqw", "Sithara Entertainments"),
@@ -131,8 +102,6 @@ def _rss_headers() -> dict[str, str]:
 
 
 def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> requests.Response:
-    """Fetch an RSS feed. If a proxy is configured and the direct request fails,
-    fall back to the proxy so cloud-IP blocks can be bypassed."""
     try:
         r = requests.get(url, timeout=timeout, headers=_rss_headers())
         if r.status_code == 200:
@@ -149,84 +118,12 @@ def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) ->
         except Exception as e:
             log.warning("Proxy RSS fetch also failed for %s: %s", url, e)
 
-    # Return whatever we got from the direct attempt (even if it was a 404)
     try:
         return requests.get(url, timeout=timeout, headers=_rss_headers())
     except Exception as e:
         log.warning("RSS fetch failed completely for %s: %s", url, e)
         raise
 
-
-# ---------------------------------------------------------------------------
-# TMDB cache helpers
-# ---------------------------------------------------------------------------
-
-def _tmdb_api_key() -> str | None:
-    return current_app.config.get("TMDB_API_KEY") or os.getenv("TMDB_API_KEY", "")
-
-
-def _tmdb_filter_enabled() -> bool:
-    return (current_app.config.get("TMDB_FILTER_ENABLED") or os.getenv("TMDB_FILTER_ENABLED", "")).lower() in ("1", "true", "yes")
-
-
-def _fetch_tmdb_titles() -> set[str]:
-    key = _tmdb_api_key()
-    if not key:
-        return set()
-
-    titles: set[str] = set()
-    endpoints = [
-        ("https://api.themoviedb.org/3/movie/upcoming", "results"),
-        ("https://api.themoviedb.org/3/movie/now_playing", "results"),
-        ("https://api.themoviedb.org/3/tv/on_the_air", "results"),
-    ]
-
-    for url, key_name in endpoints:
-        try:
-            r = requests.get(url, params={"api_key": key, "page": "1"}, timeout=15)
-            r.raise_for_status()
-            data = r.json()
-            for item in data.get(key_name, []):
-                title = item.get("title") or item.get("name") or ""
-                if title:
-                    titles.add(_normalize_title(title))
-                original = item.get("original_title") or item.get("original_name")
-                if original:
-                    titles.add(_normalize_title(original))
-        except Exception as e:
-            log.warning("TMDB fetch failed for %s: %s", url, e)
-
-    return titles
-
-
-def _load_tmdb_cache(rs) -> set[str]:
-    raw = rs.get("streamly:trailers:tmdb_cache")
-    if raw:
-        try:
-            data = _json.loads(raw)
-            if isinstance(data, dict) and isinstance(data.get("titles"), list):
-                fetched_at = data.get("fetched_at", 0)
-                if (time.time() - fetched_at) < _TMD_CACHE_TTL_SECONDS:
-                    return set(data["titles"])
-        except Exception:
-            pass
-
-    titles = _fetch_tmdb_titles()
-    if titles:
-        try:
-            rs.set(
-                "streamly:trailers:tmdb_cache",
-                _json.dumps({"titles": list(titles), "fetched_at": time.time()}),
-                ex=_TMD_CACHE_TTL_SECONDS,
-            )
-        except Exception as e:
-            log.warning("Failed to cache TMDB titles: %s", e)
-    return titles
-
-
-# ---------------------------------------------------------------------------
-# Text / title helpers
-# ---------------------------------------------------------------------------
 
 def _normalize_title(title: str) -> str:
     t = title.lower()
@@ -256,30 +153,11 @@ def _extract_trailer_info(title: str) -> tuple[str, str, int]:
     return name, media_type, num
 
 
-def _fuzzy_match(query: str, title_set: set[str], threshold: float = 0.85) -> bool:
-    if not title_set:
-        return False
-    if query in title_set:
-        return True
-    for t in title_set:
-        if query in t or t in query:
-            if len(query) >= 5 and len(t) >= 5:
-                return True
-    for t in title_set:
-        if SequenceMatcher(None, query, t).ratio() >= threshold:
-            return True
-    return False
-
-
 def _channel_priority(name: str) -> int:
     return _CHANNEL_PRIORITY.get(name, 99)
 
 
-# ---------------------------------------------------------------------------
-# RSS crawl helpers
-# ---------------------------------------------------------------------------
-
-def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str], tmdb_filter: bool) -> list[dict]:
+def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | None) -> list[dict]:
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
@@ -306,22 +184,23 @@ def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str], tmdb_fil
         if "trailer" not in title_lower and "teaser" not in title_lower:
             continue
 
-        if not tmdb_titles:
-            if any(h in title_lower for h in _TITLE_HEURISTICS):
-                continue
-            if len(title) < 8 or len(title) > 120:
-                continue
+        if not any(h in title_lower for h in _TITLE_HEURISTICS) and (len(title) < 8 or len(title) > 120):
+            continue
 
         published_elem = entry.find("atom:published", ns)
         if published_elem is None or published_elem.text is None:
             continue
         published = published_elem.text
+
         try:
             pub_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
         except ValueError:
             continue
 
         if pub_dt < cutoff:
+            continue
+
+        if last_seen and published <= last_seen:
             continue
 
         id_elem = entry.find("atom:id", ns)
@@ -337,9 +216,6 @@ def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str], tmdb_fil
         )
 
         norm_name, media_type, num = _extract_trailer_info(title)
-
-        if tmdb_filter and tmdb_titles and not _fuzzy_match(norm_name, tmdb_titles):
-            continue
 
         results.append(
             {
@@ -414,11 +290,7 @@ def _build_digest(entries: list[dict]) -> dict:
     return {"items": items}
 
 
-# ---------------------------------------------------------------------------
-# Background daemon
-# ---------------------------------------------------------------------------
-
-def _crawl_trailers(app) -> None:
+def _crawl_trailers_incremental(app) -> None:
     rs = getattr(app, "rs", None)
     if not rs:
         log.warning("Trailer crawl skipped: Redis unavailable")
@@ -429,112 +301,117 @@ def _crawl_trailers(app) -> None:
         return
 
     try:
-        tmdb_titles = _load_tmdb_cache(rs)
-        tmdb_filter = _tmdb_filter_enabled()
-        if not tmdb_titles:
-            log.info("TMDB cache empty; running with keyword-only fallback")
-        else:
-            log.info("TMDB cache: %d titles, filter=%s", len(tmdb_titles), tmdb_filter)
-
         proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
         proxy_url = proxy_url.strip() if proxy_url else None
 
-        all_entries: list[dict] = []
+        existing_digest = None
+        known_keys: set[tuple[str, str]] = set()
+        raw_feed = rs.get("streamly:trailers:feed")
+        if raw_feed:
+            try:
+                existing_digest = _json.loads(raw_feed)
+                for day_group in existing_digest.get("items", []):
+                    for item in day_group.get("items", []):
+                        for vid in item.get("videos", []):
+                            known_keys.add((vid["id"], vid["published"]))
+            except Exception:
+                pass
+
         channels = [c for c in TRAILER_CHANNELS if c[0] and c[0] != "???"]
-        total_fetched = 0
-        total_trailers = 0
+        all_new_entries: list[dict] = []
+        total_channels_checked = 0
+        total_channels_with_new = 0
 
-        for idx, (channel_id, channel_name) in enumerate(channels):
-            if idx == 5:
-                time.sleep(180)
-            elif idx == 11:
-                time.sleep(180)
-            elif idx > 0:
-                time.sleep(2)
-
+        def fetch_one(channel_id: str, channel_name: str) -> tuple[list[dict] | None, str]:
             try:
                 rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
                 r = _fetch_rss(rss_url, proxy_url=proxy_url, timeout=15.0)
                 if r.status_code != 200:
-                    log.warning("RSS HTTP %d for %s (proxy=%s)", r.status_code, channel_name, bool(proxy_url))
-                    continue
+                    log.warning("RSS HTTP %d for %s", r.status_code, channel_name)
+                    return None, channel_name
 
-                entries = _parse_rss(r.text, channel_name, tmdb_titles, tmdb_filter)
-                total_fetched += len(entries)
-                all_entries.extend(entries)
-                total_trailers += len(entries)
-
-                if entries:
-                    newest = max(entries, key=lambda e: e["published"])
-                    rs.set(
-                        f"streamly:trailers:last_seen:{channel_id}",
-                        newest["published"],
-                    )
+                last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
+                entries = _parse_rss_incremental(r.text, channel_name, last_seen)
+                return entries, channel_name
             except Exception as e:
                 log.warning("RSS fetch failed for %s: %s", channel_name, e)
-                continue
+                return None, channel_name
+
+        batch_size = 5
+        for batch_start in range(0, len(channels), batch_size):
+            batch = channels[batch_start:batch_start + batch_size]
+            with ThreadPoolExecutor(max_workers=batch_size) as executor:
+                futures = {
+                    executor.submit(fetch_one, cid, name): (cid, name)
+                    for cid, name in batch
+                }
+                for future in as_completed(futures):
+                    entries, channel_name = future.result()
+                    total_channels_checked += 1
+                    if entries:
+                        new_entries = [e for e in entries if (e["id"], e["published"]) not in known_keys]
+                        if new_entries:
+                            all_new_entries.extend(new_entries)
+                            total_channels_with_new += 1
+                        newest = max(entries, key=lambda e: e["published"])
+                        rs.set(f"streamly:trailers:last_seen:{channel_name}", newest["published"])
+
+            if batch_start + batch_size < len(channels):
+                time.sleep(2)
 
         log.info(
-            "Trailer crawl fetched %d entries from %d channels",
-            total_fetched,
-            len(channels),
+            "Incremental crawl: %d new entries from %d/%d channels",
+            len(all_new_entries), total_channels_with_new, len(channels),
         )
 
-        # Merge with existing digest so we never drop valid entries on a bad crawl
-        existing = None
-        raw_feed = rs.get("streamly:trailers:feed")
-        if raw_feed:
-            try:
-                existing = _json.loads(raw_feed)
-            except Exception:
-                pass
+        if all_new_entries or not existing_digest:
+            merged_entries = list(all_new_entries)
+            if existing_digest and "items" in existing_digest:
+                for day_group in existing_digest["items"]:
+                    for item in day_group.get("items", []):
+                        for vid in item.get("videos", []):
+                            merged_entries.append(
+                                {
+                                    "title": item["title"],
+                                    "normalized": item["normalized"],
+                                    "type": vid["type"],
+                                    "number": vid["number"],
+                                    "id": vid["id"],
+                                    "channel": vid["channel"],
+                                    "published": vid["published"],
+                                    "thumbnail": vid["thumbnail"],
+                                    "url": vid["url"],
+                                    "priority": _channel_priority(vid["channel"]),
+                                }
+                            )
 
-        if existing and isinstance(existing, dict) and "items" in existing:
-            existing_entries = []
-            for day_group in existing["items"]:
-                for item in day_group.get("items", []):
-                    for vid in item.get("videos", []):
-                        existing_entries.append(
-                            {
-                                "title": item["title"],
-                                "normalized": item["normalized"],
-                                "type": vid["type"],
-                                "number": vid["number"],
-                                "id": vid["id"],
-                                "channel": vid["channel"],
-                                "published": vid["published"],
-                                "thumbnail": vid["thumbnail"],
-                                "url": vid["url"],
-                                "priority": _channel_priority(vid["channel"]),
-                            }
-                        )
-            all_entries.extend(existing_entries)
+            digest = _build_digest(merged_entries)
+            rs.set(
+                "streamly:trailers:feed",
+                _json.dumps(digest),
+                ex=_FEED_TTL_SECONDS,
+            )
+            log.info(
+                "Incremental crawl complete: %d total entries -> %d day groups",
+                len(merged_entries), len(digest["items"]),
+            )
+        else:
+            log.info("Incremental crawl: no new entries, digest unchanged")
 
-        digest = _build_digest(all_entries)
-        rs.set(
-            "streamly:trailers:feed",
-            _json.dumps(digest),
-            ex=_FEED_TTL_SECONDS,
-        )
-        log.info(
-            "Trailer crawl complete: %d total entries -> %d day groups",
-            len(all_entries),
-            len(digest["items"]),
-        )
     except Exception as e:
-        log.exception("Trailer crawl error")
+        log.exception("Incremental crawl error")
     finally:
         try:
             rs._execute("DEL", "streamly:trailers:crawl_lock")
+            rs.set("streamly:trailers:last_crawl_time", str(int(time.time())), ex=86400)
         except Exception:
             pass
 
 
 def _start_crawl_thread(app, name: str = "TrailerDaemon-kick") -> None:
-    """Start a background crawl inside a proper Flask app context."""
     def _run():
         with app.app_context():
-            _crawl_trailers(app)
+            _crawl_trailers_incremental(app)
     threading.Thread(target=_run, name=name, daemon=True).start()
 
 
@@ -543,7 +420,7 @@ def trailer_daemon_loop(app) -> None:
     while True:
         try:
             with app.app_context():
-                _crawl_trailers(app)
+                _crawl_trailers_incremental(app)
         except Exception as e:
             log.exception("Trailer daemon loop error")
         time.sleep(_CRAWL_INTERVAL_SECONDS)
@@ -554,10 +431,6 @@ def start_trailer_daemon(app) -> None:
     t.start()
     log.info("Trailer daemon thread spawned")
 
-
-# ---------------------------------------------------------------------------
-# API routes
-# ---------------------------------------------------------------------------
 
 @trailers_bp.get("/api/trailers")
 @rate_limited(cost=0.5)
@@ -584,17 +457,31 @@ def get_trailers():
         return jsonify({"items": []})
 
 
+@trailers_bp.get("/api/trailers/status")
+@rate_limited(cost=0.2)
+def trailers_status():
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        return jsonify({"status": "unknown", "last_crawl": None, "running": False, "channels": 0})
+
+    last_crawl = rs.get("streamly:trailers:last_crawl_time")
+    lock = rs.get("streamly:trailers:crawl_lock")
+    return jsonify({
+        "status": "ok",
+        "last_crawl": int(last_crawl) if last_crawl and str(last_crawl).isdigit() else None,
+        "running": bool(lock),
+        "channels": len([c for c in TRAILER_CHANNELS if c[0] != "???"]),
+    })
+
+
 @trailers_bp.post("/api/trailers/refresh")
 @rate_limited(cost=1.0)
 @csrf_required
 def refresh_trailers():
-    """Manually trigger a background crawl. Returns immediately. The crawl
-    runs asynchronously and updates the Redis feed when complete."""
     rs = getattr(current_app, "rs", None)
     if not rs:
         return json_error(503, "redis_unavailable", "Redis is required")
 
-    # Check if already running
     lock_raw = rs.get("streamly:trailers:crawl_lock")
     if lock_raw:
         return jsonify({"success": True, "message": "Refresh already in progress", "status": "running"})

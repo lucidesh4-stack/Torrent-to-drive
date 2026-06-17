@@ -335,7 +335,7 @@ def install_security_headers(app) -> None:
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
-            "img-src 'self' data: https://m.media-amazon.com https://*.media-imdb.com https://i.ytimg.com; "
+            "img-src 'self' data: https://m.media-amazon.com https://*.media-imdb.com https://*.ytimg.com; "
             "media-src 'self' blob: https:; "
             "connect-src 'self' https://bitsearch.eu https://v3.sg.media-imdb.com https://www.seedr.cc https:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
