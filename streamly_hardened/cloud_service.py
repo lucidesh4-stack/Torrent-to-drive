@@ -22,6 +22,7 @@ class SeedrClientProtocol(Protocol):
     def add_torrent(self, magnet: str) -> Any: ...
     def fetch_file(self, file_id: int) -> Any: ...
     def get_torrent_progress(self, progress_url: str) -> Any: ...
+    def get_devices(self) -> Any: ...
 
 
 ClientFactory = Callable[[str, str], SeedrClientProtocol]
@@ -240,6 +241,45 @@ class CloudService:
 
     def delete_transfer(self, client: SeedrClientProtocol, torrent_id: int) -> None:
         client.delete_torrent(str(torrent_id))
+
+    def get_devices(self, client: SeedrClientProtocol) -> list[dict[str, Any]]:
+        """Return the Seedr account's linked devices as normalized dicts.
+
+        Defensive: seedrcc's Device field names aren't verified live, so each
+        field is read with several likely aliases and falls back to "" rather
+        than crashing. Confirm the real attribute names from the first live run
+        and tighten the alias lists if needed.
+        """
+        def pick(obj: Any, *names: str, default: str = "") -> str:
+            for n in names:
+                v = getattr(obj, n, None)
+                if v is None and isinstance(obj, dict):
+                    v = obj.get(n)
+                if v not in (None, ""):
+                    return v
+            return default
+
+        try:
+            raw = client.get_devices()
+        except requests.RequestException as e:
+            log.warning("Seedr network error fetching devices: %s", e)
+            raise ConnectionError("Provider unavailable") from None
+        except Exception:
+            log.exception("Unexpected error fetching Seedr devices")
+            raise
+
+        devices = list(raw or [])
+        out: list[dict[str, Any]] = []
+        for d in devices:
+            out.append({
+                "id":          str(pick(d, "id", "device_id", "deviceId")),
+                "name":        _safe_name(pick(d, "name", "device_name", "client_name", "title")),
+                "type":        _safe_name(pick(d, "type", "device_type", "client_type", "platform")),
+                "last_active": str(pick(d, "last_active", "last_seen", "last_used",
+                                        "lastActivity", "last_login", "updated_at")),
+                "ip":          str(pick(d, "ip", "ip_address", "last_ip", "address")),
+            })
+        return out
 
     def add_magnet(self, client: SeedrClientProtocol, magnet: str) -> None:
         try:

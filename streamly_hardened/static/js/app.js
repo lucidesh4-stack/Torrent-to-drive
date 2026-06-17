@@ -2545,6 +2545,54 @@
     });
   });
 
+  // ----- Linked Devices modal (click account email in topbar) -----
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  async function openDevicesModal() {
+    const ov = $("devicesOverlay");
+    if (!ov) return;
+    const body = $("devicesBody");
+    const empty = $("devicesEmpty");
+    const status = $("devicesStatus");
+    const sub = $("devicesSubtitle");
+    if (body) body.innerHTML = "";
+    if (empty) empty.classList.add("hidden");
+    if (status) status.textContent = "Loading devices…";
+    ov.classList.remove("hidden");
+    try {
+      const res = await fetch("/api/devices", { credentials: "same-origin" });
+      const data = await res.json();
+      const devices = (data && data.devices) || [];
+      if (status) status.textContent = "";
+      if (!devices.length) {
+        if (empty) empty.classList.remove("hidden");
+        if (sub) sub.textContent = "Devices signed in to this Seedr account";
+        return;
+      }
+      if (sub) sub.textContent = `${devices.length} device${devices.length > 1 ? "s" : ""} signed in to this Seedr account`;
+      if (body) body.innerHTML = devices.map((d) =>
+        `<tr><td class="truncate">${esc(d.name) || "<span class='muted'>Unknown</span>"}</td>` +
+        `<td>${esc(d.type) || "—"}</td>` +
+        `<td>${esc(d.last_active) || "—"}</td>` +
+        `<td class="truncate">${esc(d.ip) || "—"}</td></tr>`
+      ).join("");
+    } catch (e) {
+      if (status) status.textContent = "Failed to load devices.";
+    }
+  }
+  if ($("accountLabel")) {
+    $("accountLabel").addEventListener("click", openDevicesModal);
+    $("accountLabel").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDevicesModal(); }
+    });
+  }
+  if ($("closeDevicesBtn")) $("closeDevicesBtn").addEventListener("click", () => {
+    $("devicesOverlay").classList.add("hidden");
+  });
+
   // Telegram auth and settings controls
   if ($("closeTelegramAuthBtn")) {
     $("closeTelegramAuthBtn").addEventListener("click", () => {

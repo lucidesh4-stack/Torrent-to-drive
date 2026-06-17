@@ -42,7 +42,7 @@
             <div class="topbar-storage-row-1">
               <span class="storage-title">Storage</span>
               <span id="topStorageText" class="storage-used-total">Unknown</span>
-              <span id="accountLabel" class="storage-email"></span>
+              <span id="accountLabel" class="storage-email" role="button" tabindex="0" title="View linked devices"></span>
             </div>
             <div class="topbar-storage-row-2">
               <div class="topbar-storage-meter" id="topStorageMeterWrap" aria-hidden="true">
@@ -244,6 +244,35 @@
       </div>
       <div style="padding: 12px 16px; border-top: 1px solid var(--line); text-align: right;">
         <button id="clearHistoryBtn" class="danger ghost" type="button">Clear History</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Devices Modal Overlay -->
+  <section id="devicesOverlay" class="overlay hidden">
+    <div class="player-box" style="max-width: 640px; max-height: 80vh; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5);">
+      <div class="sheet-grabber"></div>
+      <div class="panel-head" style="border-radius: 14px 14px 0 0;">
+        <div>
+          <h2>Linked Devices</h2>
+          <div class="muted" id="devicesSubtitle">Devices signed in to this Seedr account</div>
+        </div>
+        <button id="closeDevicesBtn" class="ghost" type="button" aria-label="Close devices"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div style="padding: 16px; overflow-y: auto; flex: 1;">
+        <table class="table" style="table-layout: fixed; width: 100%;">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th style="width: 90px;">Type</th>
+              <th style="width: 150px;">Last Active</th>
+              <th style="width: 130px;">IP</th>
+            </tr>
+          </thead>
+          <tbody id="devicesBody"></tbody>
+        </table>
+        <div id="devicesEmpty" class="empty hidden">No devices found.</div>
+        <div id="devicesStatus" class="status"></div>
       </div>
     </div>
   </section>

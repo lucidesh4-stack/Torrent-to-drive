@@ -15,6 +15,20 @@ from ..cloud_service import format_size, _safe_int
 
 cloud_bp = Blueprint("cloud", __name__)
 
+@cloud_bp.get("/api/devices")
+@rate_limited(cost=1.0)
+def list_devices():
+    """List the Seedr account's linked devices (for the account modal)."""
+    cloud = getattr(current_app, "cloud", None)
+    try:
+        devices = cloud.get_devices(current_client())
+    except (ConnectionError, TimeoutError) as e:
+        current_app.logger.warning("Provider error on devices: %s", e)
+        from ..security import json_error
+        return json_error(502, "provider_error", "Provider unavailable or failed to list devices")
+    return jsonify({"success": True, "devices": devices})
+
+
 @cloud_bp.get("/fs/folder/<folder_id>/items")
 @rate_limited(cost=1.0)
 def list_items(folder_id: str):

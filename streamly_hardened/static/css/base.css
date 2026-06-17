@@ -1183,3 +1183,7 @@ button.icon-btn {
 }
 
 
+
+/* Account email in topbar is clickable (opens Linked Devices modal) */
+.storage-email[role="button"] { cursor: pointer; }
+.storage-email[role="button"]:hover { color: var(--text); text-decoration: underline; }
