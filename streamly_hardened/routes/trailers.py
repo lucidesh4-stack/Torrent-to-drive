@@ -10,7 +10,6 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
-from difflib import SequenceMatcher
 from typing import Any
 
 import requests
@@ -184,6 +183,10 @@ def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | No
         if "trailer" not in title_lower and "teaser" not in title_lower:
             continue
 
+        # Filter out YouTube Shorts by title tag (most reliable signal)
+        if '#shorts' in title_lower or '#short' in title_lower:
+            continue
+
         # Heuristic keyword check (fallback filter)
         if any(h in title_lower for h in _TITLE_HEURISTICS):
             continue
@@ -211,25 +214,12 @@ def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | No
             continue
         vid = id_elem.text.split(":")[-1]
 
-        # Parse thumbnail and filter out Shorts (vertical aspect ratio > 1.2:1)
         thumb = entry.find("media:group/media:thumbnail", ns)
         thumb_url = None
-        is_shorts = False
         if thumb is not None:
             thumb_url = thumb.get("url")
-            tw = thumb.get("width")
-            th = thumb.get("height")
-            if tw and th:
-                try:
-                    w, h = int(tw), int(th)
-                    if h > w * 1.2:
-                        is_shorts = True
-                except ValueError:
-                    pass
         if not thumb_url:
             thumb_url = f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
-        if is_shorts:
-            continue  # Skip YouTube Shorts
 
         norm_name, media_type, num = _extract_trailer_info(title)
 
