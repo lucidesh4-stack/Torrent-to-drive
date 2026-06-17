@@ -335,12 +335,13 @@ def install_security_headers(app) -> None:
         response.headers.setdefault(
             "Content-Security-Policy",
             "default-src 'self'; "
-            "img-src 'self' data: https://m.media-amazon.com https://*.media-imdb.com; "
+            "img-src 'self' data: https://m.media-amazon.com https://*.media-imdb.com https://i.ytimg.com; "
             "media-src 'self' blob: https:; "
             "connect-src 'self' https://bitsearch.eu https://v3.sg.media-imdb.com https://www.seedr.cc https:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self' 'unsafe-inline'; "
+            "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; "
             f"base-uri 'none'; object-src 'none'; {csp_ancestors}",
         )
         if request.path.startswith("/api/") or request.path.startswith("/fs/"):

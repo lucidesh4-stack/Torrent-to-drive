@@ -28,6 +28,7 @@ from .cloud_service import CloudService
 from .search_service import SearchService
 from .store import NotAuthenticated, TTLStore
 from .routes import register_routes
+from .routes.trailers import trailers_bp, start_trailer_daemon
 from . import extensions
 
 log = logging.getLogger(__name__)
@@ -226,6 +227,7 @@ def create_app(
         TELEGRAM_PHONE=config.telegram_phone,
         TELEGRAM_CHAT_ID=config.telegram_chat_id,
         CLOUDFLARE_WORKER_PROXY=config.cloudflare_worker_proxy,
+        TMDB_API_KEY=os.getenv("TMDB_API_KEY", ""),
         # Validation limits
         max_folder_id=config.max_folder_id,
         max_file_id=config.max_file_id,
@@ -310,6 +312,12 @@ def create_app(
                 log.warning("Failed to start Seedr Queue Daemon: %s", daemon_init_err)
                 
             try:
+                start_trailer_daemon(app)
+                log.info("Trailer daemon started successfully.")
+            except Exception as td_err:
+                log.warning("Failed to start Trailer daemon: %s", td_err)
+                
+            try:
                 # Use a startup lock to ensure only one worker clears the global active lock
                 # and triggers the next transfer when the container boots up.
                 acquired = rs._execute("SET", "streamly:startup_init_lock", "1", "EX", "15", "NX")
@@ -347,6 +355,7 @@ def create_app(
 
     # Register Blueprints
     register_routes(app)
+    app.register_blueprint(trailers_bp)
 
     @app.before_request
     def set_request_id():

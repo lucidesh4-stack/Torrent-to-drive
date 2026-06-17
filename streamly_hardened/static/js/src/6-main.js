@@ -4,7 +4,7 @@
     highlight.style.transform = `translateX(${index * 100}%)`;
     
     // Update active class on tab items
-    const tabs = ["cloudTab", "searchTab", "historyBtn", "telegramTabBtn"];
+    const tabs = ["cloudTab", "searchTab", "historyBtn", "telegramTabBtn", "trailersTab"];
     tabs.forEach((id, idx) => {
       const btn = $(id);
       if (btn) btn.classList.toggle("active", idx === index);
@@ -13,7 +13,14 @@
 
   window.restoreActiveMainTabHighlight = function() {
     const isCloud = !$("cloudView").classList.contains("hidden");
-    window.updateBottomNavHighlight(isCloud ? 0 : 1);
+    const isTrailers = !$("trailersView")?.classList.contains("hidden");
+    if (isCloud) {
+      window.updateBottomNavHighlight(0);
+    } else if (isTrailers) {
+      window.updateBottomNavHighlight(4);
+    } else {
+      window.updateBottomNavHighlight(1);
+    }
   };
 
   async function setTab(name) {
@@ -34,6 +41,8 @@
 
     $("cloudView").classList.toggle("hidden", name !== "cloud");
     $("searchView").classList.toggle("hidden", name !== "search");
+    const trailersView = $("trailersView");
+    if (trailersView) trailersView.classList.add("hidden");
     
     if (name === "cloud") window.updateBottomNavHighlight(0);
     if (name === "search") window.updateBottomNavHighlight(1);
@@ -76,6 +85,11 @@
   $("searchTab").addEventListener("click", async () => {
     await setTab("search");
     if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
+  });
+  $("trailersTab")?.addEventListener("click", () => {
+    if (typeof window.setTrailersTab === "function") {
+      window.setTrailersTab();
+    }
   });
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
   $("upBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
@@ -441,7 +455,7 @@
     } catch (_) {}
 
     let initialTab = window.location.hash.replace("#", "") || "search";
-    if (initialTab !== "cloud" && initialTab !== "search") initialTab = "search";
+    if (initialTab !== "cloud" && initialTab !== "search" && initialTab !== "trailers") initialTab = "search";
     
     // Optimistically show header and search tab immediately
     showApp(null); 
@@ -449,6 +463,12 @@
     if (initialTab === "search") {
       setTab("search");
       if (!hadUrlMagnet && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
+    } else if (initialTab === "trailers") {
+      if (typeof window.setTrailersTab === "function") {
+        window.setTrailersTab();
+      } else {
+        setTab("search");
+      }
     }
 
     try {
@@ -477,7 +497,9 @@
       }
     } catch (_) {
       // Not authenticated. Force them to search tab (Guest mode).
-      setTab("search");
+      if (initialTab !== "trailers") {
+        setTab("search");
+      }
     }
   }
 
