@@ -246,6 +246,15 @@ def create_app(
     root_log = logging.getLogger()
     root_log.setLevel(logging.INFO)
 
+    # SECURITY: silence HTTP client request logs. httpx logs the full request URL
+    # at INFO, and Seedr's API passes the OAuth token in the query string
+    # (?access_token=...), so an httpx INFO line leaks a live credential into the
+    # console AND the batched Redis logs (downloadable via /api/logs). Raise these
+    # to WARNING so request URLs are never logged. This previously only ran in the
+    # __main__ block, so it did NOT apply under gunicorn on HF — hence the leak.
+    for _noisy in ("httpx", "httpcore", "urllib3"):
+        logging.getLogger(_noisy).setLevel(logging.WARNING)
+
     # Format: Timestamp | Level | RequestID | Module:Line | Message
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | [%(request_id)s] | %(name)s:%(lineno)d | %(message)s"

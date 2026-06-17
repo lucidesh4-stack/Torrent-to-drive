@@ -243,22 +243,13 @@ class CloudService:
         client.delete_torrent(str(torrent_id))
 
     def get_devices(self, client: SeedrClientProtocol) -> list[dict[str, Any]]:
-        """Return the Seedr account's linked devices as normalized dicts.
+        """Return the Seedr account's linked clients/devices.
 
-        Defensive: seedrcc's Device field names aren't verified live, so each
-        field is read with several likely aliases and falls back to "" rather
-        than crashing. Confirm the real attribute names from the first live run
-        and tighten the alias lists if needed.
+        seedrcc's Device model has exactly: client_id, client_name, device_code, tk.
+        There is NO ip / type / last-active data available from this endpoint — it
+        lists OAuth-authorized clients (apps/extensions), so we only surface the
+        human-meaningful name + id. (device_code/tk are secrets and are NOT returned.)
         """
-        def pick(obj: Any, *names: str, default: str = "") -> str:
-            for n in names:
-                v = getattr(obj, n, None)
-                if v is None and isinstance(obj, dict):
-                    v = obj.get(n)
-                if v not in (None, ""):
-                    return v
-            return default
-
         try:
             raw = client.get_devices()
         except requests.RequestException as e:
@@ -268,16 +259,17 @@ class CloudService:
             log.exception("Unexpected error fetching Seedr devices")
             raise
 
-        devices = list(raw or [])
         out: list[dict[str, Any]] = []
-        for d in devices:
+        for d in list(raw or []):
+            name = getattr(d, "client_name", None)
+            if name is None and isinstance(d, dict):
+                name = d.get("client_name")
+            cid = getattr(d, "client_id", None)
+            if cid is None and isinstance(d, dict):
+                cid = d.get("client_id")
             out.append({
-                "id":          str(pick(d, "id", "device_id", "deviceId")),
-                "name":        _safe_name(pick(d, "name", "device_name", "client_name", "title")),
-                "type":        _safe_name(pick(d, "type", "device_type", "client_type", "platform")),
-                "last_active": str(pick(d, "last_active", "last_seen", "last_used",
-                                        "lastActivity", "last_login", "updated_at")),
-                "ip":          str(pick(d, "ip", "ip_address", "last_ip", "address")),
+                "name": _safe_name(name or "Unknown client"),
+                "id": _safe_name(str(cid or "")),
             })
         return out
 

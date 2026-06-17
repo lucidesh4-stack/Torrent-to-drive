@@ -2569,15 +2569,13 @@
       if (status) status.textContent = "";
       if (!devices.length) {
         if (empty) empty.classList.remove("hidden");
-        if (sub) sub.textContent = "Devices signed in to this Seedr account";
+        if (sub) sub.textContent = "Apps & clients authorized on this Seedr account";
         return;
       }
-      if (sub) sub.textContent = `${devices.length} device${devices.length > 1 ? "s" : ""} signed in to this Seedr account`;
+      if (sub) sub.textContent = `${devices.length} client${devices.length > 1 ? "s" : ""} authorized on this Seedr account`;
       if (body) body.innerHTML = devices.map((d) =>
-        `<tr><td class="truncate">${esc(d.name) || "<span class='muted'>Unknown</span>"}</td>` +
-        `<td>${esc(d.type) || "—"}</td>` +
-        `<td>${esc(d.last_active) || "—"}</td>` +
-        `<td class="truncate">${esc(d.ip) || "—"}</td></tr>`
+        `<tr><td class="truncate">${esc(d.name) || "Unknown client"}</td>` +
+        `<td class="truncate muted">${esc(d.id) || "—"}</td></tr>`
       ).join("");
     } catch (e) {
       if (status) status.textContent = "Failed to load devices.";
