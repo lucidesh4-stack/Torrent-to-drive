@@ -4,6 +4,14 @@
 
   const TRAILERS_API = "/api/trailers";
 
+  // Spinner CSS for refresh button (injected once)
+  if (!document.getElementById("trailerSpinnerStyle")) {
+    const style = document.createElement("style");
+    style.id = "trailerSpinnerStyle";
+    style.textContent = "@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }";
+    document.head.appendChild(style);
+  }
+
   function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
@@ -28,6 +36,27 @@
     if (days === 1) return "Yesterday";
     if (days < 7) return `${days}d ago`;
     return _trailersFormatDate(iso);
+  }
+
+  async function _trailersPostJson(url, body) {
+    if (typeof postJson === "function") {
+      return postJson(url, body);
+    }
+    const token = (document.querySelector('meta[name="csrf-token"]')?.content || window.csrfToken || "");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": token
+      },
+      credentials: "same-origin",
+      body: JSON.stringify(body || {})
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || `${res.status}`);
+    }
+    return res.json();
   }
 
   async function _trailersFetch() {
@@ -68,7 +97,7 @@
     if (!container) return;
 
     if (!data || !data.items || !data.items.length) {
-      container.innerHTML = `<div class="empty">No trailers in the last 30 days. The feed refreshes automatically.</div>`;
+      container.innerHTML = `<div class="empty">No trailers in the last 30 days. The feed refreshes automatically every 10 minutes.</div>`;
       return;
     }
 
@@ -143,6 +172,74 @@
     if (iframe) iframe.src = "";
   }
 
+  // --- Refresh button ---
+
+  function _trailersEnsureHeader() {
+    let header = _trailers$("trailerHeader");
+    if (!header) {
+      const view = _trailers$("trailersView");
+      if (!view) return;
+      header = document.createElement("div");
+      header.id = "trailerHeader";
+      header.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.08);";
+      header.innerHTML = `
+        <h2 style="font-size:16px;font-weight:700;margin:0;color:#f0f6fc;">Latest Trailers</h2>
+        <button id="trailersRefreshBtn" class="ghost" type="button" aria-label="Refresh trailers" style="display:flex;align-items:center;gap:6px;">
+          <svg id="trailersRefreshIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-cw"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M3 21v-5h5"/></svg>
+          <span>Refresh</span>
+        </button>
+      `;
+      view.insertBefore(header, view.firstChild);
+      _trailers$("trailersRefreshBtn")?.addEventListener("click", refreshTrailers);
+    }
+  }
+
+  async function refreshTrailers() {
+    const btn = _trailers$("trailersRefreshBtn");
+    const icon = _trailers$("trailersRefreshIcon");
+    const container = _trailers$("trailersContainer");
+
+    if (btn) btn.disabled = true;
+    if (icon) icon.style.animation = "spin 1s linear infinite";
+
+    try {
+      const data = await _trailersPostJson("/api/trailers/refresh", {});
+
+      if (data.status === "started" || data.status === "running") {
+        if (container) container.innerHTML = `<div class="status">Refreshing feed… This may take up to 2 minutes.</div>`;
+
+        let attempts = 0;
+        const poll = setInterval(async () => {
+          attempts++;
+          try {
+            const feed = await _trailersFetch();
+            if (feed.items && feed.items.length > 0) {
+              clearInterval(poll);
+              _trailersRender(feed);
+              if (icon) icon.style.animation = "";
+              if (btn) btn.disabled = false;
+              return;
+            }
+          } catch (e) {}
+          if (attempts >= 12) { // 60 seconds
+            clearInterval(poll);
+            if (container) container.innerHTML = `<div class="status">Refresh timeout. The feed updates automatically every 10 minutes. Please check back later.</div>`;
+            if (icon) icon.style.animation = "";
+            if (btn) btn.disabled = false;
+          }
+        }, 5000);
+      } else {
+        if (container) container.innerHTML = `<div class="status">Refresh failed: ${esc(data.message)}</div>`;
+        if (icon) icon.style.animation = "";
+        if (btn) btn.disabled = false;
+      }
+    } catch (e) {
+      if (container) container.innerHTML = `<div class="status">Refresh failed: ${esc(e.message)}</div>`;
+      if (icon) icon.style.animation = "";
+      if (btn) btn.disabled = false;
+    }
+  }
+
   async function loadTrailers() {
     const container = _trailers$("trailersContainer");
     if (!container) return;
@@ -163,10 +260,10 @@
     if (view) view.classList.remove("hidden");
     if (cloud) cloud.classList.add("hidden");
     if (search) search.classList.add("hidden");
-    // Update bottom nav highlight if you add a 5th tab
     if (typeof window.updateBottomNavHighlight === "function") {
-      window.updateBottomNavHighlight(4); // adjust index to your nav
+      window.updateBottomNavHighlight(4);
     }
+    _trailersEnsureHeader();
     loadTrailers();
   }
 
@@ -175,3 +272,4 @@
   window.setTrailersTab = setTrailersTab;
   window.openTrailerModal = openTrailerModal;
   window.closeTrailerModal = closeTrailerModal;
+  window.refreshTrailers = refreshTrailers;

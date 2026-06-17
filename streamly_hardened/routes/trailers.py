@@ -6,6 +6,7 @@ import os
 import re
 import threading
 import time
+import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -14,7 +15,7 @@ from typing import Any
 import requests
 from flask import Blueprint, current_app, jsonify
 
-from ..security import json_error, rate_limited
+from ..security import csrf_required, json_error, rate_limited
 
 log = logging.getLogger(__name__)
 
@@ -24,13 +25,11 @@ trailers_bp = Blueprint("trailers", __name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-_CRAWL_INTERVAL_SECONDS = 600          # 10 minutes
-_CRAWL_LOCK_TTL = 600                  # 10 minutes (same as interval)
-_TMD_CACHE_TTL_SECONDS = 21600         # 6 hours
-_FEED_TTL_SECONDS = 86400              # 24 hours
-_STALE_FEED_THRESHOLD_SECONDS = 7200   # 2 hours; if feed is older, trigger immediate refresh
+_CRAWL_INTERVAL_SECONDS = 600
+_CRAWL_LOCK_TTL = 600
+_TMD_CACHE_TTL_SECONDS = 21600
+_FEED_TTL_SECONDS = 86400
 
-# Blocked keywords in YouTube titles (non-movie content)
 _BLOCKED_KEYWORDS = {
     "gameplay", "story trailer", "game", "behind the scenes", "bts",
     "interview", "vlog", "reaction", "review", "unboxing", "lego",
@@ -39,14 +38,11 @@ _BLOCKED_KEYWORDS = {
     "exclusive look", "extended look", "first look", "announcement",
 }
 
-# TMDB-matching heuristic title blacklist (lowercased, partial match)
 _TITLE_HEURISTICS = {
     "gameplay", "vlog", "reaction", "review", "unboxing", "lego", "funko",
     "toy", "merchandise", "comic con", "bts", "behind the scenes",
 }
 
-# Channel priority (lower = higher authority). Used when the same trailer
-# appears from multiple channels.
 _CHANNEL_PRIORITY = {
     "Marvel Entertainment": 0,
     "Warner Bros": 0,
@@ -84,15 +80,16 @@ _CHANNEL_PRIORITY = {
     "Goldmines Telefilms": 1,
 }
 
+# Corrected IDs (verified against live RSS feeds)
 TRAILER_CHANNELS = [
     # Hollywood (minute 0)
-    ("UCjmJDM5pRKbUlVIzDYYWbUw", "Warner Bros"),
+    ("UCjmJDM5pRKbUlVIzDYYWb6g", "Warner Bros"),
     ("UCvC4D8onUfXzvjTOM-dBfEA", "Marvel Entertainment"),
     ("UCz97F7dMxBNOfGYu3rx8aCw", "Sony Pictures"),
     ("UCq0OueAsdxH6b8nyAspwViw", "Universal Pictures"),
     ("UCF9imwPMSGz4Vq1NiTWCC7g", "Paramount Pictures"),
     ("UCWOA1ZGywLbqmigxE4Qlvuw", "Netflix"),
-    ("UCuaFvcY4MhZY3U43mMt1dYQ", "Disney"),
+    ("UC_976xMxPgzIa290Hqtk-9g", "Disney"),
     ("UCwYzZs_hwA6NdaQp6Hjhe5w", "ONE Media"),
     ("UC3gNmTGu-TTbFPpfSs5kNkg", "Movieclips Trailers"),
     ("UCuPivVjnfNo4mb3Oog_frZg", "A24"),
@@ -120,6 +117,46 @@ TRAILER_CHANNELS = [
     ("UCH1Gszpy-NmA6ZXZaxhnlwA", "Prithviraj Productions"),
 ]
 
+
+def _rss_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://www.youtube.com/",
+    }
+
+
+def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> requests.Response:
+    """Fetch an RSS feed. If a proxy is configured and the direct request fails,
+    fall back to the proxy so cloud-IP blocks can be bypassed."""
+    try:
+        r = requests.get(url, timeout=timeout, headers=_rss_headers())
+        if r.status_code == 200:
+            return r
+    except Exception as e:
+        log.debug("Direct RSS fetch failed for %s: %s", url, e)
+
+    if proxy_url:
+        proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+        try:
+            r = requests.get(proxied, timeout=timeout, headers=_rss_headers())
+            log.info("RSS via proxy for %s -> HTTP %d", url, r.status_code)
+            return r
+        except Exception as e:
+            log.warning("Proxy RSS fetch also failed for %s: %s", url, e)
+
+    # Return whatever we got from the direct attempt (even if it was a 404)
+    try:
+        return requests.get(url, timeout=timeout, headers=_rss_headers())
+    except Exception as e:
+        log.warning("RSS fetch failed completely for %s: %s", url, e)
+        raise
+
+
 # ---------------------------------------------------------------------------
 # TMDB cache helpers
 # ---------------------------------------------------------------------------
@@ -128,9 +165,11 @@ def _tmdb_api_key() -> str | None:
     return current_app.config.get("TMDB_API_KEY") or os.getenv("TMDB_API_KEY", "")
 
 
+def _tmdb_filter_enabled() -> bool:
+    return (current_app.config.get("TMDB_FILTER_ENABLED") or os.getenv("TMDB_FILTER_ENABLED", "")).lower() in ("1", "true", "yes")
+
+
 def _fetch_tmdb_titles() -> set[str]:
-    """Fetch upcoming + now-playing movies and on-air TV from TMDB.
-    Returns a set of normalized (lowercase, stripped) titles."""
     key = _tmdb_api_key()
     if not key:
         return set()
@@ -151,7 +190,6 @@ def _fetch_tmdb_titles() -> set[str]:
                 title = item.get("title") or item.get("name") or ""
                 if title:
                     titles.add(_normalize_title(title))
-                # Also include original title / alternative names
                 original = item.get("original_title") or item.get("original_name")
                 if original:
                     titles.add(_normalize_title(original))
@@ -162,7 +200,6 @@ def _fetch_tmdb_titles() -> set[str]:
 
 
 def _load_tmdb_cache(rs) -> set[str]:
-    """Return cached TMDB title set. Refresh if stale or missing."""
     raw = rs.get("streamly:trailers:tmdb_cache")
     if raw:
         try:
@@ -192,56 +229,42 @@ def _load_tmdb_cache(rs) -> set[str]:
 # ---------------------------------------------------------------------------
 
 def _normalize_title(title: str) -> str:
-    """Lowercase, strip punctuation, collapse whitespace."""
     t = title.lower()
     t = re.sub(r"[^\w\s]", "", t)
     t = re.sub(r"\s+", " ", t).strip()
-    # Strip common suffixes like "part 1", "chapter 2"
     t = re.sub(r"\b(part|chapter|volume|episode)\s+\d+\b", r"\1", t)
     return t.strip()
 
 
 def _extract_trailer_info(title: str) -> tuple[str, str, int]:
-    """Return (normalized_name, media_type, number).
-
-    media_type is 'teaser' or 'trailer'.
-    number is the integer suffix (Trailer 2 -> 2, default 0).
-    """
     t = title.lower()
-
-    # Determine type
-    if "teaser" in t:
-        media_type = "teaser"
-    else:
-        media_type = "trailer"
-
-    # Extract number
+    media_type = "teaser" if "teaser" in t else "trailer"
     num_match = re.search(r"\b(?:trailer|teaser)\s*(\d+)\b", t)
     num = int(num_match.group(1)) if num_match else 0
 
-    # Strip everything after the first pipe/dash/en-dash followed by trailer/teaser keywords
-    parts = re.split(r"(\||–|-)\s*(official|final|teaser|trailer|exclusive|extended|first|hindi|tamil|telugu|malayalam|kannada)", t)
+    parts = re.split(
+        r"(\||–|-)\s*(official|final|teaser|trailer|exclusive|extended|first|hindi|tamil|telugu|malayalam|kannada)",
+        t,
+    )
     name = parts[0] if parts else t
-
-    # Also strip language suffixes that appear before the separator
-    name = re.sub(r"\b(hindi|tamil|telugu|malayalam|kannada|english)\s*(trailer|teaser|dubbed)?\b", "", name)
-
+    name = re.sub(
+        r"\b(hindi|tamil|telugu|malayalam|kannada|english)\s*(trailer|teaser|dubbed)?\b",
+        "",
+        name,
+    )
     name = _normalize_title(name)
     return name, media_type, num
 
 
 def _fuzzy_match(query: str, title_set: set[str], threshold: float = 0.85) -> bool:
-    """Quick fuzzy match using difflib.SequenceMatcher."""
     if not title_set:
         return False
     if query in title_set:
         return True
-    # Fast substring check first
     for t in title_set:
         if query in t or t in query:
             if len(query) >= 5 and len(t) >= 5:
                 return True
-    # Full fuzzy scan
     for t in title_set:
         if SequenceMatcher(None, query, t).ratio() >= threshold:
             return True
@@ -256,8 +279,7 @@ def _channel_priority(name: str) -> int:
 # RSS crawl helpers
 # ---------------------------------------------------------------------------
 
-def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str]) -> list[dict]:
-    """Parse a YouTube RSS feed and return validated trailer entries."""
+def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str], tmdb_filter: bool) -> list[dict]:
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as e:
@@ -277,22 +299,16 @@ def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str]) -> list[
         if title_elem is None or title_elem.text is None:
             continue
         title = title_elem.text.strip()
-
         title_lower = title.lower()
 
-        # Gate 1: blocked keywords
         if any(bw in title_lower for bw in _BLOCKED_KEYWORDS):
             continue
-
-        # Gate 2: must contain trailer or teaser
         if "trailer" not in title_lower and "teaser" not in title_lower:
             continue
 
-        # Gate 3: heuristic blacklist (fallback when TMDB is off)
         if not tmdb_titles:
             if any(h in title_lower for h in _TITLE_HEURISTICS):
                 continue
-            # Reject extremely short or extremely long titles
             if len(title) < 8 or len(title) > 120:
                 continue
 
@@ -322,8 +338,7 @@ def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str]) -> list[
 
         norm_name, media_type, num = _extract_trailer_info(title)
 
-        # Gate 4: TMDB fuzzy match (if available)
-        if tmdb_titles and not _fuzzy_match(norm_name, tmdb_titles):
+        if tmdb_filter and tmdb_titles and not _fuzzy_match(norm_name, tmdb_titles):
             continue
 
         results.append(
@@ -345,11 +360,6 @@ def _parse_rss(xml_text: str, channel_name: str, tmdb_titles: set[str]) -> list[
 
 
 def _build_digest(entries: list[dict]) -> dict:
-    """Merge entries into a date-grouped deduplicated digest.
-
-    Returns: {"items": [{"date": "YYYY-MM-DD", "items": [...]}]}
-    """
-    # Deduplicate by (date, normalized, type, number) keeping highest priority
     best: dict[tuple[str, str, str, int], dict] = {}
     for e in entries:
         date = e["published"][:10]
@@ -362,7 +372,6 @@ def _build_digest(entries: list[dict]) -> dict:
         else:
             best[key] = e
 
-    # Group by date -> normalized title
     by_date: dict[str, dict[str, dict]] = {}
     for key, e in best.items():
         date, norm, _, _ = key
@@ -372,7 +381,7 @@ def _build_digest(entries: list[dict]) -> dict:
             by_date[date][norm] = {
                 "title": e["title"],
                 "normalized": norm,
-                "category": "movie",  # TMDB could enrich this later
+                "category": "movie",
                 "videos": [],
             }
         by_date[date][norm]["videos"].append(
@@ -387,13 +396,11 @@ def _build_digest(entries: list[dict]) -> dict:
             }
         )
 
-    # Sort and build output
     items = []
     for date in sorted(by_date.keys(), reverse=True):
         day_items = []
         for norm in sorted(by_date[date].keys()):
             item = by_date[date][norm]
-            # Sort videos: teaser first, then trailer, then by number
             item["videos"].sort(
                 key=lambda v: (
                     v["type"] != "teaser",
@@ -412,7 +419,6 @@ def _build_digest(entries: list[dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 def _crawl_trailers(app) -> None:
-    """Single crawl cycle. Must be called inside app_context."""
     rs = getattr(app, "rs", None)
     if not rs:
         log.warning("Trailer crawl skipped: Redis unavailable")
@@ -424,35 +430,40 @@ def _crawl_trailers(app) -> None:
 
     try:
         tmdb_titles = _load_tmdb_cache(rs)
+        tmdb_filter = _tmdb_filter_enabled()
         if not tmdb_titles:
             log.info("TMDB cache empty; running with keyword-only fallback")
+        else:
+            log.info("TMDB cache: %d titles, filter=%s", len(tmdb_titles), tmdb_filter)
+
+        proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
+        proxy_url = proxy_url.strip() if proxy_url else None
 
         all_entries: list[dict] = []
         channels = [c for c in TRAILER_CHANNELS if c[0] and c[0] != "???"]
+        total_fetched = 0
+        total_trailers = 0
 
         for idx, (channel_id, channel_name) in enumerate(channels):
-            # Stagger: Hollywood (0), Bollywood (3), South Indian (6)
             if idx == 5:
                 time.sleep(180)
             elif idx == 11:
                 time.sleep(180)
             elif idx > 0:
-                time.sleep(2)  # Small delay between same-batch channels
+                time.sleep(2)
 
             try:
-                r = requests.get(
-                    f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
-                    timeout=15,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-                )
+                rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+                r = _fetch_rss(rss_url, proxy_url=proxy_url, timeout=15.0)
                 if r.status_code != 200:
-                    log.warning("RSS HTTP %d for %s", r.status_code, channel_name)
+                    log.warning("RSS HTTP %d for %s (proxy=%s)", r.status_code, channel_name, bool(proxy_url))
                     continue
 
-                entries = _parse_rss(r.text, channel_name, tmdb_titles)
+                entries = _parse_rss(r.text, channel_name, tmdb_titles, tmdb_filter)
+                total_fetched += len(entries)
                 all_entries.extend(entries)
+                total_trailers += len(entries)
 
-                # Update last_seen to the newest entry from this channel
                 if entries:
                     newest = max(entries, key=lambda e: e["published"])
                     rs.set(
@@ -463,7 +474,13 @@ def _crawl_trailers(app) -> None:
                 log.warning("RSS fetch failed for %s: %s", channel_name, e)
                 continue
 
-        # Load existing digest and merge
+        log.info(
+            "Trailer crawl fetched %d entries from %d channels",
+            total_fetched,
+            len(channels),
+        )
+
+        # Merge with existing digest so we never drop valid entries on a bad crawl
         existing = None
         raw_feed = rs.get("streamly:trailers:feed")
         if raw_feed:
@@ -473,7 +490,6 @@ def _crawl_trailers(app) -> None:
                 pass
 
         if existing and isinstance(existing, dict) and "items" in existing:
-            # Flatten existing entries so we can re-merge with fresh ones
             existing_entries = []
             for day_group in existing["items"]:
                 for item in day_group.get("items", []):
@@ -514,8 +530,15 @@ def _crawl_trailers(app) -> None:
             pass
 
 
+def _start_crawl_thread(app, name: str = "TrailerDaemon-kick") -> None:
+    """Start a background crawl inside a proper Flask app context."""
+    def _run():
+        with app.app_context():
+            _crawl_trailers(app)
+    threading.Thread(target=_run, name=name, daemon=True).start()
+
+
 def trailer_daemon_loop(app) -> None:
-    """Background thread target. Catches all exceptions and sleeps."""
     log.info("Trailer daemon started (interval=%ds)", _CRAWL_INTERVAL_SECONDS)
     while True:
         try:
@@ -527,7 +550,6 @@ def trailer_daemon_loop(app) -> None:
 
 
 def start_trailer_daemon(app) -> None:
-    """Start the background trailer polling thread. Idempotent (lock guarded)."""
     t = threading.Thread(target=trailer_daemon_loop, args=(app,), name="TrailerDaemon", daemon=True)
     t.start()
     log.info("Trailer daemon thread spawned")
@@ -540,46 +562,54 @@ def start_trailer_daemon(app) -> None:
 @trailers_bp.get("/api/trailers")
 @rate_limited(cost=0.5)
 def get_trailers():
-    """Serve the cached trailer digest. Triggers a background crawl if the
-    feed is completely missing or older than the stale threshold."""
     rs = getattr(current_app, "rs", None)
     if not rs:
         return jsonify({"items": []})
 
-    # Trigger background refresh if missing or stale
     raw_feed = rs.get("streamly:trailers:feed")
     if not raw_feed:
-        # Kick off an immediate background crawl
-        threading.Thread(
-            target=lambda: _crawl_trailers(current_app._get_current_object()),
-            name="TrailerDaemon-kick",
-            daemon=True,
-        ).start()
+        _start_crawl_thread(current_app._get_current_object(), name="TrailerDaemon-kick")
         return jsonify({"items": []})
 
     try:
         data = _json.loads(raw_feed)
-        # Check staleness
         if isinstance(data, dict) and data.get("items"):
-            # Peek at the newest item to estimate freshness
             newest_date = data["items"][0].get("date")
             if newest_date:
                 newest_dt = datetime.strptime(newest_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                 if (datetime.now(timezone.utc) - newest_dt).days > 2:
-                    threading.Thread(
-                        target=lambda: _crawl_trailers(current_app._get_current_object()),
-                        name="TrailerDaemon-stale",
-                        daemon=True,
-                    ).start()
+                    _start_crawl_thread(current_app._get_current_object(), name="TrailerDaemon-stale")
         return jsonify(data)
     except Exception:
         return jsonify({"items": []})
 
 
+@trailers_bp.post("/api/trailers/refresh")
+@rate_limited(cost=1.0)
+@csrf_required
+def refresh_trailers():
+    """Manually trigger a background crawl. Returns immediately. The crawl
+    runs asynchronously and updates the Redis feed when complete."""
+    rs = getattr(current_app, "rs", None)
+    if not rs:
+        return json_error(503, "redis_unavailable", "Redis is required")
+
+    # Check if already running
+    lock_raw = rs.get("streamly:trailers:crawl_lock")
+    if lock_raw:
+        return jsonify({"success": True, "message": "Refresh already in progress", "status": "running"})
+
+    try:
+        _start_crawl_thread(current_app._get_current_object(), name="TrailerDaemon-refresh")
+        return jsonify({"success": True, "message": "Refresh started", "status": "started"})
+    except Exception as e:
+        log.warning("Failed to start refresh crawl: %s", e)
+        return jsonify({"success": False, "message": "Failed to start refresh", "status": "error"})
+
+
 @trailers_bp.get("/api/trailers/channels")
 @rate_limited(cost=0.5)
 def list_trailer_channels():
-    """Return the configured channel list (for debugging / admin)."""
     return jsonify(
         {
             "channels": [
