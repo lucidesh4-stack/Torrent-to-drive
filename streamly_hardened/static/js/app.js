@@ -2876,7 +2876,7 @@
     if (!container) return;
 
     if (!data || !data.items || !data.items.length) {
-      container.innerHTML = `<div class="empty">No trailers in the last 30 days. The feed refreshes automatically every 10 minutes.</div>`;
+      container.innerHTML = `<div class="empty">No trailers in the last 30 days. The feed refreshes automatically once a day.</div>`;
       return;
     }
 
@@ -2977,7 +2977,7 @@
 
           if (attempts >= 24) { // 2 minutes
             clearInterval(poll);
-            if (container) container.innerHTML = `<div class="status">Refresh timed out. The feed updates automatically every 10 minutes. Please check back later.</div>`;
+            if (container) container.innerHTML = `<div class="status">Refresh timed out. The feed updates automatically once a day. Please check back later.</div>`;
             if (icon) icon.style.animation = "";
             if (btn) btn.disabled = false;
             _trailersUpdateStatusText();

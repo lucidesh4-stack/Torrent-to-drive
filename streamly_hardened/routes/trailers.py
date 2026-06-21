@@ -21,10 +21,10 @@ log = logging.getLogger(__name__)
 
 trailers_bp = Blueprint("trailers", __name__)
 
-_CRAWL_INTERVAL_SECONDS = 600
+_CRAWL_INTERVAL_SECONDS = 86400
 _CRAWL_LOCK_TTL = 600
-_FEED_TTL_SECONDS = 86400
-_STALE_HOURS = 2  # Trigger auto-crawl if feed is older than 2 hours
+_FEED_TTL_SECONDS = 172800
+_STALE_HOURS = 24  # Trigger auto-crawl if feed is older than 24 hours
 
 _BLOCKED_KEYWORDS = {
     "gameplay", "story trailer", "game", "behind the scenes", "bts",
@@ -411,10 +411,20 @@ def _crawl_trailers_incremental(app) -> None:
                                 }
                             )
 
-            # Post-filter: remove any existing entries that are Shorts (catches stale data)
-            merged_entries = [e for e in merged_entries if not _is_shorts_by_title(e["title"])]
+            # Post-filter: remove any entries that are Shorts or older than 30 days
+            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+            valid_entries = []
+            for e in merged_entries:
+                if _is_shorts_by_title(e["title"]):
+                    continue
+                try:
+                    pub_dt = datetime.fromisoformat(e["published"].replace("Z", "+00:00"))
+                    if pub_dt >= cutoff:
+                        valid_entries.append(e)
+                except Exception:
+                    pass
 
-            digest = _build_digest(merged_entries)
+            digest = _build_digest(valid_entries)
             rs.set(
                 "streamly:trailers:feed",
                 _json.dumps(digest),
@@ -422,7 +432,7 @@ def _crawl_trailers_incremental(app) -> None:
             )
             log.info(
                 "Incremental crawl complete: %d total entries -> %d day groups",
-                len(merged_entries), len(digest["items"]),
+                len(valid_entries), len(digest["items"]),
             )
         else:
             log.info("Incremental crawl: no new entries, digest unchanged")
