@@ -730,6 +730,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     log.warning("safe_put failed: %s", ex)
 
             def download_worker():
+                nonlocal download_url
                 try:
                     start_time = time.time()
                     downloaded_bytes = 0
