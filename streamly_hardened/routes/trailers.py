@@ -326,8 +326,17 @@ def _crawl_trailers_incremental(app) -> None:
         return
 
     try:
-        proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
-        proxy_url = proxy_url.strip() if proxy_url else None
+        proxy_url = rs.get("streamly:cloudflare_worker_proxy")
+        if proxy_url:
+            if isinstance(proxy_url, bytes):
+                proxy_url = proxy_url.decode("utf-8")
+            proxy_url = proxy_url.strip()
+        if not proxy_url:
+            proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
+            if proxy_url:
+                proxy_url = proxy_url.strip()
+        if not proxy_url:
+            proxy_url = "https://streamly-proxy.lucidesh.workers.dev"
 
         # Load existing digest and flatten
         existing_digest = None
