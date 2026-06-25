@@ -819,6 +819,11 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             await loop.run_in_executor(None, t.join)
             
+            # Validate part count before send_file to avoid Telethon FilePartsInvalidError
+            declared_parts = getattr(uploaded, "parts", 0)
+            if declared_parts <= 0:
+                raise ValueError(f"Invalid part count ({declared_parts}) before sending file.")
+            
             await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
             _completed_state = {

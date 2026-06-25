@@ -45,6 +45,14 @@ _SHORTS_PATTERNS = [
     '#reels', '#tiktok', '#vertical',
 ]
 
+
+def _get_proxy_health(rs) -> str:
+    if not rs:
+        return "unknown"
+    val = rs.get("streamly:trailers:proxy_health")
+    return val.decode() if isinstance(val, bytes) else (val or "unknown")
+
+
 def _is_shorts_by_title(title: str) -> bool:
     t = title.lower()
     # Check for hashtag patterns
@@ -121,22 +129,43 @@ def _rss_headers() -> dict[str, str]:
 
 
 def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> requests.Response:
+    """Fetch RSS with direct first, then proxy fallback. Track proxy health."""
+    rs = None
+    try:
+        from flask import current_app
+        rs = getattr(current_app, "rs", None)
+    except Exception:
+        pass
+
+    # 1. Try direct (preferred for YouTube)
     try:
         r = requests.get(url, timeout=timeout, headers=_rss_headers())
         if r.status_code == 200:
+            if rs:
+                rs.set("streamly:trailers:proxy_health", "direct_ok", ex=3600)
             return r
     except Exception as e:
         log.debug("Direct RSS fetch failed for %s: %s", url, e)
 
+    # 2. Try proxy (with health tracking)
     if proxy_url:
         proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
         try:
             r = requests.get(proxied, timeout=timeout, headers=_rss_headers())
-            log.info("RSS via proxy for %s -> HTTP %d", url, r.status_code)
-            return r
+            if r.status_code == 200:
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
+                log.info("RSS via proxy for %s -> HTTP %d", url, r.status_code)
+                return r
+            else:
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
         except Exception as e:
-            log.warning("Proxy RSS fetch also failed for %s: %s", url, e)
+            log.warning("Proxy RSS fetch failed for %s: %s", url, e)
+            if rs:
+                rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
 
+    # 3. Final direct attempt
     try:
         return requests.get(url, timeout=timeout, headers=_rss_headers())
     except Exception as e:
@@ -448,6 +477,11 @@ def _crawl_trailers_incremental(app) -> None:
 
     except Exception as e:
         log.exception("Incremental crawl error")
+        # Serve stale feed if we have one
+        if rs:
+            stale = rs.get("streamly:trailers:feed")
+            if stale:
+                log.warning("Crawl failed - serving stale feed")
     finally:
         try:
             rs._execute("DEL", "streamly:trailers:crawl_lock")

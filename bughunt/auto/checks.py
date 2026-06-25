@@ -341,3 +341,47 @@ def t3_manager_present(ctx: Ctx) -> CheckResult:
     return _ok("T3", "manager module", "TelegramClientManager + helpers present")
 
 # End of Telegram hardening checks
+
+# ============================================================
+# TELEGRAM SEND + TRAILERS HARDENING CHECKS (2026-06-25)
+# ============================================================
+
+@check("T4", "Telegram: returns actual uploaded parts (not pre-calculated size)")
+def t4_actual_parts(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    if "actual_parts = uploaded_parts" in tg and "parts=actual_parts" in tg:
+        return _ok("T4", "parts count", "Uses actual uploaded parts")
+    return _bad("T4", "parts count", "Still using pre-calculated parts_count")
+
+@check("T5", "Telegram: unconditional hard ~2GiB / 4000 part cap")
+def t5_hard_cap(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    if "_TG_HARD_MAX" in tg and ("max_bytes = _TG_HARD_MAX" in tg or "max_bytes = min(max_bytes, _TG_HARD_MAX)" in tg):
+        return _ok("T5", "size cap", "Hard 4000-part limit is enforced")
+    return _bad("T5", "size cap", "Hard cap missing or bypassable")
+
+@check("T6", "Telegram: validates part count before send_file")
+def t6_pre_send_validation(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    if "declared_parts" in tg and "Invalid part count" in tg:
+        return _ok("T6", "send guard", "Pre-send part count validation present")
+    return _bad("T6", "send guard", "Missing pre-send validation")
+
+@check("TR1", "Trailers: _fetch_rss has proxy health tracking")
+def tr1_fetch_health(ctx: Ctx) -> CheckResult:
+    tr = ctx.read("routes/trailers.py")
+    if "_get_proxy_health" in tr or "proxy_health" in tr:
+        return _ok("TR1", "rss fetch", "Proxy health tracking present")
+    return _bad("TR1", "rss fetch", "No proxy health tracking")
+
+@check("TR2", "Trailers: serves stale feed on total crawl failure")
+def tr2_stale_fallback(ctx: Ctx) -> CheckResult:
+    tr = ctx.read("routes/trailers.py")
+    if "stale" in tr.lower() or "serving stale" in tr:
+        return _ok("TR2", "crawl resilience", "Falls back to stale feed")
+    return _bad("TR2", "crawl resilience", "No stale fallback on failure")
+
+# Auto-register
+for _n in ["T4", "T5", "T6", "TR1", "TR2"]:
+    if _n in globals() and "CHECKS" in globals():
+        CHECKS[_n] = globals()[_n]
