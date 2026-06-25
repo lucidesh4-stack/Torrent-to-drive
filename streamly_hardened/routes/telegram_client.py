@@ -1,0 +1,142 @@
+"""
+TelegramClientManager + Managed Upload Helpers (A1 Phase 2 complete)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Optional, Callable, Any
+
+from telethon import TelegramClient
+from telethon.sessions import StringSession
+from telethon.network import ConnectionTcpIntermediate
+
+log = logging.getLogger(__name__)
+
+FLOOD_SLEEP_THRESHOLD = 300
+
+
+@dataclass
+class TelegramClientStats:
+    created: int = 0
+    connected: int = 0
+    disconnected: int = 0
+    errors: int = 0
+    active: int = 0
+
+
+class TelegramClientManager:
+    def __init__(self):
+        self._active_clients: set[TelegramClient] = set()
+        self.stats = TelegramClientStats()
+        self._on_connect: Optional[Callable] = None
+        self._on_disconnect: Optional[Callable] = None
+
+    def set_hooks(self, *, on_connect=None, on_disconnect=None):
+        self._on_connect = on_connect
+        self._on_disconnect = on_disconnect
+
+    def create_client(self, session_str: str, *, api_id=None, api_hash=None) -> TelegramClient:
+        if api_id is None or api_hash is None:
+            from flask import current_app
+            api_id = current_app.config.get("TELEGRAM_API_ID")
+            api_hash = current_app.config.get("TELEGRAM_API_HASH")
+        if not api_id or not api_hash:
+            raise ValueError("Telegram credentials missing in configuration")
+
+        client = TelegramClient(
+            StringSession(session_str),
+            api_id, api_hash,
+            connection=ConnectionTcpIntermediate,
+            flood_sleep_threshold=FLOOD_SLEEP_THRESHOLD,
+        )
+        self.stats.created += 1
+        self.stats.active += 1
+        self._active_clients.add(client)
+        return client
+
+    async def safe_connect(self, client: TelegramClient):
+        if not client.is_connected():
+            await client.connect()
+            self.stats.connected += 1
+            if self._on_connect:
+                try:
+                    if asyncio.iscoroutinefunction(self._on_connect):
+                        await self._on_connect(client)
+                    else:
+                        self._on_connect(client)
+                except Exception:
+                    pass
+
+    async def safe_disconnect(self, client: TelegramClient):
+        if client is None:
+            return
+        try:
+            if client.is_connected():
+                await client.disconnect()
+                self.stats.disconnected += 1
+            if self._on_disconnect:
+                try:
+                    if asyncio.iscoroutinefunction(self._on_disconnect):
+                        await self._on_disconnect(client)
+                    else:
+                        self._on_disconnect(client)
+                except Exception:
+                    pass
+        except Exception as e:
+            self.stats.errors += 1
+            log.warning("safe_disconnect error: %s", e)
+        finally:
+            self._active_clients.discard(client)
+            self.stats.active = max(0, self.stats.active - 1)
+
+    @asynccontextmanager
+    async def get_client(self, session_str: str, *, api_id=None, api_hash=None):
+        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash)
+        try:
+            await self.safe_connect(client)
+            yield client
+        finally:
+            await self.safe_disconnect(client)
+
+    # === A1 Phase 2: Upload-specific helper ===
+    def get_upload_client(self, session_str: str, *, api_id=None, api_hash=None) -> TelegramClient:
+        """Specialized factory for long-lived upload clients.
+        Currently identical to create_client but provides a clear seam
+        for future pooling, DC affinity, or metrics tagging.
+        """
+        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash)
+        # Tag for debugging
+        setattr(client, "_streamly_use", "upload")
+        return client
+
+    async def cleanup_all(self):
+        for c in list(self._active_clients):
+            await self.safe_disconnect(c)
+
+    def stats_dict(self):
+        return {
+            "created": self.stats.created,
+            "connected": self.stats.connected,
+            "disconnected": self.stats.disconnected,
+            "errors": self.stats.errors,
+            "active": len(self._active_clients),
+            "flood_sleep_threshold": FLOOD_SLEEP_THRESHOLD,
+        }
+
+
+manager = TelegramClientManager()
+
+def get_telegram_client(session_str: str):
+    return manager.create_client(session_str)
+
+async def safe_disconnect(client):
+    await manager.safe_disconnect(client)
+
+# Default hooks
+async def _log_connect(c): log.debug("TG client connected")
+async def _log_disconnect(c): log.debug("TG client disconnected")
+manager.set_hooks(on_connect=_log_connect, on_disconnect=_log_disconnect)

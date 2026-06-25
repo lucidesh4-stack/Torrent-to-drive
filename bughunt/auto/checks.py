@@ -305,3 +305,39 @@ def bundle(ctx: Ctx) -> CheckResult:
         return CheckResult("BUNDLE", "app.js reproducible", "SKIP",
                            "content identical but re-ordered (benign; rebuild on next JS change)")
     return _bad("BUNDLE", "app.js reproducible", "deployed app.js DIFFERS from clean build (real drift)")
+
+
+# ============================================================
+# TELEGRAM HARDENING (A1 + A2) — added by ULTIMATE ENGINEER MODE
+# ============================================================
+
+@check("T1", "No raw TelegramClient creations — all must use manager")
+def t1_no_raw_client(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    raw = tg.count("TelegramClient(")
+    if raw == 0:
+        return _ok("T1", "client lifecycle", "0 raw TelegramClient( — all via tg_manager")
+    return _bad("T1", "client lifecycle", f"{raw} raw creations remain")
+
+@check("T2", "Use safe_disconnect / manager for all Telegram clients")
+def t2_managed_disconnect(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    mgr = ctx.read("routes/telegram_client.py")
+    raw_disc = tg.count("await client.disconnect()")
+    manager_refs = tg.count("tg_manager") + tg.count("safe_disconnect")
+    if raw_disc > 0:
+        return _bad("T2", "client cleanup", f"{raw_disc} raw disconnects")
+    if manager_refs < 3:
+        return _bad("T2", "client cleanup", f"Only {manager_refs} manager references")
+    return _ok("T2", "client cleanup", f"safe_disconnect + manager in use ({manager_refs} refs)")
+
+@check("T3", "telegram_client.py manager module must be present and complete")
+def t3_manager_present(ctx: Ctx) -> CheckResult:
+    mgr = ctx.read("routes/telegram_client.py")
+    required = ["TelegramClientManager", "manager =", "get_telegram_client", "safe_disconnect", "FLOOD_SLEEP_THRESHOLD"]
+    missing = [r for r in required if r not in mgr]
+    if missing:
+        return _bad("T3", "manager module", f"Missing: {missing}")
+    return _ok("T3", "manager module", "TelegramClientManager + helpers present")
+
+# End of Telegram hardening checks

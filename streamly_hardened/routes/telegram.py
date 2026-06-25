@@ -33,6 +33,11 @@ from ..security import (
     ValidationError,
 )
 
+# === HARDENED CLIENT LIFECYCLE (Phase 1) ===
+# All TelegramClient creation now goes through the manager.
+# This centralizes flood handling, connection discipline, and cleanup.
+from .telegram_client import manager as tg_manager, get_telegram_client, safe_disconnect, FLOOD_SLEEP_THRESHOLD as _FLOOD_SLEEP_THRESHOLD
+
 # --- Queue robustness (additive; happy path unchanged) ---
 _ACTIVE_TTL_SECONDS = 90
 
@@ -47,7 +52,8 @@ _BANDWIDTH_FLUSH_SECONDS = 60       # how often to flush accumulated bandwidth (
 # Let Telethon auto-sleep through flood waits up to this many seconds instead of
 # raising FloodWaitError (which is unhandled and would fail a transfer). Telegram
 # rarely returns waits beyond a few minutes for upload spam.
-_FLOOD_SLEEP_THRESHOLD = 300
+# Centralized via telegram_client.py (Phase 1 hardening)
+_FLOOD_SLEEP_THRESHOLD = 300  # kept for local references during transition
 _LIVE_PROGRESS: dict[str, dict] = {}
 _LIVE_PROGRESS_LOCK = threading.Lock()
 
@@ -439,17 +445,8 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
         return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
 
 def get_telegram_client(session_str):
-    api_id = current_app.config.get("TELEGRAM_API_ID")
-    api_hash = current_app.config.get("TELEGRAM_API_HASH")
-    if not api_id or not api_hash:
-        raise ValueError("Telegram credentials missing in configuration")
-    return TelegramClient(
-        StringSession(session_str),
-        api_id,
-        api_hash,
-        connection=ConnectionTcpIntermediate,
-        flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
-    )
+    """Delegates to hardened manager (Phase 1)."""
+    return tg_manager.create_client(session_str)
 
 async def validate_telegram_target(client, target_chat):
     try:
@@ -625,13 +622,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
         cancel_poller = asyncio.create_task(poll_cancel_request())
         
         try:
-            client = TelegramClient(
-                StringSession(session_str),
-                api_id,
-                api_hash,
-                connection=ConnectionTcpIntermediate,
-                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
-            )
+            client = tg_manager.get_upload_client(session_str, api_id=api_id, api_hash=api_hash)  # Phase 2 upload client
             await client.connect()
             
             try:
@@ -863,7 +854,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             cancel_flag[0] = True
             if not cancel_poller.done():
                 cancel_poller.cancel()
-            await client.disconnect()
+            await safe_disconnect(client)
             # Final state already persisted to Redis above; drop the in-memory
             # entry so the dict can't grow unbounded. Reads fall back to Redis.
             _live_clear(task_id)
@@ -917,11 +908,9 @@ def telegram_status():
         asyncio.set_event_loop(loop)
         
         async def test_auth():
-            client = get_telegram_client(session_str)
-            await client.connect()
-            authorized = await client.is_user_authorized()
-            await client.disconnect()
-            return authorized
+            async with tg_manager.get_client(session_str) as client:
+                authorized = await client.is_user_authorized()
+                return authorized
             
         authorized = loop.run_until_complete(test_auth())
         loop.close()
@@ -1024,17 +1013,11 @@ def send_code():
         asyncio.set_event_loop(loop)
         
         async def req_code():
-            client = TelegramClient(
-                StringSession(),
-                api_id,
-                api_hash,
-                connection=ConnectionTcpIntermediate,
-                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
-            )
+            client = tg_manager.create_client("")  # fresh session for code request
             await client.connect()
             res = await client.send_code_request(phone)
             temp_session = client.session.save()
-            await client.disconnect()
+            await safe_disconnect(client)
             return temp_session, res.phone_code_hash
             
         temp_session, phone_code_hash = loop.run_until_complete(req_code())
@@ -1094,17 +1077,11 @@ def verify_code():
         asyncio.set_event_loop(loop)
         
         async def sign_in_user():
-            client = TelegramClient(
-                StringSession(temp_session),
-                api_id,
-                api_hash,
-                connection=ConnectionTcpIntermediate,
-                flood_sleep_threshold=_FLOOD_SLEEP_THRESHOLD
-            )
+            client = tg_manager.create_client(temp_session, api_id=api_id, api_hash=api_hash)  # resume temp session
             await client.connect()
             await client.sign_in(phone, code, phone_code_hash=phone_code_hash)
             final_session = client.session.save()
-            await client.disconnect()
+            await safe_disconnect(client)
             return final_session
             
         final_session = loop.run_until_complete(sign_in_user())
