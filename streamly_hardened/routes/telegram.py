@@ -397,6 +397,8 @@ class ParallelUploader:
             self.senders = []
 
 async def parallel_upload_file(client, output_queue, file_size, filename, progress_callback):
+    if file_size <= 0:
+        raise ValueError(f"Invalid file size for upload: {file_size} bytes")
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
@@ -702,6 +704,9 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                     r.close()
                 except Exception as de:
                     log.warning("Direct Seedr Content-Length check failed: %s. Using reported size.", de)
+            
+            if exact_size <= 0:
+                raise ValueError(f"Invalid file size ({exact_size} bytes). The file may have been deleted or the Seedr link has expired (returned 404).")
             
             part_size = _TG_PART_SIZE
             parts_count = (exact_size + part_size - 1) // part_size
