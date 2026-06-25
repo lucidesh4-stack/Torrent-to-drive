@@ -434,15 +434,18 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
             uploaded_parts += 1
 
         await uploader.finish_upload()
+        actual_parts = uploaded_parts
 
     except Exception as e:
         await uploader.finish_upload()
         raise e
 
+    # Use the *actual* number of parts we successfully uploaded.
+    # This is the only value Telegram will accept in the subsequent SendMediaRequest.
     if is_big:
-        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
+        return types.InputFileBig(id=file_id, parts=actual_parts, name=filename)
     else:
-        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
+        return types.InputFile(id=file_id, parts=actual_parts, name=filename, md5_checksum="")
 
 def get_telegram_client(session_str):
     """Delegates to hardened manager (Phase 1)."""
@@ -706,6 +709,9 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             part_size = _TG_PART_SIZE
             parts_count = (exact_size + part_size - 1) // part_size
+            if exact_size > _TG_HARD_MAX:
+                raise ValueError(f"File too large for Telegram MTProto upload: {exact_size} bytes (max {_TG_HARD_MAX})")
+
             if parts_count > _TG_MAX_PARTS:
                 raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
 
@@ -1153,12 +1159,11 @@ def telegram_send_file():
         
         # Absolute safety net: Telegram's MTProto upload has a strict limit of 4000 parts of 512 KB
         # for standard accounts, which is exactly 2,097,152,000 bytes (1.95 GiB).
-        if max_file_size_gb <= 2.0:
-            max_bytes = min(max_bytes, _TG_HARD_MAX)
+        max_bytes = min(max_bytes, _TG_HARD_MAX)  # always enforce Telegram hard limit
             
         if size > max_bytes:
             from ..security import json_error
-            return json_error(400, "file_too_large", f"File size ({size / (1000*1000*1000):.2f} GB) exceeds the Telegram upload limit of {max_file_size_gb} GB.")
+            return json_error(400, "file_too_large", f"File size ({size / (1000*1000*1000):.2f} GB) exceeds Telegram MTProto limit of ~2 GB (4000 parts × 512 KiB).")
             
     except Exception as e:
         log.warning("Failed to fetch file details from Seedr: %s", e)
