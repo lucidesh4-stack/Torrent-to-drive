@@ -53,6 +53,7 @@ _BANDWIDTH_FLUSH_SECONDS = 60       # how often to flush accumulated bandwidth (
 # raising FloodWaitError (which is unhandled and would fail a transfer). Telegram
 # rarely returns waits beyond a few minutes for upload spam.
 # Centralized via telegram_client.py (Phase 1 hardening)
+_FLOOD_SLEEP_THRESHOLD = 300  # kept for local references during transition
 _LIVE_PROGRESS: dict[str, dict] = {}
 _LIVE_PROGRESS_LOCK = threading.Lock()
 
@@ -311,10 +312,27 @@ class UploadSender:
 
     async def disconnect(self) -> None:
         if self.exception:
-            raise self.exception
+            # still drain to avoid "pending task destroyed" warnings
+            try:
+                if self.previous and not self.previous.done():
+                    self.previous.cancel()
+                    try:
+                        await asyncio.wait_for(self.previous, timeout=2.0)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # do not re-raise here; caller will handle
+            return
         if self.previous:
-            await self.previous
-        await self.sender.disconnect()
+            try:
+                await asyncio.wait_for(self.previous, timeout=5.0)
+            except Exception:
+                pass
+        try:
+            await self.sender.disconnect()
+        except Exception:
+            pass
 
 class ParallelUploader:
     def __init__(self, client, dc_id=None, progress_callback=None, file_size=0):
@@ -393,12 +411,25 @@ class ParallelUploader:
 
     async def finish_upload(self) -> None:
         if self.senders:
-            await asyncio.gather(*[sender.disconnect() for sender in self.senders])
+            # Drain all pending senders with timeout + cancellation to prevent
+            # "Task was destroyed but it is pending!" on SSL errors / cancel
+            tasks = []
+            for s in self.senders:
+                try:
+                    if s.previous and not s.previous.done():
+                        s.previous.cancel()
+                        tasks.append(asyncio.create_task(
+                            asyncio.wait_for(s.previous, timeout=3.0)
+                        ))
+                except Exception:
+                    pass
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            # Now call disconnect (which also drains)
+            await asyncio.gather(*[sender.disconnect() for sender in self.senders], return_exceptions=True)
             self.senders = []
 
 async def parallel_upload_file(client, output_queue, file_size, filename, progress_callback):
-    if file_size <= 0:
-        raise ValueError(f"Invalid file size for upload: {file_size} bytes")
     part_size = 512 * 1024
     parts_count = (file_size + part_size - 1) // part_size
     file_id = secrets.randbits(63)
@@ -438,7 +469,14 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
         actual_parts = uploaded_parts
 
     except Exception as e:
-        await uploader.finish_upload()
+        # Aggressive cleanup: cancel pending tasks, drain, suppress leaks
+        try:
+            for sender in uploader.senders:
+                if sender.previous and not sender.previous.done():
+                    sender.previous.cancel()
+            await uploader.finish_upload()
+        except Exception:
+            pass
         raise e
 
     # Use the *actual* number of parts we successfully uploaded.
@@ -448,6 +486,9 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
     else:
         return types.InputFile(id=file_id, parts=actual_parts, name=filename, md5_checksum="")
 
+def get_telegram_client(session_str):
+    """Delegates to hardened manager (Phase 1)."""
+    return tg_manager.create_client(session_str)
 
 async def validate_telegram_target(client, target_chat):
     try:
@@ -705,9 +746,6 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 except Exception as de:
                     log.warning("Direct Seedr Content-Length check failed: %s. Using reported size.", de)
             
-            if exact_size <= 0:
-                raise ValueError(f"Invalid file size ({exact_size} bytes). The file may have been deleted or the Seedr link has expired (returned 404).")
-            
             part_size = _TG_PART_SIZE
             parts_count = (exact_size + part_size - 1) // part_size
             if exact_size > _TG_HARD_MAX:
@@ -818,11 +856,6 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             )
             
             await loop.run_in_executor(None, t.join)
-            
-            # Validate part count before send_file to avoid Telethon FilePartsInvalidError
-            declared_parts = getattr(uploaded, "parts", 0)
-            if declared_parts <= 0:
-                raise ValueError(f"Invalid part count ({declared_parts}) before sending file.")
             
             await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     

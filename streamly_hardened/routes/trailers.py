@@ -45,7 +45,6 @@ _SHORTS_PATTERNS = [
     '#reels', '#tiktok', '#vertical',
 ]
 
-
 def _get_proxy_health(rs) -> str:
     if not rs:
         return "unknown"
@@ -477,7 +476,7 @@ def _crawl_trailers_incremental(app) -> None:
 
     except Exception as e:
         log.exception("Incremental crawl error")
-        # Serve stale feed if we have one
+        # Serve stale feed if we have one (resilience against total proxy+direct failure)
         if rs:
             stale = rs.get("streamly:trailers:feed")
             if stale:

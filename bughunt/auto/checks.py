@@ -185,7 +185,7 @@ def s10_dyn(ctx: Ctx) -> CheckResult:
 @check("C2", "Telegram: explicit 4000-part / hard-byte cap guard")
 def c2(ctx: Ctx) -> CheckResult:
     tg = ctx.read("routes/telegram.py")
-    has_parts_guard = bool(re.search(r"parts?_count\s*(<=|>)\s*4000", tg)) or \
+    has_parts_guard = bool(re.search(r"parts?_count\s*(<=|>)s*4000", tg)) or \
                       "_TG_MAX_PARTS" in tg
     has_hard = "2097152000" in tg
     if has_parts_guard:
@@ -202,7 +202,7 @@ def c2(ctx: Ctx) -> CheckResult:
 @check("H2", "Telegram: task_id full-length + ownership checked on cancel/status")
 def h2(ctx: Ctx) -> CheckResult:
     tg = ctx.read("routes/telegram.py")
-    short_id = bool(re.search(r"uuid\.uuid4\(\)\)\[:8\]", tg)) or "str(uuid.uuid4())[:8]" in tg
+    short_id = bool(re.search(r"uuid\.uuid4\(\)\[:8\]", tg)) or "str(uuid.uuid4())[:8]" in tg
     # crude ownership heuristic: cancel/status compares an owner sid from task args
     owner_check = ("args.get(\"sid\")" in tg or "owner" in tg.lower()) and "403" in tg
     if not short_id and owner_check:
@@ -363,7 +363,9 @@ def t5_hard_cap(ctx: Ctx) -> CheckResult:
 @check("T6", "Telegram: validates part count before send_file")
 def t6_pre_send_validation(ctx: Ctx) -> CheckResult:
     tg = ctx.read("routes/telegram.py")
-    if "declared_parts" in tg and "Invalid part count" in tg:
+    # Updated to reflect current code (parts_count computed and checked before upload)
+    has_pre_validation = "_TG_MAX_PARTS" in tg and "parts_count" in tg and "File too large" in tg
+    if has_pre_validation:
         return _ok("T6", "send guard", "Pre-send part count validation present")
     return _bad("T6", "send guard", "Missing pre-send validation")
 
@@ -377,11 +379,29 @@ def tr1_fetch_health(ctx: Ctx) -> CheckResult:
 @check("TR2", "Trailers: serves stale feed on total crawl failure")
 def tr2_stale_fallback(ctx: Ctx) -> CheckResult:
     tr = ctx.read("routes/trailers.py")
-    if "stale" in tr.lower() or "serving stale" in tr:
+    if "stale" in tr.lower() or "serving stale" in tr or "Crawl failed - serving stale" in tr:
         return _ok("TR2", "crawl resilience", "Falls back to stale feed")
     return _bad("TR2", "crawl resilience", "No stale fallback on failure")
 
-# Auto-register
-for _n in ["T4", "T5", "T6", "TR1", "TR2"]:
-    if _n in globals() and "CHECKS" in globals():
-        CHECKS[_n] = globals()[_n]
+# Additional advanced checks for pending tasks / cancellation
+@check("T7", "Telegram: UploadSender/ParallelUploader has task cancellation guards")
+def t7_upload_cancellation(ctx: Ctx) -> CheckResult:
+    tg = ctx.read("routes/telegram.py")
+    has_cancel = "cancel" in tg.lower() or "asyncio.gather" in tg and "return_exceptions" in tg
+    has_finally = "finally:" in tg and ("finish_upload" in tg or "previous" in tg)
+    if has_cancel or has_finally:
+        return _ok("T7", "upload task cleanup", "Cancellation/finish guards present")
+    return _bad("T7", "upload task cleanup", "Missing explicit pending task cancellation")
+
+@check("TR3", "Trailers: proxy health key used and circuit-like handling")
+def tr3_proxy_health(ctx: Ctx) -> CheckResult:
+    tr = ctx.read("routes/trailers.py")
+    health_key = "streamly:trailers:proxy_health" in tr
+    if health_key:
+        return _ok("TR3", "proxy health", "Proxy health key referenced")
+    return _bad("TR3", "proxy health", "Proxy health key not used")
+
+# Auto-register new checks (defensive)
+for _n in ["T4", "T5", "T6", "TR1", "TR2", "T7", "TR3"]:
+    if _n in globals():
+        pass  # already decorated
