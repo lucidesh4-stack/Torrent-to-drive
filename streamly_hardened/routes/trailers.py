@@ -21,6 +21,8 @@ log = logging.getLogger(__name__)
 
 trailers_bp = Blueprint("trailers", __name__)
 
+_YOUTUBE_RSS_PROXY = "https://streamly-youtube-proxy.lucidesh.workers.dev"
+
 _CRAWL_INTERVAL_SECONDS = 86400
 _CRAWL_LOCK_TTL = 600
 _FEED_TTL_SECONDS = 172800
@@ -128,7 +130,7 @@ def _rss_headers() -> dict[str, str]:
 
 
 def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> requests.Response:
-    """Fetch RSS with direct first, then proxy fallback. Track proxy health."""
+    """Fetch RSS. Prefer the dedicated YouTube proxy first, then direct, then fallback proxy."""
     rs = None
     try:
         from flask import current_app
@@ -136,7 +138,25 @@ def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) ->
     except Exception:
         pass
 
-    # 1. Try direct (preferred for YouTube)
+    # 1. Try dedicated YouTube RSS proxy first (Proxy-First for YouTube)
+    if _YOUTUBE_RSS_PROXY:
+        proxied_yt = f"{_YOUTUBE_RSS_PROXY.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+        try:
+            r = requests.get(proxied_yt, timeout=timeout, headers=_rss_headers())
+            if r.status_code == 200:
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
+                log.info("RSS via YouTube proxy for %s -> HTTP %d", url, r.status_code)
+                return r
+            else:
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
+        except Exception as e:
+            log.warning("YouTube proxy RSS fetch failed for %s: %s", url, e)
+            if rs:
+                rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
+
+    # 2. Fallback to direct fetch
     try:
         r = requests.get(url, timeout=timeout, headers=_rss_headers())
         if r.status_code == 200:
@@ -144,9 +164,9 @@ def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) ->
                 rs.set("streamly:trailers:proxy_health", "direct_ok", ex=3600)
             return r
     except Exception as e:
-        log.debug("Direct RSS fetch failed for %s: %s", url, e)
+        log.debug("Direct RSS fetch fallback failed for %s: %s", url, e)
 
-    # 2. Try proxy (with health tracking)
+    # 3. Fallback to general Cloudflare Worker proxy (the existing proxy_url)
     if proxy_url:
         proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
         try:
@@ -154,17 +174,17 @@ def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) ->
             if r.status_code == 200:
                 if rs:
                     rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
-                log.info("RSS via proxy for %s -> HTTP %d", url, r.status_code)
+                log.info("RSS via general proxy fallback for %s -> HTTP %d", url, r.status_code)
                 return r
             else:
                 if rs:
                     rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
         except Exception as e:
-            log.warning("Proxy RSS fetch failed for %s: %s", url, e)
+            log.warning("General proxy fallback RSS fetch failed for %s: %s", url, e)
             if rs:
                 rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
 
-    # 3. Final direct attempt
+    # 4. Final direct attempt
     try:
         return requests.get(url, timeout=timeout, headers=_rss_headers())
     except Exception as e:
