@@ -54,6 +54,65 @@ def _get_proxy_health(rs) -> str:
     return val.decode() if isinstance(val, bytes) else (val or "unknown")
 
 
+def _update_trailer_window(rs, new_entries: list[dict]) -> None:
+    """Updates the Redis sorted set trailer window: removes old ones, adds new ones."""
+    now = datetime.now(timezone.utc)
+    cutoff_time = now - timedelta(days=30)
+    cutoff_ts = cutoff_time.timestamp()
+
+    # Evict trailers older than 30 days
+    rs._execute("ZREMRANGEBYSCORE", "streamly:trailers:window", "-inf", str(cutoff_ts))
+
+    # Add new qualifying videos
+    if new_entries:
+        zadd_args = []
+        for e in new_entries:
+            try:
+                # Calculate published timestamp as score
+                pub_str = e["published"]
+                pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
+                if pub_dt.tzinfo is None:
+                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
+                score = pub_dt.timestamp()
+
+                if score < cutoff_ts:
+                    continue
+
+                member = _json.dumps(e)
+                zadd_args.extend([str(score), member])
+            except Exception as ex:
+                log.warning("Skipping entry in window ZADD: %s", ex)
+
+        if zadd_args:
+            rs._execute("ZADD", "streamly:trailers:window", *zadd_args)
+
+
+def get_current_trailer_window() -> list[dict]:
+    """Returns the current list of trailers in the window (most recent first)."""
+    rs = None
+    try:
+        from flask import current_app
+        rs = getattr(current_app, "rs", None)
+    except Exception:
+        pass
+    if not rs:
+        return []
+
+    # Get all members sorted by score descending (most recent first)
+    members = rs._execute("ZREVRANGEBYSCORE", "streamly:trailers:window", "+inf", "-inf")
+
+    results = []
+    if members:
+        for m in members:
+            try:
+                if isinstance(m, bytes):
+                    m = m.decode("utf-8")
+                results.append(_json.loads(m))
+            except Exception as e:
+                log.warning("Failed to parse member from trailer window: %s", e)
+    return results
+
+
 def _is_shorts_by_title(title: str) -> bool:
     t = title.lower()
     # Check for hashtag patterns
@@ -386,19 +445,13 @@ def _crawl_trailers_incremental(app) -> None:
         if not proxy_url:
             proxy_url = "https://streamly-proxy.lucidesh.workers.dev"
 
-        # Load existing digest and flatten
-        existing_digest = None
+        # Load existing window and populate known_keys
+        with app.app_context():
+            current_window = get_current_trailer_window()
+
         known_keys: set[tuple[str, str]] = set()
-        raw_feed = rs.get("streamly:trailers:feed")
-        if raw_feed:
-            try:
-                existing_digest = _json.loads(raw_feed)
-                for day_group in existing_digest.get("items", []):
-                    for item in day_group.get("items", []):
-                        for vid in item.get("videos", []):
-                            known_keys.add((vid["id"], vid["published"]))
-            except Exception:
-                pass
+        for e in current_window:
+            known_keys.add((e["id"], e["published"]))
 
         channels = [c for c in TRAILER_CHANNELS if c[0] and c[0] != "???"]
         all_new_entries: list[dict] = []
@@ -447,52 +500,24 @@ def _crawl_trailers_incremental(app) -> None:
             len(all_new_entries), total_channels_with_new, len(channels),
         )
 
-        if all_new_entries or not existing_digest:
-            merged_entries = list(all_new_entries)
-            if existing_digest and "items" in existing_digest:
-                for day_group in existing_digest["items"]:
-                    for item in day_group.get("items", []):
-                        for vid in item.get("videos", []):
-                            merged_entries.append(
-                                {
-                                    "title": item["title"],
-                                    "normalized": item["normalized"],
-                                    "type": vid["type"],
-                                    "number": vid["number"],
-                                    "id": vid["id"],
-                                    "channel": vid["channel"],
-                                    "published": vid["published"],
-                                    "thumbnail": vid["thumbnail"],
-                                    "url": vid["url"],
-                                    "priority": _channel_priority(vid["channel"]),
-                                }
-                            )
+        # Update the trailer window: evicts older than 30 days and ZADDs new ones
+        _update_trailer_window(rs, all_new_entries)
 
-            # Post-filter: remove any entries that are Shorts or older than 30 days
-            cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-            valid_entries = []
-            for e in merged_entries:
-                if _is_shorts_by_title(e["title"]):
-                    continue
-                try:
-                    pub_dt = datetime.fromisoformat(e["published"].replace("Z", "+00:00"))
-                    if pub_dt >= cutoff:
-                        valid_entries.append(e)
-                except Exception:
-                    pass
+        # Fetch the updated full window (most recent first)
+        with app.app_context():
+            updated_window = get_current_trailer_window()
 
-            digest = _build_digest(valid_entries)
-            rs.set(
-                "streamly:trailers:feed",
-                _json.dumps(digest),
-                ex=_FEED_TTL_SECONDS,
-            )
-            log.info(
-                "Incremental crawl complete: %d total entries -> %d day groups",
-                len(valid_entries), len(digest["items"]),
-            )
-        else:
-            log.info("Incremental crawl: no new entries, digest unchanged")
+        # Build digest from the window
+        digest = _build_digest(updated_window)
+        rs.set(
+            "streamly:trailers:feed",
+            _json.dumps(digest),
+            ex=_FEED_TTL_SECONDS,
+        )
+        log.info(
+            "Incremental crawl complete: %d total entries in window -> %d day groups",
+            len(updated_window), len(digest["items"]),
+        )
 
     except Exception as e:
         log.exception("Incremental crawl error")
