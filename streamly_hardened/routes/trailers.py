@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
+from tenacity import retry, stop_after_attempt, wait_exponential, before_log, after_log
 from flask import Blueprint, current_app, jsonify
 
 from ..security import csrf_required, json_error, rate_limited
@@ -191,7 +191,8 @@ def _rss_headers() -> dict[str, str]:
 @retry(
     stop=stop_after_attempt(8),
     wait=wait_exponential(multiplier=2, min=2, max=30),
-    before_sleep=before_sleep_log(log, logging.WARNING),
+    before=before_log(log, logging.WARNING),
+    after=after_log(log, logging.INFO),
     reraise=True
 )
 def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> httpx.Response:
