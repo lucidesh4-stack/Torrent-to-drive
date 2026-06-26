@@ -53,7 +53,6 @@ _BANDWIDTH_FLUSH_SECONDS = 60       # how often to flush accumulated bandwidth (
 # raising FloodWaitError (which is unhandled and would fail a transfer). Telegram
 # rarely returns waits beyond a few minutes for upload spam.
 # Centralized via telegram_client.py (Phase 1 hardening)
-_FLOOD_SLEEP_THRESHOLD = 300  # kept for local references during transition
 _LIVE_PROGRESS: dict[str, dict] = {}
 _LIVE_PROGRESS_LOCK = threading.Lock()
 
@@ -485,10 +484,6 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
         return types.InputFileBig(id=file_id, parts=actual_parts, name=filename)
     else:
         return types.InputFile(id=file_id, parts=actual_parts, name=filename, md5_checksum="")
-
-def get_telegram_client(session_str):
-    """Delegates to hardened manager (Phase 1)."""
-    return tg_manager.create_client(session_str)
 
 async def validate_telegram_target(client, target_chat):
     try:
