@@ -8,11 +8,11 @@ import threading
 import time
 import urllib.parse
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import requests
+import httpx
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
 from flask import Blueprint, current_app, jsonify
 
 from ..security import csrf_required, json_error, rate_limited
@@ -188,7 +188,13 @@ def _rss_headers() -> dict[str, str]:
     }
 
 
-def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> requests.Response:
+@retry(
+    stop=stop_after_attempt(8),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    before_sleep=before_sleep_log(log, logging.WARNING),
+    reraise=True
+)
+def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> httpx.Response:
     """Fetch RSS. Prefer the dedicated YouTube proxy first, then direct, then fallback proxy."""
     rs = None
     try:
@@ -197,58 +203,63 @@ def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) ->
     except Exception:
         pass
 
-    # 1. Try dedicated YouTube RSS proxy first (Proxy-First for YouTube)
-    if _YOUTUBE_RSS_PROXY:
-        proxied_yt = f"{_YOUTUBE_RSS_PROXY.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+    with httpx.Client(http2=True, timeout=timeout, headers=_rss_headers()) as client:
+        # 1. Try dedicated YouTube RSS proxy first (Proxy-First for YouTube)
+        if _YOUTUBE_RSS_PROXY:
+            proxied_yt = f"{_YOUTUBE_RSS_PROXY.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+            try:
+                r = client.get(proxied_yt)
+                if r.status_code == 200:
+                    if rs:
+                        rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
+                    log.info("RSS via YouTube proxy for %s -> HTTP %d", url, r.status_code)
+                    return r
+                else:
+                    if rs:
+                        rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
+            except Exception as e:
+                log.warning("YouTube proxy RSS fetch failed for %s: %s", url, e)
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
+
+        # 2. Fallback to direct fetch
         try:
-            r = requests.get(proxied_yt, timeout=timeout, headers=_rss_headers())
+            r = client.get(url)
             if r.status_code == 200:
                 if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
-                log.info("RSS via YouTube proxy for %s -> HTTP %d", url, r.status_code)
+                    rs.set("streamly:trailers:proxy_health", "direct_ok", ex=3600)
                 return r
-            else:
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
         except Exception as e:
-            log.warning("YouTube proxy RSS fetch failed for %s: %s", url, e)
-            if rs:
-                rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
+            log.debug("Direct RSS fetch fallback failed for %s: %s", url, e)
 
-    # 2. Fallback to direct fetch
-    try:
-        r = requests.get(url, timeout=timeout, headers=_rss_headers())
-        if r.status_code == 200:
-            if rs:
-                rs.set("streamly:trailers:proxy_health", "direct_ok", ex=3600)
-            return r
-    except Exception as e:
-        log.debug("Direct RSS fetch fallback failed for %s: %s", url, e)
+        # 3. Fallback to general Cloudflare Worker proxy (the existing proxy_url)
+        if proxy_url:
+            proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+            try:
+                r = client.get(proxied)
+                if r.status_code == 200:
+                    if rs:
+                        rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
+                    log.info("RSS via general proxy fallback for %s -> HTTP %d", url, r.status_code)
+                    return r
+                else:
+                    if rs:
+                        rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
+            except Exception as e:
+                log.warning("General proxy fallback RSS fetch failed for %s: %s", url, e)
+                if rs:
+                    rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
 
-    # 3. Fallback to general Cloudflare Worker proxy (the existing proxy_url)
-    if proxy_url:
-        proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
+        # 4. Final direct attempt
         try:
-            r = requests.get(proxied, timeout=timeout, headers=_rss_headers())
+            r = client.get(url)
             if r.status_code == 200:
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
-                log.info("RSS via general proxy fallback for %s -> HTTP %d", url, r.status_code)
                 return r
             else:
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
+                r.raise_for_status()
         except Exception as e:
-            log.warning("General proxy fallback RSS fetch failed for %s: %s", url, e)
-            if rs:
-                rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
-
-    # 4. Final direct attempt
-    try:
-        return requests.get(url, timeout=timeout, headers=_rss_headers())
-    except Exception as e:
-        log.warning("RSS fetch failed completely for %s: %s", url, e)
-        raise
+            log.warning("RSS fetch failed completely for %s: %s", url, e)
+            raise
 
 
 def _normalize_title(title: str) -> str:
@@ -458,32 +469,16 @@ def _crawl_trailers_incremental(app) -> None:
         total_channels_checked = 0
         total_channels_with_new = 0
 
-        def fetch_one(channel_id: str, channel_name: str) -> tuple[list[dict] | None, str]:
+        for channel_id, channel_name in channels:
+            log.info("Fetching channel sequentially: %s (%s)", channel_name, channel_id)
             try:
                 rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
                 r = _fetch_rss(rss_url, proxy_url=proxy_url, timeout=15.0)
-                if r.status_code != 200:
-                    log.warning("RSS HTTP %d for %s", r.status_code, channel_name)
-                    return None, channel_name
+                total_channels_checked += 1
 
-                last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
-                entries = _parse_rss_incremental(r.text, channel_name, last_seen)
-                return entries, channel_name
-            except Exception as e:
-                log.warning("RSS fetch failed for %s: %s", channel_name, e)
-                return None, channel_name
-
-        batch_size = 5
-        for batch_start in range(0, len(channels), batch_size):
-            batch = channels[batch_start:batch_start + batch_size]
-            with ThreadPoolExecutor(max_workers=batch_size) as executor:
-                futures = {
-                    executor.submit(fetch_one, cid, name): (cid, name)
-                    for cid, name in batch
-                }
-                for future in as_completed(futures):
-                    entries, channel_name = future.result()
-                    total_channels_checked += 1
+                if r.status_code == 200:
+                    last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
+                    entries = _parse_rss_incremental(r.text, channel_name, last_seen)
                     if entries:
                         new_entries = [e for e in entries if (e["id"], e["published"]) not in known_keys]
                         if new_entries:
@@ -491,12 +486,17 @@ def _crawl_trailers_incremental(app) -> None:
                             total_channels_with_new += 1
                         newest = max(entries, key=lambda e: e["published"])
                         rs.set(f"streamly:trailers:last_seen:{channel_name}", newest["published"])
+                    log.info("✓ %s completed", channel_name)
+                else:
+                    log.warning("RSS HTTP %d for %s", r.status_code, channel_name)
+            except Exception as e:
+                log.error("✗ %s failed after all retries: %s", channel_name, e)
 
-            if batch_start + batch_size < len(channels):
-                time.sleep(2)
+            # Optional brief delay between channels to avoid rate limit throttling
+            time.sleep(1)
 
         log.info(
-            "Incremental crawl: %d new entries from %d/%d channels",
+            "Incremental crawl: %d new entries from %d/%d channels checked sequentially",
             len(all_new_entries), total_channels_with_new, len(channels),
         )
 
