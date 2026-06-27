@@ -7,12 +7,18 @@ import os
 import re
 import threading
 import time
-import urllib.parse
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, before_log, after_log
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    before_log,
+    after_log,
+    retry_if_exception,
+)
 from flask import Blueprint, current_app, jsonify
 
 from ..security import csrf_required, json_error, rate_limited
@@ -21,12 +27,72 @@ log = logging.getLogger(__name__)
 
 trailers_bp = Blueprint("trailers", __name__)
 
-YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
+_YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/search"
+
+# Tuning knobs — extracted from magic numbers
+MAX_RESULTS_PER_PAGE = 10
+MAX_PAGES = 3                     # pagination depth per channel
+API_TIMEOUT_SECONDS = 15.0
+WINDOW_DAYS = 30                  # rolling trailer window
+TITLE_MIN_LEN = 8
+TITLE_MAX_LEN = 120
+CHANNEL_DELAY_SECONDS = 1        # polite pause between channels
+
+# Circuit breaker
+CB_FAILURE_THRESHOLD = 3          # consecutive failures to trip
+CB_COOLDOWN_SECONDS = 1800        # 30 minutes
+
+# Retry
+MAX_RETRY_ATTEMPTS = 8
+RETRY_MIN_WAIT = 2
+RETRY_MAX_WAIT = 30
+
+# Quota tracking — YouTube Data API v3 default is 10 000 units/day.
+# A search.list call costs 100 units.
+QUOTA_COST_PER_SEARCH = 100
+QUOTA_DAILY_LIMIT = 10_000
+QUOTA_WARNING_THRESHOLD = 0.80    # warn at 80 %
+
+# Crawl timing
 _CRAWL_INTERVAL_SECONDS = 86400
 _CRAWL_LOCK_TTL = 600
 _FEED_TTL_SECONDS = 172800
-_STALE_HOURS = 24  # Trigger auto-crawl if feed is older than 24 hours
+_STALE_HOURS = 24
+
+# ---------------------------------------------------------------------------
+# Centralized Redis keys
+# ---------------------------------------------------------------------------
+
+REDIS_KEYS: dict[str, str] = {
+    "feed":            "streamly:trailers:feed",
+    "window":          "streamly:trailers:window",
+    "crawl_lock":      "streamly:trailers:crawl_lock",
+    "last_crawl_time": "streamly:trailers:last_crawl_time",
+    "proxy_health":    "streamly:trailers:proxy_health",
+    "cb_failures":     "streamly:trailers:cb_failures",
+    "cb_open_until":   "streamly:trailers:cb_open_until",
+    "metric_api_calls":    "streamly:trailers:metric:api_calls",
+    "metric_videos":       "streamly:trailers:metric:videos_fetched",
+    "metric_quota_used":   "streamly:trailers:metric:quota_used",
+}
+
+
+def _rkey(name: str) -> str:
+    """Return the Redis key for *name*, raising KeyError on typos."""
+    return REDIS_KEYS[name]
+
+
+def _last_seen_key(channel_id: str) -> str:
+    return f"streamly:trailers:last_seen:{channel_id}"
+
+
+# ---------------------------------------------------------------------------
+# Content filters
+# ---------------------------------------------------------------------------
 
 _BLOCKED_KEYWORDS = {
     "gameplay", "story trailer", "game", "behind the scenes", "bts",
@@ -41,90 +107,43 @@ _TITLE_HEURISTICS = {
     "toy", "merchandise", "comic con", "bts", "behind the scenes",
 }
 
-# Shorts detection patterns (title-based, case-insensitive)
 _SHORTS_PATTERNS = [
     '#shorts', '#short', '#shortsfeed', '#ytshorts', '#youtubeshorts',
     '#reels', '#tiktok', '#vertical',
 ]
 
-def _get_proxy_health(rs) -> str:
-    if not rs:
-        return "unknown"
-    val = rs.get("streamly:trailers:proxy_health")
-    return val.decode() if isinstance(val, bytes) else (val or "unknown")
-
-
-def _update_trailer_window(rs, new_entries: list[dict]) -> None:
-    """Updates the Redis sorted set trailer window: removes old ones, adds new ones."""
-    now = datetime.now(timezone.utc)
-    cutoff_time = now - timedelta(days=30)
-    cutoff_ts = cutoff_time.timestamp()
-
-    # Evict trailers older than 30 days
-    rs._execute("ZREMRANGEBYSCORE", "streamly:trailers:window", "-inf", str(cutoff_ts))
-
-    # Add new qualifying videos
-    if new_entries:
-        zadd_args = []
-        for e in new_entries:
-            try:
-                # Calculate published timestamp as score
-                pub_str = e["published"]
-                pub_dt = datetime.fromisoformat(pub_str.replace("Z", "+00:00"))
-                if pub_dt.tzinfo is None:
-                    pub_dt = pub_dt.replace(tzinfo=timezone.utc)
-                score = pub_dt.timestamp()
-
-                if score < cutoff_ts:
-                    continue
-
-                member = _json.dumps(e)
-                zadd_args.extend([str(score), member])
-            except Exception as ex:
-                log.warning("Skipping entry in window ZADD: %s", ex)
-
-        if zadd_args:
-            rs._execute("ZADD", "streamly:trailers:window", *zadd_args)
-
-
-def get_current_trailer_window() -> list[dict]:
-    """Returns the current list of trailers in the window (most recent first)."""
-    rs = None
-    try:
-        from flask import current_app
-        rs = getattr(current_app, "rs", None)
-    except Exception:
-        pass
-    if not rs:
-        return []
-
-    # Get all members sorted by score descending (most recent first)
-    members = rs._execute("ZREVRANGEBYSCORE", "streamly:trailers:window", "+inf", "-inf")
-
-    results = []
-    if members:
-        for m in members:
-            try:
-                if isinstance(m, bytes):
-                    m = m.decode("utf-8")
-                results.append(_json.loads(m))
-            except Exception as e:
-                log.warning("Failed to parse member from trailer window: %s", e)
-    return results
-
 
 def _is_shorts_by_title(title: str) -> bool:
+    """Return True if *title* looks like a YouTube Short."""
     t = title.lower()
-    # Check for hashtag patterns
     if any(p in t for p in _SHORTS_PATTERNS):
         return True
-    # Check for standalone word "shorts" (e.g., "funny shorts", "movie shorts")
     if re.search(r'(^|\s)#?shorts($|\s)', t):
         return True
-    # Check for standalone word "short" at end (e.g., "a short")
     if re.search(r'\bshort\b', t) and 'trailer' not in t and 'teaser' not in t:
         return True
     return False
+
+
+def _passes_title_filter(title: str) -> bool:
+    """Return True if *title* passes all content-quality filters."""
+    tl = title.lower()
+    if any(bw in tl for bw in _BLOCKED_KEYWORDS):
+        return False
+    if "trailer" not in tl and "teaser" not in tl:
+        return False
+    if _is_shorts_by_title(title):
+        return False
+    if any(h in tl for h in _TITLE_HEURISTICS):
+        return False
+    if len(title) < TITLE_MIN_LEN or len(title) > TITLE_MAX_LEN:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Channel metadata
+# ---------------------------------------------------------------------------
 
 _CHANNEL_PRIORITY = {
     "Marvel Entertainment": 0, "Warner Bros": 0, "Sony Pictures": 0,
@@ -176,106 +195,12 @@ TRAILER_CHANNELS = [
 ]
 
 
-@retry(
-    stop=stop_after_attempt(8),
-    wait=wait_exponential(multiplier=2, min=2, max=30),
-    before=before_log(log, logging.WARNING),
-    after=after_log(log, logging.INFO),
-    reraise=True
-)
-def _fetch_channel_api(channel_id: str, channel_name: str, last_seen: str | None = None) -> list[dict]:
-    """Fetch videos from YouTube Data API v3 for a specific channel and parse them."""
-    if not YOUTUBE_API_KEY:
-        log.error("YouTube API Key is missing. Skipping channel %s (%s)", channel_name, channel_id)
-        return []
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-    published_after = cutoff.isoformat().replace("+00:00", "Z")
-
-    params = {
-        "part": "snippet",
-        "channelId": channel_id,
-        "type": "video",
-        "order": "date",
-        "publishedAfter": published_after,
-        "maxResults": 10,
-        "key": YOUTUBE_API_KEY
-    }
-
-    with httpx.Client(http2=True, timeout=15.0) as client:
-        r = client.get("https://www.googleapis.com/youtube/v3/search", params=params)
-        r.raise_for_status()
-        data = r.json()
-
-    results: list[dict] = []
-    items = data.get("items", [])
-    for item in items:
-        snippet = item.get("snippet", {})
-        title_raw = snippet.get("title", "")
-        title = html.unescape(title_raw).strip()
-        title_lower = title.lower()
-
-        if any(bw in title_lower for bw in _BLOCKED_KEYWORDS):
-            continue
-        if "trailer" not in title_lower and "teaser" not in title_lower:
-            continue
-
-        # Filter out YouTube Shorts by title
-        if _is_shorts_by_title(title):
-            continue
-
-        if any(h in title_lower for h in _TITLE_HEURISTICS):
-            continue
-        if len(title) < 8 or len(title) > 120:
-            continue
-
-        published = snippet.get("publishedAt", "")
-        if not published:
-            continue
-
-        try:
-            pub_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-
-        if pub_dt < cutoff:
-            continue
-
-        if last_seen and published <= last_seen:
-            continue
-
-        vid = item.get("id", {}).get("videoId")
-        if not vid:
-            continue
-
-        thumbnails = snippet.get("thumbnails", {})
-        thumb_url = (
-            thumbnails.get("medium", {}).get("url") or 
-            thumbnails.get("default", {}).get("url") or 
-            f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
-        )
-
-        norm_name, media_type, num = _extract_trailer_info(title)
-
-        results.append(
-            {
-                "title": title,
-                "normalized": norm_name,
-                "type": media_type,
-                "number": num,
-                "id": vid,
-                "channel": channel_name,
-                "published": published,
-                "thumbnail": thumb_url,
-                "url": f"https://www.youtube.com/watch?v={vid}",
-                "priority": _channel_priority(channel_name),
-            }
-        )
-
-    return results
-
+# ---------------------------------------------------------------------------
+# Title helpers
+# ---------------------------------------------------------------------------
 
 def _normalize_title(title: str) -> str:
+    """Lowercase, strip punctuation/extra whitespace, collapse series numbering."""
     t = title.lower()
     t = re.sub(r"[^\w\s]", "", t)
     t = re.sub(r"\s+", " ", t).strip()
@@ -284,6 +209,7 @@ def _normalize_title(title: str) -> str:
 
 
 def _extract_trailer_info(title: str) -> tuple[str, str, int]:
+    """Parse *title* into (normalized_movie_name, media_type, trailer_number)."""
     t = title.lower()
     media_type = "teaser" if "teaser" in t else "trailer"
     num_match = re.search(r"\b(?:trailer|teaser)\s*(\d+)\b", t)
@@ -307,10 +233,347 @@ def _channel_priority(name: str) -> int:
     return _CHANNEL_PRIORITY.get(name, 99)
 
 
+def _parse_iso(dt_str: str) -> datetime | None:
+    """Safely parse an ISO-8601 datetime string into a timezone-aware datetime."""
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None
 
 
+# ---------------------------------------------------------------------------
+# Redis helpers
+# ---------------------------------------------------------------------------
+
+def _redis_get_str(rs, key: str) -> str | None:
+    """Get a Redis value and decode bytes to str."""
+    val = rs.get(key)
+    if val is None:
+        return None
+    return val.decode("utf-8") if isinstance(val, bytes) else str(val)
+
+
+def _redis_incr(rs, key: str, amount: int = 1) -> None:
+    """Increment a Redis counter, ignoring errors."""
+    try:
+        rs.incrby(key, amount)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker (lightweight, Redis-backed)
+# ---------------------------------------------------------------------------
+
+class _CircuitBreaker:
+    """Simple circuit breaker that trips after *threshold* consecutive failures
+    and stays open for *cooldown* seconds.  State lives in Redis so it
+    survives process restarts and is shared across workers."""
+
+    def __init__(self, threshold: int = CB_FAILURE_THRESHOLD,
+                 cooldown: int = CB_COOLDOWN_SECONDS):
+        self.threshold = threshold
+        self.cooldown = cooldown
+
+    def is_open(self, rs) -> bool:
+        """Return True if the breaker is open (calls should be skipped)."""
+        open_until = _redis_get_str(rs, _rkey("cb_open_until"))
+        if open_until:
+            try:
+                if time.time() < float(open_until):
+                    return True
+                # Cooldown expired — close the breaker
+                self._close(rs)
+            except (ValueError, TypeError):
+                pass
+        return False
+
+    def record_success(self, rs) -> None:
+        """Reset the failure counter on success."""
+        try:
+            rs.set(_rkey("cb_failures"), "0", ex=3600)
+        except Exception:
+            pass
+
+    def record_failure(self, rs) -> None:
+        """Increment the failure counter; trip the breaker if threshold reached."""
+        try:
+            failures = int(_redis_get_str(rs, _rkey("cb_failures")) or "0") + 1
+            rs.set(_rkey("cb_failures"), str(failures), ex=3600)
+            if failures >= self.threshold:
+                self._open(rs)
+        except Exception:
+            pass
+
+    def _open(self, rs) -> None:
+        reopen_at = time.time() + self.cooldown
+        rs.set(_rkey("cb_open_until"), str(reopen_at), ex=self.cooldown + 60)
+        log.warning(
+            "Circuit breaker OPEN — pausing API calls for %d s after %d consecutive failures",
+            self.cooldown, self.threshold,
+        )
+
+    def _close(self, rs) -> None:
+        rs.delete(_rkey("cb_open_until"))
+        rs.set(_rkey("cb_failures"), "0", ex=3600)
+        log.info("Circuit breaker CLOSED — resuming API calls")
+
+
+_circuit_breaker = _CircuitBreaker()
+
+
+# ---------------------------------------------------------------------------
+# Error classification
+# ---------------------------------------------------------------------------
+
+class YouTubeQuotaExceeded(Exception):
+    """Raised when the API returns 403 due to quota exhaustion."""
+
+
+class YouTubeAuthError(Exception):
+    """Raised on authentication / key errors (401, 403 with auth reason)."""
+
+
+class YouTubeTransientError(Exception):
+    """Raised on transient network / server errors worth retrying."""
+
+
+def _classify_api_error(exc: Exception) -> Exception:
+    """Wrap an httpx error into a classified exception."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        body = ""
+        try:
+            body = exc.response.text
+        except Exception:
+            pass
+
+        if status == 403:
+            if "quotaExceeded" in body or "dailyLimitExceeded" in body:
+                return YouTubeQuotaExceeded(f"YouTube quota exceeded: {body[:200]}")
+            return YouTubeAuthError(f"YouTube 403 (auth/key issue): {body[:200]}")
+        if status == 401:
+            return YouTubeAuthError(f"YouTube 401: {body[:200]}")
+        if status >= 500:
+            return YouTubeTransientError(f"YouTube {status} server error")
+        # 4xx other — not retryable
+        return exc
+
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout,
+                        httpx.PoolTimeout, httpx.ConnectTimeout)):
+        return YouTubeTransientError(str(exc))
+
+    return exc
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True if *exc* is worth retrying (transient)."""
+    return isinstance(exc, (YouTubeTransientError, httpx.ConnectError,
+                            httpx.ReadTimeout, httpx.WriteTimeout,
+                            httpx.PoolTimeout, httpx.ConnectTimeout))
+
+
+# ---------------------------------------------------------------------------
+# YouTube Data API v3 fetch — with pagination + retry
+# ---------------------------------------------------------------------------
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=2, min=RETRY_MIN_WAIT, max=RETRY_MAX_WAIT),
+    retry=retry_if_exception(_is_retryable),
+    before=before_log(log, logging.WARNING),
+    after=after_log(log, logging.INFO),
+    reraise=True,
+)
+def _fetch_channel_api(
+    channel_id: str,
+    channel_name: str,
+    last_seen: str | None = None,
+    api_key: str = "",
+) -> list[dict]:
+    """Fetch recent trailer videos for *channel_id* via YouTube Data API v3.
+
+    Paginates up to ``MAX_PAGES`` pages of ``MAX_RESULTS_PER_PAGE`` results.
+    Applies all content-quality filters and returns a list of trailer dicts.
+    """
+    if not api_key:
+        log.error(
+            "YOUTUBE_API_KEY is empty — cannot fetch channel %s (%s)",
+            channel_name, channel_id,
+        )
+        return []
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)
+    published_after = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    results: list[dict] = []
+    page_token: str | None = None
+    pages_fetched = 0
+    t0 = time.monotonic()
+
+    with httpx.Client(http2=True, timeout=API_TIMEOUT_SECONDS) as client:
+        for _ in range(MAX_PAGES):
+            params: dict[str, Any] = {
+                "part": "snippet",
+                "channelId": channel_id,
+                "type": "video",
+                "order": "date",
+                "publishedAfter": published_after,
+                "maxResults": MAX_RESULTS_PER_PAGE,
+                "key": api_key,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+
+            try:
+                r = client.get(_YOUTUBE_API_URL, params=params)
+                r.raise_for_status()
+            except Exception as exc:
+                raise _classify_api_error(exc) from exc
+
+            data = r.json()
+            pages_fetched += 1
+
+            for item in data.get("items", []):
+                entry = _parse_api_item(item, channel_name, cutoff, last_seen)
+                if entry:
+                    results.append(entry)
+
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+    elapsed = time.monotonic() - t0
+    log.info(
+        "YouTube API: channel=%s pages=%d results=%d elapsed=%.2fs",
+        channel_name, pages_fetched, len(results), elapsed,
+    )
+    return results
+
+
+def _parse_api_item(
+    item: dict,
+    channel_name: str,
+    cutoff: datetime,
+    last_seen: str | None,
+) -> dict | None:
+    """Parse a single YouTube API search result into a trailer dict, or None."""
+    snippet = item.get("snippet", {})
+    title = html.unescape(snippet.get("title", "")).strip()
+
+    if not _passes_title_filter(title):
+        return None
+
+    published = snippet.get("publishedAt", "")
+    if not published:
+        return None
+
+    pub_dt = _parse_iso(published)
+    if pub_dt is None or pub_dt < cutoff:
+        return None
+    if last_seen and published <= last_seen:
+        return None
+
+    vid = item.get("id", {}).get("videoId")
+    if not vid:
+        return None
+
+    thumbnails = snippet.get("thumbnails", {})
+    thumb_url = (
+        thumbnails.get("medium", {}).get("url")
+        or thumbnails.get("default", {}).get("url")
+        or f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+    )
+
+    norm_name, media_type, num = _extract_trailer_info(title)
+
+    return {
+        "title": title,
+        "normalized": norm_name,
+        "type": media_type,
+        "number": num,
+        "id": vid,
+        "channel": channel_name,
+        "published": published,
+        "thumbnail": thumb_url,
+        "url": f"https://www.youtube.com/watch?v={vid}",
+        "priority": _channel_priority(channel_name),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Redis trailer-window management
+# ---------------------------------------------------------------------------
+
+def _update_trailer_window(rs, new_entries: list[dict]) -> None:
+    """Evict trailers older than WINDOW_DAYS and ZADD new ones."""
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)).timestamp()
+
+    # Evict old entries
+    try:
+        rs.zremrangebyscore(_rkey("window"), "-inf", str(cutoff_ts))
+    except Exception as exc:
+        log.warning("Failed to evict old trailers from window: %s", exc)
+
+    if not new_entries:
+        return
+
+    # Build {member: score} mapping for zadd
+    mapping: dict[str, float] = {}
+    for e in new_entries:
+        pub_dt = _parse_iso(e["published"])
+        if pub_dt is None:
+            continue
+        score = pub_dt.timestamp()
+        if score < cutoff_ts:
+            continue
+        mapping[_json.dumps(e)] = score
+
+    if mapping:
+        try:
+            rs.zadd(_rkey("window"), mapping)
+        except Exception as exc:
+            log.warning("Failed to ZADD new trailers to window: %s", exc)
+
+
+def get_current_trailer_window() -> list[dict]:
+    """Return current trailers in the rolling window, most recent first."""
+    rs = None
+    try:
+        from flask import current_app
+        rs = getattr(current_app, "rs", None)
+    except Exception:
+        pass
+    if not rs:
+        return []
+
+    try:
+        members = rs.zrevrangebyscore(_rkey("window"), "+inf", "-inf")
+    except Exception as exc:
+        log.warning("Failed to read trailer window: %s", exc)
+        return []
+
+    results = []
+    if members:
+        for m in members:
+            try:
+                if isinstance(m, bytes):
+                    m = m.decode("utf-8")
+                results.append(_json.loads(m))
+            except Exception as e:
+                log.warning("Failed to parse member from trailer window: %s", e)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Digest builder
+# ---------------------------------------------------------------------------
 
 def _build_digest(entries: list[dict]) -> dict:
+    """Deduplicate and group trailer entries by date, returning a feed dict."""
     best: dict[tuple[str, str, str, int], dict] = {}
     for e in entries:
         date = e["published"][:10]
@@ -365,18 +628,54 @@ def _build_digest(entries: list[dict]) -> dict:
     return {"items": items}
 
 
+# ---------------------------------------------------------------------------
+# Quota tracking helpers
+# ---------------------------------------------------------------------------
+
+def _track_quota(rs, pages_fetched: int) -> None:
+    """Increment API-call and quota-usage counters in Redis."""
+    _redis_incr(rs, _rkey("metric_api_calls"), pages_fetched)
+    units = pages_fetched * QUOTA_COST_PER_SEARCH
+    _redis_incr(rs, _rkey("metric_quota_used"), units)
+
+    # Check if approaching daily limit
+    raw = _redis_get_str(rs, _rkey("metric_quota_used"))
+    if raw:
+        try:
+            used = int(raw)
+            if used >= int(QUOTA_DAILY_LIMIT * QUOTA_WARNING_THRESHOLD):
+                log.warning(
+                    "YouTube API quota usage HIGH: %d / %d units (%.0f%%)",
+                    used, QUOTA_DAILY_LIMIT, used / QUOTA_DAILY_LIMIT * 100,
+                )
+        except (ValueError, TypeError):
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Main crawl loop
+# ---------------------------------------------------------------------------
+
 def _crawl_trailers_incremental(app) -> None:
+    """Crawl all TRAILER_CHANNELS sequentially, updating the rolling window."""
     rs = getattr(app, "rs", None)
     if not rs:
         log.warning("Trailer crawl skipped: Redis unavailable")
         return
 
-    lock = rs._execute("SET", "streamly:trailers:crawl_lock", "1", "EX", str(_CRAWL_LOCK_TTL), "NX")
-    if lock != "OK":
+    # Acquire distributed lock
+    acquired = rs.set(_rkey("crawl_lock"), "1", ex=_CRAWL_LOCK_TTL, nx=True)
+    if not acquired:
         return
 
     try:
-        # Load existing window and populate known_keys
+        # Re-read API key on every crawl (allows runtime rotation)
+        api_key = os.environ.get("YOUTUBE_API_KEY", "")
+        if not api_key:
+            log.error("YOUTUBE_API_KEY is not set — trailer crawl cannot proceed")
+            return
+
+        # Load existing window to detect duplicates
         with app.app_context():
             current_window = get_current_trailer_window()
 
@@ -386,73 +685,117 @@ def _crawl_trailers_incremental(app) -> None:
 
         channels = [c for c in TRAILER_CHANNELS if c[0] and c[0] != "???"]
         all_new_entries: list[dict] = []
-        total_channels_checked = 0
-        total_channels_with_new = 0
+        total_checked = 0
+        total_with_new = 0
 
         for channel_id, channel_name in channels:
-            log.info("Fetching channel sequentially: %s (%s)", channel_name, channel_id)
-            try:
-                last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
-                if last_seen and isinstance(last_seen, bytes):
-                    last_seen = last_seen.decode("utf-8")
+            # Circuit breaker check
+            if _circuit_breaker.is_open(rs):
+                log.warning(
+                    "Circuit breaker OPEN — skipping remaining channels (at %s)",
+                    channel_name,
+                )
+                break
 
-                entries = _fetch_channel_api(channel_id, channel_name, last_seen)
-                total_channels_checked += 1
+            log.info("Fetching channel: %s (%s)", channel_name, channel_id)
+            t0 = time.monotonic()
+            try:
+                last_seen = _redis_get_str(rs, _last_seen_key(channel_id))
+                entries = _fetch_channel_api(
+                    channel_id, channel_name,
+                    last_seen=last_seen,
+                    api_key=api_key,
+                )
+                total_checked += 1
+                _circuit_breaker.record_success(rs)
+
+                # Track quota (each call is 1 page minimum)
+                _track_quota(rs, max(1, len(entries) // MAX_RESULTS_PER_PAGE or 1))
 
                 if entries:
-                    new_entries = [e for e in entries if (e["id"], e["published"]) not in known_keys]
+                    new_entries = [
+                        e for e in entries
+                        if (e["id"], e["published"]) not in known_keys
+                    ]
                     if new_entries:
                         all_new_entries.extend(new_entries)
-                        total_channels_with_new += 1
+                        total_with_new += 1
+                        _redis_incr(rs, _rkey("metric_videos"), len(new_entries))
                     newest = max(entries, key=lambda e: e["published"])
-                    rs.set(f"streamly:trailers:last_seen:{channel_id}", newest["published"])
-                log.info("✓ %s completed", channel_name)
-            except Exception as e:
-                log.error("✗ %s failed after all retries: %s", channel_name, e)
+                    rs.set(_last_seen_key(channel_id), newest["published"])
 
-            # Optional brief delay between channels to avoid rate limit throttling
-            time.sleep(1)
+                elapsed = time.monotonic() - t0
+                log.info(
+                    "✓ %s completed — entries=%d new=%d elapsed=%.2fs",
+                    channel_name,
+                    len(entries),
+                    len([e for e in entries if (e["id"], e["published"]) not in known_keys]),
+                    elapsed,
+                )
+
+            except YouTubeQuotaExceeded:
+                log.error("YouTube quota exceeded — stopping crawl at %s", channel_name)
+                _circuit_breaker.record_failure(rs)
+                break  # no point continuing
+
+            except YouTubeAuthError as e:
+                log.error("YouTube auth error at %s: %s", channel_name, e)
+                _circuit_breaker.record_failure(rs)
+                break  # key is bad, stop
+
+            except Exception as e:
+                elapsed = time.monotonic() - t0
+                log.error(
+                    "✗ %s failed — error_type=%s error=%s elapsed=%.2fs",
+                    channel_name, type(e).__name__, e, elapsed,
+                )
+                _circuit_breaker.record_failure(rs)
+
+            time.sleep(CHANNEL_DELAY_SECONDS)
 
         log.info(
-            "Incremental crawl: %d new entries from %d/%d channels checked sequentially",
-            len(all_new_entries), total_channels_with_new, len(channels),
+            "Crawl summary: new_entries=%d channels_with_new=%d/%d checked",
+            len(all_new_entries), total_with_new, total_checked,
         )
 
-        # Update the trailer window: evicts older than 30 days and ZADDs new ones
+        # Update the 30-day rolling window
         _update_trailer_window(rs, all_new_entries)
 
-        # Fetch the updated full window (most recent first)
+        # Rebuild the digest from the full window
         with app.app_context():
             updated_window = get_current_trailer_window()
 
-        # Build digest from the window
         digest = _build_digest(updated_window)
         rs.set(
-            "streamly:trailers:feed",
+            _rkey("feed"),
             _json.dumps(digest),
             ex=_FEED_TTL_SECONDS,
         )
         log.info(
-            "Incremental crawl complete: %d total entries in window -> %d day groups",
+            "Crawl complete: window_size=%d day_groups=%d",
             len(updated_window), len(digest["items"]),
         )
 
-    except Exception as e:
+    except Exception:
         log.exception("Incremental crawl error")
-        # Serve stale feed if we have one (resilience against total proxy+direct failure)
         if rs:
-            stale = rs.get("streamly:trailers:feed")
+            stale = rs.get(_rkey("feed"))
             if stale:
-                log.warning("Crawl failed - serving stale feed")
+                log.warning("Crawl failed — serving stale feed")
     finally:
         try:
-            rs._execute("DEL", "streamly:trailers:crawl_lock")
-            rs.set("streamly:trailers:last_crawl_time", str(int(time.time())), ex=86400)
+            rs.delete(_rkey("crawl_lock"))
+            rs.set(_rkey("last_crawl_time"), str(int(time.time())), ex=86400)
         except Exception:
             pass
 
 
+# ---------------------------------------------------------------------------
+# Daemon / thread helpers
+# ---------------------------------------------------------------------------
+
 def _start_crawl_thread(app, name: str = "TrailerDaemon-kick") -> None:
+    """Spawn a background thread to run one crawl cycle."""
     def _run():
         with app.app_context():
             _crawl_trailers_incremental(app)
@@ -460,37 +803,44 @@ def _start_crawl_thread(app, name: str = "TrailerDaemon-kick") -> None:
 
 
 def trailer_daemon_loop(app) -> None:
+    """Long-running daemon that crawls on a fixed interval."""
     log.info("Trailer daemon started (interval=%ds)", _CRAWL_INTERVAL_SECONDS)
     while True:
         try:
             with app.app_context():
                 _crawl_trailers_incremental(app)
-        except Exception as e:
+        except Exception:
             log.exception("Trailer daemon loop error")
         time.sleep(_CRAWL_INTERVAL_SECONDS)
 
 
 def start_trailer_daemon(app) -> None:
+    """Spawn the trailer daemon thread."""
     t = threading.Thread(target=trailer_daemon_loop, args=(app,), name="TrailerDaemon", daemon=True)
     t.start()
     log.info("Trailer daemon thread spawned")
 
 
+# ---------------------------------------------------------------------------
+# API endpoints
+# ---------------------------------------------------------------------------
+
 @trailers_bp.get("/api/trailers")
 @rate_limited(cost=0.5)
 def get_trailers():
+    """Return the cached trailer feed, kicking a crawl if empty/stale."""
     rs = getattr(current_app, "rs", None)
     if not rs:
         return jsonify({"items": []})
 
-    raw_feed = rs.get("streamly:trailers:feed")
+    raw_feed = rs.get(_rkey("feed"))
     if not raw_feed:
         _start_crawl_thread(current_app._get_current_object(), name="TrailerDaemon-kick")
         return jsonify({"items": []})
 
     try:
         data = _json.loads(raw_feed)
-        # Trigger stale refresh if feed is older than _STALE_HOURS (2 hours)
+        # Trigger stale refresh if feed is older than _STALE_HOURS
         if isinstance(data, dict) and data.get("items"):
             newest_date = data["items"][0].get("date")
             if newest_date:
@@ -505,12 +855,13 @@ def get_trailers():
 @trailers_bp.get("/api/trailers/status")
 @rate_limited(cost=0.2)
 def trailers_status():
+    """Return crawl status, staleness, and circuit-breaker state."""
     rs = getattr(current_app, "rs", None)
     if not rs:
         return jsonify({"status": "unknown", "last_crawl": None, "running": False, "channels": 0, "stale_hours": _STALE_HOURS})
 
-    last_crawl = rs.get("streamly:trailers:last_crawl_time")
-    lock = rs.get("streamly:trailers:crawl_lock")
+    last_crawl = rs.get(_rkey("last_crawl_time"))
+    lock = rs.get(_rkey("crawl_lock"))
     is_stale = False
     if last_crawl:
         try:
@@ -519,6 +870,9 @@ def trailers_status():
                 is_stale = True
         except Exception:
             pass
+
+    cb_open = _circuit_breaker.is_open(rs)
+
     return jsonify({
         "status": "ok",
         "last_crawl": int(last_crawl) if last_crawl and str(last_crawl).isdigit() else None,
@@ -526,6 +880,7 @@ def trailers_status():
         "channels": len([c for c in TRAILER_CHANNELS if c[0] != "???"]),
         "stale_hours": _STALE_HOURS,
         "is_stale": is_stale,
+        "circuit_breaker_open": cb_open,
     })
 
 
@@ -533,11 +888,12 @@ def trailers_status():
 @rate_limited(cost=1.0)
 @csrf_required
 def refresh_trailers():
+    """Manually trigger a trailer crawl."""
     rs = getattr(current_app, "rs", None)
     if not rs:
         return json_error(503, "redis_unavailable", "Redis is required")
 
-    lock_raw = rs.get("streamly:trailers:crawl_lock")
+    lock_raw = rs.get(_rkey("crawl_lock"))
     if lock_raw:
         return jsonify({"success": True, "message": "Refresh already in progress", "status": "running"})
 
@@ -552,6 +908,7 @@ def refresh_trailers():
 @trailers_bp.get("/api/trailers/channels")
 @rate_limited(cost=0.5)
 def list_trailer_channels():
+    """List all configured trailer channels."""
     return jsonify(
         {
             "channels": [
