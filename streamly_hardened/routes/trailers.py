@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json as _json
 import logging
 import os
@@ -7,7 +8,6 @@ import re
 import threading
 import time
 import urllib.parse
-import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 trailers_bp = Blueprint("trailers", __name__)
 
-_YOUTUBE_RSS_PROXY = "https://streamly-youtube-proxy.lucidesh.workers.dev"
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 
 _CRAWL_INTERVAL_SECONDS = 86400
 _CRAWL_LOCK_TTL = 600
@@ -176,18 +176,6 @@ TRAILER_CHANNELS = [
 ]
 
 
-def _rss_headers() -> dict[str, str]:
-    return {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/atom+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Referer": "https://www.youtube.com/",
-    }
-
-
 @retry(
     stop=stop_after_attempt(8),
     wait=wait_exponential(multiplier=2, min=2, max=30),
@@ -195,72 +183,96 @@ def _rss_headers() -> dict[str, str]:
     after=after_log(log, logging.INFO),
     reraise=True
 )
-def _fetch_rss(url: str, proxy_url: str | None = None, timeout: float = 15.0) -> httpx.Response:
-    """Fetch RSS. Prefer the dedicated YouTube proxy first, then direct, then fallback proxy."""
-    rs = None
-    try:
-        from flask import current_app
-        rs = getattr(current_app, "rs", None)
-    except Exception:
-        pass
+def _fetch_channel_api(channel_id: str, channel_name: str, last_seen: str | None = None) -> list[dict]:
+    """Fetch videos from YouTube Data API v3 for a specific channel and parse them."""
+    if not YOUTUBE_API_KEY:
+        log.error("YouTube API Key is missing. Skipping channel %s (%s)", channel_name, channel_id)
+        return []
 
-    with httpx.Client(http2=True, timeout=timeout, headers=_rss_headers()) as client:
-        # 1. Try dedicated YouTube RSS proxy first (Proxy-First for YouTube)
-        if _YOUTUBE_RSS_PROXY:
-            proxied_yt = f"{_YOUTUBE_RSS_PROXY.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
-            try:
-                r = client.get(proxied_yt)
-                if r.status_code == 200:
-                    if rs:
-                        rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
-                    log.info("RSS via YouTube proxy for %s -> HTTP %d", url, r.status_code)
-                    return r
-                else:
-                    if rs:
-                        rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
-            except Exception as e:
-                log.warning("YouTube proxy RSS fetch failed for %s: %s", url, e)
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    published_after = cutoff.isoformat().replace("+00:00", "Z")
 
-        # 2. Fallback to direct fetch
+    params = {
+        "part": "snippet",
+        "channelId": channel_id,
+        "type": "video",
+        "order": "date",
+        "publishedAfter": published_after,
+        "maxResults": 10,
+        "key": YOUTUBE_API_KEY
+    }
+
+    with httpx.Client(http2=True, timeout=15.0) as client:
+        r = client.get("https://www.googleapis.com/youtube/v3/search", params=params)
+        r.raise_for_status()
+        data = r.json()
+
+    results: list[dict] = []
+    items = data.get("items", [])
+    for item in items:
+        snippet = item.get("snippet", {})
+        title_raw = snippet.get("title", "")
+        title = html.unescape(title_raw).strip()
+        title_lower = title.lower()
+
+        if any(bw in title_lower for bw in _BLOCKED_KEYWORDS):
+            continue
+        if "trailer" not in title_lower and "teaser" not in title_lower:
+            continue
+
+        # Filter out YouTube Shorts by title
+        if _is_shorts_by_title(title):
+            continue
+
+        if any(h in title_lower for h in _TITLE_HEURISTICS):
+            continue
+        if len(title) < 8 or len(title) > 120:
+            continue
+
+        published = snippet.get("publishedAt", "")
+        if not published:
+            continue
+
         try:
-            r = client.get(url)
-            if r.status_code == 200:
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "direct_ok", ex=3600)
-                return r
-        except Exception as e:
-            log.debug("Direct RSS fetch fallback failed for %s: %s", url, e)
+            pub_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
+        except ValueError:
+            continue
 
-        # 3. Fallback to general Cloudflare Worker proxy (the existing proxy_url)
-        if proxy_url:
-            proxied = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(url, safe='')}&referer={urllib.parse.quote('https://www.youtube.com/feed', safe='')}"
-            try:
-                r = client.get(proxied)
-                if r.status_code == 200:
-                    if rs:
-                        rs.set("streamly:trailers:proxy_health", "proxy_ok", ex=3600)
-                    log.info("RSS via general proxy fallback for %s -> HTTP %d", url, r.status_code)
-                    return r
-                else:
-                    if rs:
-                        rs.set("streamly:trailers:proxy_health", "proxy_bad", ex=1800)
-            except Exception as e:
-                log.warning("General proxy fallback RSS fetch failed for %s: %s", url, e)
-                if rs:
-                    rs.set("streamly:trailers:proxy_health", "proxy_down", ex=1800)
+        if pub_dt < cutoff:
+            continue
 
-        # 4. Final direct attempt
-        try:
-            r = client.get(url)
-            if r.status_code == 200:
-                return r
-            else:
-                r.raise_for_status()
-        except Exception as e:
-            log.warning("RSS fetch failed completely for %s: %s", url, e)
-            raise
+        if last_seen and published <= last_seen:
+            continue
+
+        vid = item.get("id", {}).get("videoId")
+        if not vid:
+            continue
+
+        thumbnails = snippet.get("thumbnails", {})
+        thumb_url = (
+            thumbnails.get("medium", {}).get("url") or 
+            thumbnails.get("default", {}).get("url") or 
+            f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
+        )
+
+        norm_name, media_type, num = _extract_trailer_info(title)
+
+        results.append(
+            {
+                "title": title,
+                "normalized": norm_name,
+                "type": media_type,
+                "number": num,
+                "id": vid,
+                "channel": channel_name,
+                "published": published,
+                "thumbnail": thumb_url,
+                "url": f"https://www.youtube.com/watch?v={vid}",
+                "priority": _channel_priority(channel_name),
+            }
+        )
+
+    return results
 
 
 def _normalize_title(title: str) -> str:
@@ -295,88 +307,7 @@ def _channel_priority(name: str) -> int:
     return _CHANNEL_PRIORITY.get(name, 99)
 
 
-def _parse_rss_incremental(xml_text: str, channel_name: str, last_seen: str | None) -> list[dict]:
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
-        log.warning("RSS parse error for %s: %s", channel_name, e)
-        return []
 
-    ns = {
-        "atom": "http://www.w3.org/2005/Atom",
-        "media": "http://search.yahoo.com/mrss/",
-    }
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
-    results: list[dict] = []
-
-    for entry in root.findall("atom:entry", ns):
-        title_elem = entry.find("atom:title", ns)
-        if title_elem is None or title_elem.text is None:
-            continue
-        title = title_elem.text.strip()
-        title_lower = title.lower()
-
-        if any(bw in title_lower for bw in _BLOCKED_KEYWORDS):
-            continue
-        if "trailer" not in title_lower and "teaser" not in title_lower:
-            continue
-
-        # Filter out YouTube Shorts by title
-        if _is_shorts_by_title(title):
-            continue
-
-        if any(h in title_lower for h in _TITLE_HEURISTICS):
-            continue
-        if len(title) < 8 or len(title) > 120:
-            continue
-
-        published_elem = entry.find("atom:published", ns)
-        if published_elem is None or published_elem.text is None:
-            continue
-        published = published_elem.text
-
-        try:
-            pub_dt = datetime.fromisoformat(published.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-
-        if pub_dt < cutoff:
-            continue
-
-        if last_seen and published <= last_seen:
-            continue
-
-        id_elem = entry.find("atom:id", ns)
-        if id_elem is None or id_elem.text is None:
-            continue
-        vid = id_elem.text.split(":")[-1]
-
-        thumb = entry.find("media:group/media:thumbnail", ns)
-        thumb_url = None
-        if thumb is not None:
-            thumb_url = thumb.get("url")
-        if not thumb_url:
-            thumb_url = f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"
-
-        norm_name, media_type, num = _extract_trailer_info(title)
-
-        results.append(
-            {
-                "title": title,
-                "normalized": norm_name,
-                "type": media_type,
-                "number": num,
-                "id": vid,
-                "channel": channel_name,
-                "published": published,
-                "thumbnail": thumb_url,
-                "url": f"https://www.youtube.com/watch?v={vid}",
-                "priority": _channel_priority(channel_name),
-            }
-        )
-
-    return results
 
 
 def _build_digest(entries: list[dict]) -> dict:
@@ -445,18 +376,6 @@ def _crawl_trailers_incremental(app) -> None:
         return
 
     try:
-        proxy_url = rs.get("streamly:cloudflare_worker_proxy")
-        if proxy_url:
-            if isinstance(proxy_url, bytes):
-                proxy_url = proxy_url.decode("utf-8")
-            proxy_url = proxy_url.strip()
-        if not proxy_url:
-            proxy_url = app.config.get("CLOUDFLARE_WORKER_PROXY") or os.getenv("CLOUDFLARE_WORKER_PROXY", "")
-            if proxy_url:
-                proxy_url = proxy_url.strip()
-        if not proxy_url:
-            proxy_url = "https://streamly-proxy.lucidesh.workers.dev"
-
         # Load existing window and populate known_keys
         with app.app_context():
             current_window = get_current_trailer_window()
@@ -473,23 +392,21 @@ def _crawl_trailers_incremental(app) -> None:
         for channel_id, channel_name in channels:
             log.info("Fetching channel sequentially: %s (%s)", channel_name, channel_id)
             try:
-                rss_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
-                r = _fetch_rss(rss_url, proxy_url=proxy_url, timeout=15.0)
+                last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
+                if last_seen and isinstance(last_seen, bytes):
+                    last_seen = last_seen.decode("utf-8")
+
+                entries = _fetch_channel_api(channel_id, channel_name, last_seen)
                 total_channels_checked += 1
 
-                if r.status_code == 200:
-                    last_seen = rs.get(f"streamly:trailers:last_seen:{channel_id}")
-                    entries = _parse_rss_incremental(r.text, channel_name, last_seen)
-                    if entries:
-                        new_entries = [e for e in entries if (e["id"], e["published"]) not in known_keys]
-                        if new_entries:
-                            all_new_entries.extend(new_entries)
-                            total_channels_with_new += 1
-                        newest = max(entries, key=lambda e: e["published"])
-                        rs.set(f"streamly:trailers:last_seen:{channel_name}", newest["published"])
-                    log.info("✓ %s completed", channel_name)
-                else:
-                    log.warning("RSS HTTP %d for %s", r.status_code, channel_name)
+                if entries:
+                    new_entries = [e for e in entries if (e["id"], e["published"]) not in known_keys]
+                    if new_entries:
+                        all_new_entries.extend(new_entries)
+                        total_channels_with_new += 1
+                    newest = max(entries, key=lambda e: e["published"])
+                    rs.set(f"streamly:trailers:last_seen:{channel_id}", newest["published"])
+                log.info("✓ %s completed", channel_name)
             except Exception as e:
                 log.error("✗ %s failed after all retries: %s", channel_name, e)
 
