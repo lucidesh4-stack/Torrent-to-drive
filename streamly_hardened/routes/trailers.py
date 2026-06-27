@@ -259,7 +259,7 @@ def _redis_get_str(rs, key: str) -> str | None:
 def _redis_incr(rs, key: str, amount: int = 1) -> None:
     """Increment a Redis counter, ignoring errors."""
     try:
-        rs.incrby(key, amount)
+        rs._execute("INCRBY", key, str(amount))
     except Exception:
         pass
 
@@ -317,7 +317,7 @@ class _CircuitBreaker:
         )
 
     def _close(self, rs) -> None:
-        rs.delete(_rkey("cb_open_until"))
+        rs._execute("DEL", _rkey("cb_open_until"))
         rs.set(_rkey("cb_failures"), "0", ex=3600)
         log.info("Circuit breaker CLOSED — resuming API calls")
 
@@ -514,7 +514,7 @@ def _update_trailer_window(rs, new_entries: list[dict]) -> None:
 
     # Evict old entries
     try:
-        rs.zremrangebyscore(_rkey("window"), "-inf", str(cutoff_ts))
+        rs._execute("ZREMRANGEBYSCORE", _rkey("window"), "-inf", str(cutoff_ts))
     except Exception as exc:
         log.warning("Failed to evict old trailers from window: %s", exc)
 
@@ -534,7 +534,10 @@ def _update_trailer_window(rs, new_entries: list[dict]) -> None:
 
     if mapping:
         try:
-            rs.zadd(_rkey("window"), mapping)
+            zadd_args: list[str] = []
+            for member, score in mapping.items():
+                zadd_args.extend([str(score), member])
+            rs._execute("ZADD", _rkey("window"), *zadd_args)
         except Exception as exc:
             log.warning("Failed to ZADD new trailers to window: %s", exc)
 
@@ -551,7 +554,7 @@ def get_current_trailer_window() -> list[dict]:
         return []
 
     try:
-        members = rs.zrevrangebyscore(_rkey("window"), "+inf", "-inf")
+        members = rs._execute("ZREVRANGEBYSCORE", _rkey("window"), "+inf", "-inf")
     except Exception as exc:
         log.warning("Failed to read trailer window: %s", exc)
         return []
@@ -663,9 +666,9 @@ def _crawl_trailers_incremental(app) -> None:
         log.warning("Trailer crawl skipped: Redis unavailable")
         return
 
-    # Acquire distributed lock
-    acquired = rs.set(_rkey("crawl_lock"), "1", ex=_CRAWL_LOCK_TTL, nx=True)
-    if not acquired:
+    # Acquire distributed lock (SET key value EX seconds NX)
+    lock_result = rs._execute("SET", _rkey("crawl_lock"), "1", "EX", str(_CRAWL_LOCK_TTL), "NX")
+    if lock_result != "OK":
         return
 
     try:
@@ -784,7 +787,7 @@ def _crawl_trailers_incremental(app) -> None:
                 log.warning("Crawl failed — serving stale feed")
     finally:
         try:
-            rs.delete(_rkey("crawl_lock"))
+            rs._execute("DEL", _rkey("crawl_lock"))
             rs.set(_rkey("last_crawl_time"), str(int(time.time())), ex=86400)
         except Exception:
             pass
