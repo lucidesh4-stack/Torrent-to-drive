@@ -343,7 +343,7 @@ def t3_manager_present(ctx: Ctx) -> CheckResult:
 # End of Telegram hardening checks
 
 # ============================================================
-# TELEGRAM SEND + TRAILERS HARDENING CHECKS (2026-06-25)
+# TELEGRAM SEND HARDENING CHECKS (2026-06-25)
 # ============================================================
 
 @check("T4", "Telegram: returns actual uploaded parts (not pre-calculated size)")
@@ -369,20 +369,6 @@ def t6_pre_send_validation(ctx: Ctx) -> CheckResult:
         return _ok("T6", "send guard", "Pre-send part count validation present")
     return _bad("T6", "send guard", "Missing pre-send validation")
 
-@check("TR1", "Trailers: _fetch_rss has proxy health tracking")
-def tr1_fetch_health(ctx: Ctx) -> CheckResult:
-    tr = ctx.read("routes/trailers.py")
-    if "_get_proxy_health" in tr or "proxy_health" in tr:
-        return _ok("TR1", "rss fetch", "Proxy health tracking present")
-    return _bad("TR1", "rss fetch", "No proxy health tracking")
-
-@check("TR2", "Trailers: serves stale feed on total crawl failure")
-def tr2_stale_fallback(ctx: Ctx) -> CheckResult:
-    tr = ctx.read("routes/trailers.py")
-    if "stale" in tr.lower() or "serving stale" in tr or "Crawl failed - serving stale" in tr:
-        return _ok("TR2", "crawl resilience", "Falls back to stale feed")
-    return _bad("TR2", "crawl resilience", "No stale fallback on failure")
-
 # Additional advanced checks for pending tasks / cancellation
 @check("T7", "Telegram: UploadSender/ParallelUploader has task cancellation guards")
 def t7_upload_cancellation(ctx: Ctx) -> CheckResult:
@@ -393,15 +379,7 @@ def t7_upload_cancellation(ctx: Ctx) -> CheckResult:
         return _ok("T7", "upload task cleanup", "Cancellation/finish guards present")
     return _bad("T7", "upload task cleanup", "Missing explicit pending task cancellation")
 
-@check("TR3", "Trailers: proxy health key used and circuit-like handling")
-def tr3_proxy_health(ctx: Ctx) -> CheckResult:
-    tr = ctx.read("routes/trailers.py")
-    health_key = "streamly:trailers:proxy_health" in tr
-    if health_key:
-        return _ok("TR3", "proxy health", "Proxy health key referenced")
-    return _bad("TR3", "proxy health", "Proxy health key not used")
-
 # Auto-register new checks (defensive)
-for _n in ["T4", "T5", "T6", "TR1", "TR2", "T7", "TR3"]:
+for _n in ["T4", "T5", "T6", "T7"]:
     if _n in globals():
         pass  # already decorated

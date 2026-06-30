@@ -7,28 +7,6 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ asset_ver }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v={{ asset_ver }}">
-  <style>
-    .trailer-day { margin-bottom: 24px; }
-    .trailer-date { font-size: 13px; font-weight: 600; color: #8b949e; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .trailer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-    .trailer-card { background: rgba(22,27,34,0.6); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow: hidden; cursor: pointer; transition: transform 0.1s, border-color 0.2s; }
-    .trailer-card:hover { border-color: rgba(47,156,240,0.35); transform: translateY(-1px); }
-    .trailer-thumb { position: relative; aspect-ratio: 16/9; background: #000; }
-    .trailer-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .trailer-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.4); opacity: 0; transition: opacity 0.2s; font-size: 40px; color: #fff; pointer-events: none; }
-    .trailer-card:hover .trailer-play { opacity: 1; }
-    .trailer-info { padding: 10px 12px 12px; }
-    .trailer-title { font-size: 13px; font-weight: 600; color: #f0f6fc; margin-bottom: 6px; line-height: 1.35; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-    .trailer-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
-    .trailer-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(47,156,240,0.12); color: #58a6ff; cursor: pointer; user-select: none; }
-    .trailer-badge.teaser { background: rgba(139,148,158,0.12); color: #8b949e; }
-    .trailer-meta { font-size: 11px; color: #8b949e; display: flex; justify-content: space-between; gap: 8px; }
-    .trailer-channel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .trailer-when { flex-shrink: 0; }
-    a.trailer-card { text-decoration: none; color: inherit; display: block; }
-    a.trailer-card:hover { text-decoration: none; }
-    .trailer-new { position: absolute; top: 8px; right: 8px; background: #ff4d4d; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.5px; z-index: 2; }
-  </style>
 </head>
 <body>
   <section id="loginScreen" class="login-wrap hidden">
@@ -205,10 +183,6 @@
         </div>
       </section>
 
-      <section id="trailersView" class="hidden">
-        <div id="trailersContainer" class="panel"></div>
-      </section>
-
     </main>
     <nav class="bottom-nav">
       <div class="bottom-nav-highlight" id="bottomNavHighlight"></div>
@@ -228,10 +202,6 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
         <span class="bottom-tab-label">Send</span>
         <div id="tgBadge" class="tab-badge hidden"></div>
-      </button>
-      <button id="trailersTab" class="bottom-tab-item" type="button" aria-label="Trailers">
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon-svg"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span class="bottom-tab-label">Trailers</span>
       </button>
     </nav>
   </section>
