@@ -308,6 +308,60 @@ class QueueStream:
         del self._buffer[:n]
         return res
 
+async def parallel_download_generator(client: httpx.AsyncClient, url: str, headers: dict, exact_size: int, cancel_flag: list[bool]):
+    chunk_size = 4 * 1024 * 1024  # 4MB chunks
+    num_connections = 6          # 6 parallel connections
+    total_chunks = (exact_size + chunk_size - 1) // chunk_size
+
+    tasks = {}
+
+    def start_download_task(idx):
+        start_byte = idx * chunk_size
+        end_byte = min(start_byte + chunk_size - 1, exact_size - 1)
+        if start_byte > end_byte:
+            return
+
+        chunk_headers = headers.copy()
+        chunk_headers["Range"] = f"bytes={start_byte}-{end_byte}"
+
+        async def fetch():
+            for attempt in range(3):
+                try:
+                    response = await client.get(url, headers=chunk_headers, timeout=45.0)
+                    response.raise_for_status()
+                    return response.content
+                except Exception as e:
+                    if attempt == 2:
+                        raise e
+                    await asyncio.sleep(0.5)
+
+        tasks[idx] = asyncio.create_task(fetch())
+
+    # Pre-populate initial connections
+    for i in range(min(num_connections, total_chunks)):
+        start_download_task(i)
+
+    for i in range(total_chunks):
+        if cancel_flag[0]:
+            break
+
+        task = tasks.get(i)
+        if not task:
+            break
+
+        try:
+            chunk_data = await task
+        except Exception as e:
+            log.error("Failed to download range chunk %d: %s", i, e)
+            raise e
+
+        yield chunk_data
+        del tasks[i]
+
+        next_to_start = i + num_connections
+        if next_to_start < total_chunks:
+            start_download_task(next_to_start)
+
 async def download_to_queue(
     queue: asyncio.Queue,
     download_url: str,
@@ -316,19 +370,18 @@ async def download_to_queue(
     cancel_flag: list[bool]
 ):
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("GET", download_url, headers=headers) as r:
-                r.raise_for_status()
-                downloaded = 0
-                async for chunk in r.aiter_bytes(chunk_size=64 * 1024):
-                    if cancel_flag[0]:
-                        break
-                    await queue.put(chunk)
-                    downloaded += len(chunk)
-                if not cancel_flag[0] and downloaded != exact_size:
-                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
+        limits = httpx.Limits(max_keepalive_connections=8, max_connections=16)
+        async with httpx.AsyncClient(http2=True, limits=limits, timeout=60.0) as client:
+            downloaded = 0
+            async for chunk in parallel_download_generator(client, download_url, headers, exact_size, cancel_flag):
+                if cancel_flag[0]:
+                    break
+                await queue.put(chunk)
+                downloaded += len(chunk)
+            if not cancel_flag[0] and downloaded != exact_size:
+                raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
     except Exception as e:
-        log.warning("Proxy download stream failed: %s: %s", type(e).__name__, e)
+        log.warning("Parallel download stream failed: %s: %s", type(e).__name__, e)
         await queue.put(e)
     finally:
         await queue.put(None)
@@ -531,42 +584,27 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             )
             
             exact_size = size
-            import requests
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 "Accept": "*/*",
                 "Accept-Encoding": "identity",
-                "Connection": "keep-alive",
-                "Range": "bytes=0-"
+                "Connection": "keep-alive"
             }
             
-            # Resolve proxy settings
-            proxy_url = rs.get("streamly:cloudflare_worker_proxy")
-            if proxy_url:
-                if isinstance(proxy_url, bytes):
-                    proxy_url = proxy_url.decode("utf-8")
-                proxy_url = proxy_url.strip()
-            if not proxy_url:
-                proxy_url = current_app.config.get("CLOUDFLARE_WORKER_PROXY", "").strip()
-            if not proxy_url:
-                proxy_url = "https://streamly-proxy.lucidesh.workers.dev"
+            download_url = file_url
+            log.info("Downloading directly from Seedr (no proxy): %s", download_url)
 
-            import urllib.parse
-            download_url = f"{proxy_url.rstrip('/')}/?url={urllib.parse.quote(file_url)}"
-            log.info("Routing download through Cloudflare Worker Proxy: %s", download_url)
-
-            # Query Content-Length via proxy
-            exact_size = size
+            # Query Content-Length directly from Seedr using httpx (HTTP/2 enabled)
             try:
-                log.info("Querying Content-Length via proxy: %s", download_url)
-                r = requests.get(download_url, stream=True, timeout=15.0, headers=headers)
-                r.raise_for_status()
-                content_len_header = r.headers.get("content-length")
-                if content_len_header:
-                    exact_size = int(content_len_header)
-                r.close()
+                log.info("Querying Content-Length directly from Seedr: %s", download_url)
+                async with httpx.AsyncClient(http2=True, timeout=15.0) as client_cl:
+                    r = await client_cl.get(download_url, headers=headers)
+                    r.raise_for_status()
+                    content_len_header = r.headers.get("content-length")
+                    if content_len_header:
+                        exact_size = int(content_len_header)
             except Exception as e:
-                log.warning("Proxy Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
+                log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
                 exact_size = size
             
             part_size = _TG_PART_SIZE
