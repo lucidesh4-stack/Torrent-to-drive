@@ -331,7 +331,7 @@ async def download_to_queue(
                     raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
     except Exception as e:
         if not used_fallback:
-            log.warning("Proxy download failed: %s. Retrying directly against Seedr URL.", e)
+            log.warning("Proxy download failed: %s: %s. Retrying directly against Seedr URL.", type(e).__name__, e)
             try:
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     async with client.stream("GET", fallback_url, headers=headers) as r:
@@ -576,27 +576,45 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 download_url = file_url
                 log.info("Downloading directly from Seedr (no proxy configured)")
 
-            # Query Content-Length using a streaming request (with fallback to direct Seedr URL)
+            # Query Content-Length and validate proxy speed/availability
             used_fallback = False
-            try:
-                if not proxy_url:
-                    raise ValueError("No proxy configured")
-                log.info("Querying Content-Length via proxy: %s", download_url)
-                r = requests.get(download_url, stream=True, timeout=15.0, headers=headers)
-                r.raise_for_status()
-                content_len_header = r.headers.get("content-length")
-                if content_len_header:
-                    exact_size = int(content_len_header)
-                else:
-                    raise ValueError("Missing Content-Length header")
-                if exact_size <= 0:
-                    raise ValueError(f"Implausible Content-Length: {exact_size}")
-                r.close()
-            except Exception as e:
-                log.warning("Proxy Content-Length check failed: %s. Falling back to direct Seedr URL.", e)
+            exact_size = size
+
+            if proxy_url:
+                try:
+                    log.info("Validating Cloudflare Worker Proxy speed & availability: %s", download_url)
+                    start_val = time.time()
+                    # Perform GET with stream=True and a 3.0s timeout to connect and check first chunk
+                    r = requests.get(download_url, stream=True, timeout=3.0, headers=headers)
+                    r.raise_for_status()
+
+                    # Read a tiny chunk to ensure data is flowing
+                    chunk = next(r.iter_content(chunk_size=1024), b"")
+                    elapsed = time.time() - start_val
+
+                    content_len_header = r.headers.get("content-length")
+                    r.close()
+
+                    if elapsed > 3.0:
+                        raise TimeoutError(f"Proxy response too slow ({elapsed:.2f}s, threshold is 3s)")
+
+                    if content_len_header:
+                        exact_size = int(content_len_header)
+                        if exact_size <= 0:
+                            raise ValueError(f"Implausible Content-Length from proxy: {exact_size}")
+                        log.info("Proxy validated successfully in %.2fs. Content-Length: %d", elapsed, exact_size)
+                    else:
+                        raise ValueError("Missing Content-Length header from proxy")
+                except Exception as e:
+                    log.warning("Proxy validation failed: %s: %s. Falling back to direct Seedr URL.", type(e).__name__, e)
+                    download_url = file_url
+                    used_fallback = True
+            else:
                 download_url = file_url
                 used_fallback = True
-                exact_size = size  # Fall back to the Seedr-reported size
+
+            if used_fallback:
+                log.info("Checking Content-Length directly from Seedr: %s", download_url)
                 try:
                     r = requests.get(download_url, stream=True, timeout=15.0, headers=headers)
                     r.raise_for_status()
@@ -605,7 +623,8 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         exact_size = int(content_len_header)
                     r.close()
                 except Exception as de:
-                    log.warning("Direct Seedr Content-Length check failed: %s. Using reported size.", de)
+                    log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(de).__name__, de, size)
+                    exact_size = size
             
             part_size = _TG_PART_SIZE
             parts_count = (exact_size + part_size - 1) // part_size
