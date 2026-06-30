@@ -309,8 +309,8 @@ class QueueStream:
         return res
 
 async def parallel_download_generator(client: httpx.AsyncClient, url: str, headers: dict, exact_size: int, cancel_flag: list[bool]):
-    chunk_size = 4 * 1024 * 1024  # 4MB chunks
-    num_connections = 6          # 6 parallel connections
+    chunk_size = 2 * 1024 * 1024  # 2MB chunks
+    num_connections = 2          # 2 parallel connections
     total_chunks = (exact_size + chunk_size - 1) // chunk_size
 
     tasks = {}
@@ -585,10 +585,11 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             
             exact_size = size
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 "Accept": "*/*",
                 "Accept-Encoding": "identity",
-                "Connection": "keep-alive"
+                "Connection": "keep-alive",
+                "Referer": "https://www.seedr.cc/"
             }
             
             download_url = file_url
