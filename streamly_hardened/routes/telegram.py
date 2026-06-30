@@ -631,8 +631,17 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             uploaded = None
 
             import os
-            temp_dir = os.path.join(os.getcwd(), "temp_downloads")
-            os.makedirs(temp_dir, exist_ok=True)
+            temp_dir = os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
+            try:
+                os.makedirs(temp_dir, exist_ok=True)
+                test_file = os.path.join(temp_dir, f".write_test_{task_id}")
+                with open(test_file, "w") as tf:
+                    tf.write("test")
+                os.remove(test_file)
+            except Exception:
+                temp_dir = os.path.join(os.getcwd(), "temp_downloads")
+                os.makedirs(temp_dir, exist_ok=True)
+
             temp_file_name = f"transfer_{task_id}_{filename}"
             temp_path = os.path.join(temp_dir, temp_file_name)
 
@@ -647,24 +656,25 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                         pass
 
                 try:
-                    # Phase 1: High-speed region-based download directly from Seedr
+                    # Phase 1: High-speed proxy-based download directly from Seedr
                     tracker.phase = "download"
                     tracker.last_pct = 0.0
                     tracker.last_write_bytes = 0
                     
-                    def download_progress(pct, speed, bytes_downloaded):
+                    def download_progress(bytes_downloaded, speed_mbps):
                         if cancel_flag[0]:
                             raise ValueError("Cancelled by user")
+                        # speed_mbps is in Mbps, tracker expects MB/s (1 MB/s = 8 Mbps)
+                        tracker.last_speed_mb = speed_mbps / 8.0
                         tracker(bytes_downloaded, exact_size)
 
-                    log.info("Starting high-speed multi-region Seedr download to %s", temp_path)
+                    log.info("Starting high-speed Seedr download to %s", temp_path)
                     
-                    async with SeedrDownloader(
-                        num_connections=3,
-                        chunk_size=75 * 1024 * 1024,
-                        progress_callback=download_progress
-                    ) as downloader:
-                        await downloader.download(download_url, exact_size, destination=temp_path)
+                    downloader = SeedrDownloader(
+                        worker_url=os.getenv("WORKER_URL", "https://streamly-proxy.lucidesh.workers.dev/"),
+                        temp_dir=temp_dir
+                    )
+                    await downloader.download(download_url, filename=temp_file_name, progress_callback=download_progress)
 
                     if not os.path.exists(temp_path):
                         raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
