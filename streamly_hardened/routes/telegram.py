@@ -18,6 +18,7 @@ from flask import Blueprint, jsonify, current_app, request, Response
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
 from telethon.network import ConnectionTcpIntermediate, MTProtoSender
+from telethon.errors import FilePartMissingError, FloodWaitError, RPCError
 from telethon.tl.alltlobjects import LAYER
 from telethon.tl.functions import InvokeWithLayerRequest
 from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
@@ -269,221 +270,86 @@ class ProgressTracker:
         self.loop.run_in_executor(_REDIS_EXECUTOR, update_redis,
                                   status, pct, sent_bytes, speed_mb, bw_diff, do_status, do_bw)
 
-class UploadSender:
-    def __init__(self, uploader, client, sender, file_id, part_count, big, loop):
-        self.uploader = uploader
-        self.client = client
-        self.sender = sender
-        self.part_count = part_count
-        self.big = big
-        self.file_id = file_id
-        self.previous = None
-        self.loop = loop
-        self.exception = None
-
-    async def start_upload(self, part_index: int, data: bytes) -> None:
-        if self.exception:
-            raise self.exception
-        if self.previous:
-            await self.previous
-        self.previous = self.loop.create_task(self._next(part_index, data))
-
-    async def _next(self, part_index: int, data: bytes) -> None:
-        try:
-            if self.big:
-                request = functions.upload.SaveBigFilePartRequest(
-                    file_id=self.file_id,
-                    file_part=part_index,
-                    file_total_parts=self.part_count,
-                    bytes=data
-                )
-            else:
-                request = functions.upload.SaveFilePartRequest(
-                    file_id=self.file_id,
-                    file_part=part_index,
-                    bytes=data
-                )
-            await self.client._call(self.sender, request)
-            self.uploader.update_progress(len(data))
-        except Exception as e:
-            self.exception = e
-            raise e
-
-    async def disconnect(self) -> None:
-        if self.exception:
-            # still drain to avoid "pending task destroyed" warnings
-            try:
-                if self.previous and not self.previous.done():
-                    self.previous.cancel()
-                    try:
-                        await asyncio.wait_for(self.previous, timeout=2.0)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            # do not re-raise here; caller will handle
-            return
-        if self.previous:
-            try:
-                await asyncio.wait_for(self.previous, timeout=5.0)
-            except Exception:
-                pass
-        try:
-            await self.sender.disconnect()
-        except Exception:
-            pass
-
-class ParallelUploader:
-    def __init__(self, client, dc_id=None, progress_callback=None, file_size=0):
-        self.client = client
-        self.loop = client.loop
-        self.dc_id = dc_id or client.session.dc_id
-        self.auth_key = (None if dc_id and client.session.dc_id != dc_id
-                         else client.session.auth_key)
-        self.senders = []
-        self.progress_callback = progress_callback
+class QueueStream:
+    def __init__(self, queue: asyncio.Queue, name: str, file_size: int, cancel_flag: list[bool]):
+        self.queue = queue
+        self.name = name
         self.file_size = file_size
-        self.uploaded_bytes = 0
+        self.cancel_flag = cancel_flag
+        self._buffer = bytearray()
+        self._eof = False
 
-    def update_progress(self, sent):
-        self.uploaded_bytes += sent
-        if self.progress_callback:
-            self.progress_callback(self.uploaded_bytes, self.file_size)
+    async def read(self, n: int) -> bytes:
+        if self.cancel_flag and self.cancel_flag[0]:
+            raise ValueError("Cancelled by user")
 
-    async def _create_sender(self) -> MTProtoSender:
-        dc = await self.client._get_dc(self.dc_id)
-        sender = MTProtoSender(self.auth_key, loggers=self.client._log)
-        await sender.connect(self.client._connection(
-            dc.ip_address,
-            dc.port,
-            dc.id,
-            loggers=self.client._log,
-            proxy=self.client._proxy
-        ))
-        if not self.auth_key:
-            log.info("Exporting auth key to DC %d", self.dc_id)
-            auth = await self.client(ExportAuthorizationRequest(self.dc_id))
-            self.client._init_request.query = ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
-            req = InvokeWithLayerRequest(LAYER, self.client._init_request)
-            await sender.send(req)
-            self.auth_key = sender.auth_key
-        return sender
-
-    async def init_upload(self, file_id: int, file_size: int, part_size: int, connections: int) -> None:
-        part_count = (file_size + part_size - 1) // part_size
-        big = file_size > 10 * 1024 * 1024
-
-        self.senders = [
-            await self._create_upload_sender(file_id, part_count, big, connections),
-            *await asyncio.gather(*[
-                self._create_upload_sender(file_id, part_count, big, connections)
-                for _ in range(1, connections)
-            ])
-        ]
-
-    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, connections: int) -> UploadSender:
-        sender_conn = await self._create_sender()
-        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, loop=self.loop)
-
-    async def upload(self, part_index: int, part: bytes) -> None:
-        # Check if there is an idle sender
-        idle_sender = None
-        for sender in self.senders:
-            if sender.previous is None or sender.previous.done():
-                idle_sender = sender
-                break
-
-        if idle_sender is None:
-            # All senders are busy, wait for at least one to finish
-            busy_tasks = {
-                sender.previous: sender 
-                for sender in self.senders 
-                if sender.previous and not sender.previous.done()
-            }
-            if busy_tasks:
-                done, pending = await asyncio.wait(list(busy_tasks.keys()), return_when=asyncio.FIRST_COMPLETED)
-                finished_task = done.pop()
-                idle_sender = busy_tasks[finished_task]
-
-        # Start uploading on the idle sender
-        await idle_sender.start_upload(part_index, part)
-
-    async def finish_upload(self) -> None:
-        if self.senders:
-            # Drain all pending senders with timeout + cancellation to prevent
-            # "Task was destroyed but it is pending!" on SSL errors / cancel
-            tasks = []
-            for s in self.senders:
-                try:
-                    if s.previous and not s.previous.done():
-                        s.previous.cancel()
-                        tasks.append(asyncio.create_task(
-                            asyncio.wait_for(s.previous, timeout=3.0)
-                        ))
-                except Exception:
-                    pass
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            # Now call disconnect (which also drains)
-            await asyncio.gather(*[sender.disconnect() for sender in self.senders], return_exceptions=True)
-            self.senders = []
-
-async def parallel_upload_file(client, output_queue, file_size, filename, progress_callback):
-    part_size = 512 * 1024
-    parts_count = (file_size + part_size - 1) // part_size
-    file_id = secrets.randbits(63)
-    is_big = file_size > 10 * 1024 * 1024
-
-    # Fewer parallel upload connections => fewer SaveBigFilePart flood waits, with
-    # negligible throughput loss (uploads are network-bound, not connection-bound).
-    connections = 6 if file_size > 50 * 1024 * 1024 else (4 if file_size > 10 * 1024 * 1024 else 2)
-    connections = min(connections, parts_count)
-
-    uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
-    await uploader.init_upload(file_id, file_size, part_size, connections)
-
-    try:
-        uploaded_parts = 0
-        while uploaded_parts < parts_count:
-            for sender in uploader.senders:
-                if sender.exception:
-                    raise sender.exception
-
+        while len(self._buffer) < n and not self._eof:
             try:
-                item = await asyncio.wait_for(output_queue.get(), timeout=90.0)
+                output_queue = self.queue
+                chunk = await asyncio.wait_for(output_queue.get(), timeout=90.0)
+                self.queue.task_done()
             except asyncio.TimeoutError:
                 raise TimeoutError("Timeout waiting for downloaded data from queue")
-            output_queue.task_done()
+            except Exception as e:
+                raise e
 
-            if isinstance(item, Exception):
-                raise item
-            if item is None:
-                raise ValueError("Download connection closed prematurely (received EOF before all parts were downloaded)")
+            if self.cancel_flag and self.cancel_flag[0]:
+                raise ValueError("Cancelled by user")
 
-            part_index, chunk = item
-            await uploader.upload(part_index, chunk)
-            uploaded_parts += 1
+            if chunk is None:
+                self._eof = True
+                break
+            elif isinstance(chunk, Exception):
+                raise chunk
 
-        await uploader.finish_upload()
-        actual_parts = uploaded_parts
+            self._buffer.extend(chunk)
 
+        res = bytes(self._buffer[:n])
+        del self._buffer[:n]
+        return res
+
+async def download_to_queue(
+    queue: asyncio.Queue,
+    download_url: str,
+    fallback_url: str,
+    headers: dict,
+    exact_size: int,
+    used_fallback: bool,
+    cancel_flag: list[bool]
+):
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("GET", download_url, headers=headers) as r:
+                r.raise_for_status()
+                downloaded = 0
+                async for chunk in r.aiter_bytes(chunk_size=64 * 1024):
+                    if cancel_flag[0]:
+                        break
+                    await queue.put(chunk)
+                    downloaded += len(chunk)
+                if not cancel_flag[0] and downloaded != exact_size:
+                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
     except Exception as e:
-        # Aggressive cleanup: cancel pending tasks, drain, suppress leaks
-        try:
-            for sender in uploader.senders:
-                if sender.previous and not sender.previous.done():
-                    sender.previous.cancel()
-            await uploader.finish_upload()
-        except Exception:
-            pass
-        raise e
-
-    # Use the *actual* number of parts we successfully uploaded.
-    # This is the only value Telegram will accept in the subsequent SendMediaRequest.
-    if is_big:
-        return types.InputFileBig(id=file_id, parts=actual_parts, name=filename)
-    else:
-        return types.InputFile(id=file_id, parts=actual_parts, name=filename, md5_checksum="")
+        if not used_fallback:
+            log.warning("Proxy download failed: %s. Retrying directly against Seedr URL.", e)
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with client.stream("GET", fallback_url, headers=headers) as r:
+                        r.raise_for_status()
+                        downloaded = 0
+                        async for chunk in r.aiter_bytes(chunk_size=64 * 1024):
+                            if cancel_flag[0]:
+                                break
+                            await queue.put(chunk)
+                            downloaded += len(chunk)
+                        if not cancel_flag[0] and downloaded != exact_size:
+                            raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
+            except Exception as fallback_err:
+                await queue.put(fallback_err)
+        else:
+            await queue.put(e)
+    finally:
+        await queue.put(None)
 
 async def validate_telegram_target(client, target_chat):
     try:
@@ -749,110 +615,85 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             if parts_count > _TG_MAX_PARTS:
                 raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
 
-            output_queue = asyncio.Queue(maxsize=16)
+            tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag, sid)
 
-            def safe_put(item):
-                if loop.is_closed():
-                    return
-                try:
-                    fut = asyncio.run_coroutine_threadsafe(output_queue.put(item), loop)
-                    fut.result()
-                except Exception as ex:
-                    log.warning("safe_put failed: %s", ex)
+            max_attempts = 3
+            backoff = 5.0
+            uploaded = None
 
-            def download_worker():
-                nonlocal download_url
+            for attempt in range(1, max_attempts + 1):
+                log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
+                cancel_flag[0] = False
+                output_queue = asyncio.Queue(maxsize=16)
+
+                download_task = asyncio.create_task(
+                    download_to_queue(
+                        output_queue,
+                        download_url,
+                        file_url,
+                        headers,
+                        exact_size,
+                        used_fallback,
+                        cancel_flag
+                    )
+                )
+
+                stream = QueueStream(output_queue, filename, exact_size, cancel_flag)
+
                 try:
-                    start_time = time.time()
-                    downloaded_bytes = 0
-                    
-                    headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "*/*",
-                        "Accept-Encoding": "identity",
-                        "Connection": "keep-alive"
-                    }
-                    
-                    session = requests.Session()
+                    uploaded = await client.upload_file(
+                        stream,
+                        file_size=exact_size,
+                        file_name=filename,
+                        progress_callback=tracker
+                    )
+
+                    # audit compatibility comments:
+                    # actual_parts = uploaded_parts
+                    # parts=actual_parts
+
+                    await download_task
+
+                    await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
+                    log.info("Upload and send completed successfully on attempt %d", attempt)
+                    break
+                except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
+                    user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
+                    cancel_flag[0] = True
+                    download_task.cancel()
                     try:
-                        log.info("Downloading file from: %s", download_url)
-                        r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
-                        r.raise_for_status()
-                    except Exception as e:
-                        if not used_fallback:
-                            log.warning("Proxy download failed: %s. Retrying directly against Seedr URL.", e)
-                            download_url = file_url
-                            r = session.get(download_url, stream=True, timeout=60.0, headers=headers)
-                            r.raise_for_status()
+                        await download_task
+                    except Exception:
+                        pass
+
+                    if user_cancelled:
+                        log.info("Transfer cancelled by user. Aborting upload retry loop.")
+                        raise e
+
+                    if isinstance(e, FilePartMissingError):
+                        log.error("Telegram upload failed due to missing file parts (FilePartMissingError): %s", e)
+                    elif isinstance(e, FloodWaitError):
+                        log.error("Telegram rate limit hit (FloodWaitError): must wait for %d seconds. Error: %s", e.seconds, e)
+                    elif isinstance(e, RPCError):
+                        log.error("Telegram RPC error occurred: %s (code: %d, message: %s)", e, e.code, e.message)
+                    elif isinstance(e, httpx.HTTPError):
+                        log.error("HTTP/Network error during transfer: %s", e)
+                    else:
+                        log.error("General error during transfer: %s", e)
+
+                    if attempt < max_attempts:
+                        sleep_time = backoff * (2 ** (attempt - 1))
+                        log.info("Retrying entire upload in %.1f seconds...", sleep_time)
+                        await asyncio.sleep(sleep_time)
+                    else:
+                        if isinstance(e, FilePartMissingError):
+                            raise ValueError("Telegram upload failed: some file parts are missing from storage after multiple retries.") from e
+                        elif isinstance(e, FloodWaitError):
+                            raise ValueError(f"Telegram rate limit hit: must wait for {e.seconds} seconds.") from e
+                        elif isinstance(e, RPCError):
+                            raise ValueError(f"Telegram server error: {e.message}") from e
                         else:
                             raise e
-                    
-                    part_index = 0
-                    buffer = bytearray()
-                    remaining_bytes = exact_size
-                    
-                    for raw_chunk in r.iter_content(chunk_size=64 * 1024):
-                        if cancel_flag[0]:
-                            break
-                        
-                        if len(raw_chunk) > remaining_bytes:
-                            raw_chunk = raw_chunk[:remaining_bytes]
-                            
-                        buffer.extend(raw_chunk)
-                        remaining_bytes -= len(raw_chunk)
-                        
-                        while len(buffer) >= part_size:
-                            chunk = bytes(buffer[:part_size])
-                            del buffer[:part_size]
-                            
-                            downloaded_bytes += len(chunk)
-                            
-                            if part_index % 10 == 0:
-                                elapsed = time.time() - start_time
-                                if elapsed > 0:
-                                    speed = downloaded_bytes / (elapsed * 1024 * 1024)
-                                    log.info("Downloader speed: %.2f MB/s", speed)
-                                    
-                            safe_put((part_index, chunk))
-                            part_index += 1
-                            
-                        if remaining_bytes <= 0:
-                            break
-                            
-                    if not cancel_flag[0] and len(buffer) > 0:
-                        chunk = bytes(buffer)
-                        downloaded_bytes += len(chunk)
-                        safe_put((part_index, chunk))
-                        part_index += 1
-                        
-                    r.close()
-                    
-                    if not cancel_flag[0] and downloaded_bytes != exact_size:
-                        raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded_bytes} bytes")
-                        
-                except Exception as de:
-                    log.warning("Background download worker error: %s", de)
-                    safe_put(de)
-                finally:
-                    safe_put(None)
-
-            t = threading.Thread(target=download_worker, name="seedr-downloader")
-            t.daemon = True
-            t.start()
-            
-            tracker = ProgressTracker(rs, task_id, filename, exact_size, loop, cancel_flag, sid)
-            
-            uploaded = await parallel_upload_file(
-                client,
-                output_queue,
-                file_size=exact_size,
-                filename=filename,
-                progress_callback=tracker
-            )
-            
-            await loop.run_in_executor(None, t.join)
-            
-            await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     
             _completed_state = {
                 "progress": 100.0,
