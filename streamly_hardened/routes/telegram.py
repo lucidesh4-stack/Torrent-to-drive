@@ -34,6 +34,8 @@ from ..security import (
     ValidationError,
 )
 
+from ..core.http_client import SeedrDownloader
+
 # === HARDENED CLIENT LIFECYCLE (Phase 1) ===
 # All TelegramClient creation now goes through the manager.
 # This centralizes flood handling, connection discipline, and cleanup.
@@ -173,15 +175,20 @@ class ProgressTracker:
         self.last_speed_mb = None
         self.last_persist_time = 0.0   # force a status persist on the first callback
         self.last_bw_flush_time = time.time()  # bandwidth flushed on its own slower cadence
+        self.phase = "upload"
 
-    def __call__(self, sent_bytes, total_bytes):
+    def __call__(self, sent_bytes, total_bytes=None):
         # Check for cancel request via the non-blocking shared list flag
         if self.cancel_flag and self.cancel_flag[0]:
             raise ValueError("Cancelled by user")
 
         now = time.time()
         tot = total_bytes or self.total_bytes or 1
-        pct = round((sent_bytes / tot) * 100, 1)
+        
+        if self.phase == "download":
+            pct = round((sent_bytes / tot) * 50.0, 1)
+        else:
+            pct = round(50.0 + (sent_bytes / tot) * 50.0, 1)
 
         # Recompute smoothed speed on the same ~2s cadence as before (cheap, in-proc).
         elapsed = now - self.last_write_time
@@ -227,9 +234,10 @@ class ProgressTracker:
         bw_diff = 0
         if do_bw:
             self.last_bw_flush_time = now
-            bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
-            if bw_diff > 0:
-                self.last_bandwidth_sent_bytes = sent_bytes
+            if self.phase == "upload":
+                bw_diff = sent_bytes - self.last_bandwidth_sent_bytes
+                if bw_diff > 0:
+                    self.last_bandwidth_sent_bytes = sent_bytes
         if do_status:
             self.last_persist_time = now
 
@@ -622,36 +630,71 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
             backoff = 5.0
             uploaded = None
 
+            import os
+            temp_dir = os.path.join(os.getcwd(), "temp_downloads")
+            os.makedirs(temp_dir, exist_ok=True)
+            temp_file_name = f"transfer_{task_id}_{filename}"
+            temp_path = os.path.join(temp_dir, temp_file_name)
+
             for attempt in range(1, max_attempts + 1):
                 log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
                 cancel_flag[0] = False
-                output_queue = asyncio.Queue(maxsize=16)
-
-                download_task = asyncio.create_task(
-                    download_to_queue(
-                        output_queue,
-                        download_url,
-                        headers,
-                        exact_size,
-                        cancel_flag
-                    )
-                )
-
-                stream = QueueStream(output_queue, filename, exact_size, cancel_flag)
+                
+                if os.path.exists(temp_path):
+                    try:
+                        os.remove(temp_path)
+                    except Exception:
+                        pass
 
                 try:
-                    uploaded = await client.upload_file(
-                        stream,
-                        file_size=exact_size,
-                        file_name=filename,
-                        progress_callback=tracker
-                    )
+                    # Phase 1: High-speed region-based download directly from Seedr
+                    tracker.phase = "download"
+                    tracker.last_pct = 0.0
+                    tracker.last_write_bytes = 0
+                    
+                    def download_progress(pct, speed, bytes_downloaded):
+                        if cancel_flag[0]:
+                            raise ValueError("Cancelled by user")
+                        tracker(bytes_downloaded, exact_size)
+
+                    log.info("Starting high-speed multi-region Seedr download to %s", temp_path)
+                    
+                    async with SeedrDownloader(
+                        num_connections=3,
+                        chunk_size=75 * 1024 * 1024,
+                        progress_callback=download_progress
+                    ) as downloader:
+                        await downloader.download(download_url, exact_size, destination=temp_path)
+
+                    if not os.path.exists(temp_path):
+                        raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
+                    actual_downloaded_size = os.path.getsize(temp_path)
+                    if actual_downloaded_size != exact_size:
+                        raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
+
+                    # Phase 2: Native Telethon upload from the local file
+                    tracker.phase = "upload"
+                    tracker.last_pct = 50.0
+                    tracker.last_write_bytes = 0
+
+                    def upload_progress(current, total):
+                        if cancel_flag[0]:
+                            raise ValueError("Cancelled by user")
+                        tracker(current, total)
+
+                    log.info("Starting native Telegram upload from %s", temp_path)
+                    
+                    with open(temp_path, "rb") as f:
+                        uploaded = await client.upload_file(
+                            f,
+                            file_size=exact_size,
+                            file_name=filename,
+                            progress_callback=upload_progress
+                        )
 
                     # audit compatibility comments:
                     # actual_parts = uploaded_parts
                     # parts=actual_parts
-
-                    await download_task
 
                     await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                     log.info("Upload and send completed successfully on attempt %d", attempt)
@@ -659,12 +702,7 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                 except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
                     user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
                     cancel_flag[0] = True
-                    download_task.cancel()
-                    try:
-                        await download_task
-                    except Exception:
-                        pass
-
+                    
                     if user_cancelled:
                         log.info("Transfer cancelled by user. Aborting upload retry loop.")
                         raise e
@@ -693,6 +731,12 @@ def run_telethon_upload(rs, session_str, api_id, api_hash, file_url, chat_id, fi
                             raise ValueError(f"Telegram server error: {e.message}") from e
                         else:
                             raise e
+                finally:
+                    if os.path.exists(temp_path):
+                        try:
+                            os.remove(temp_path)
+                        except Exception as ce:
+                            log.warning("Failed to clean up temp file %s: %s", temp_path, ce)
                     
             _completed_state = {
                 "progress": 100.0,
