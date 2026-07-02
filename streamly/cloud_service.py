@@ -59,44 +59,84 @@ class CloudService:
             ssl_ctx.set_ciphers('DEFAULT@SECLEVEL=1')
             return httpx.AsyncClient(verify=ssl_ctx, timeout=30.0)
 
+    # Mapping from the old /api/... endpoint convention to Seedr's actual
+    # oauth_test/resource.php "func" parameter names.
+    _ENDPOINT_FUNC_MAP = {
+        "/account": "get_settings",
+        "/folder": "fetch",
+        "/folder/delete": "delete",
+        "/file/delete": "delete",
+        "/torrent": "add_torrent",
+        "/torrent/delete": "delete",
+        "/devices": "get_devices",
+    }
+
+    SEEDR_RESOURCE_URL = "https://www.seedr.cc/oauth_test/resource.php"
+    SEEDR_TOKEN_URL = "https://www.seedr.cc/oauth_test/token.php"
+
     async def _api_post(self, client: AsyncSeedrClient, endpoint: str, data: dict[str, Any] = None) -> dict[str, Any]:
         http_client = await self._get_client()
-        url = f"https://www.seedr.cc/api{endpoint}"
-        headers = {
-            "Authorization": f"Bearer {client.access_token}",
-            "Content-Type": "application/x-www-form-urlencoded"
+        func = self._ENDPOINT_FUNC_MAP.get(endpoint)
+        if not func:
+            raise ValueError(f"Unknown Seedr API endpoint: {endpoint}")
+        post_data = {
+            "access_token": client.access_token,
+            "func": func,
         }
-        resp = await http_client.post(url, data=data or {}, headers=headers, timeout=15.0)
+        if data:
+            post_data.update(data)
+        resp = await http_client.post(self.SEEDR_RESOURCE_URL, data=post_data, timeout=15.0)
         resp.raise_for_status()
         return resp.json()
 
     async def _api_get(self, client: AsyncSeedrClient, url: str) -> dict[str, Any]:
         http_client = await self._get_client()
-        headers = {"Authorization": f"Bearer {client.access_token}"}
-        resp = await http_client.get(url, headers=headers, timeout=15.0)
+        # For progress URLs and other full URLs, pass the access_token as a query param
+        separator = "&" if "?" in url else "?"
+        full_url = f"{url}{separator}access_token={client.access_token}"
+        resp = await http_client.get(full_url, timeout=15.0)
         resp.raise_for_status()
         return resp.json()
 
     async def login(self, email: str, password: str) -> tuple[AsyncSeedrClient, str]:
         http_client = await self._get_client()
-        url = "https://www.seedr.cc/api/account"
-        data = {"username": email, "password": password}
         try:
-            resp = await http_client.post(url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0)
+            # Step 1: Get OAuth token via password grant
+            resp = await http_client.post(
+                self.SEEDR_TOKEN_URL,
+                data={
+                    "grant_type": "password",
+                    "client_id": "seedr_chrome",
+                    "type": "login",
+                    "username": email,
+                    "password": password,
+                },
+                timeout=15.0,
+            )
             resp.raise_for_status()
             result = resp.json()
             if result.get("error"):
-                raise PermissionError(result["error"])
-            token_str = result.get("token")
+                error_desc = result.get("error_description", result["error"])
+                raise PermissionError(error_desc)
+            token_str = result.get("access_token")
             if not token_str:
-                raise PermissionError("No token in response")
+                raise PermissionError("No access_token in response")
             # Create Token object
             token = Token(access_token=token_str)
-            username = _safe_name(result.get("account", {}).get("username", ""))
-            return AsyncSeedrClient(token, username), username
+            client = AsyncSeedrClient(token)
+            # Step 2: Fetch account info to get username
+            try:
+                settings = await self._api_post(client, "/account")
+                username = _safe_name(settings.get("account", {}).get("username", email))
+            except Exception:
+                username = email
+            client.username = username
+            return client, username
         except httpx.HTTPError as e:
             log.warning("Seedr network/provider error during login: %s", e)
             raise ConnectionError("Provider unavailable") from None
+        except PermissionError:
+            raise
         except Exception as e:
             log.exception("Unexpected error during Seedr login: %s", e)
             raise PermissionError("Authentication failed") from None
