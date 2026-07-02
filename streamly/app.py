@@ -23,6 +23,7 @@ from .redis_store import RedisStore
 from .security import (
     ValidationError,
     TokenBucketRateLimiter,
+    rate_limited,
 )
 from .auth_utils import ensure_sid, get_csrf_token
 from .cloud_service import CloudService
@@ -359,6 +360,7 @@ def create_app(
         return HTMLResponse(content=template.render(error=None))
 
     @app.post("/site-login")
+    @rate_limited(cost=5.0)
     async def site_login_post(request: Request, password: str = Form(...)):
         site_password = os.getenv("SITE_PASSWORD")
         match = False

@@ -1,5 +1,6 @@
 # removed future annotations
 
+import logging
 import time
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from .auth import verify_csrf
 from ..security import validate_magnet, rate_limited
 
+log = logging.getLogger(__name__)
 history_router = APIRouter()
 
 
@@ -28,7 +30,7 @@ async def get_history(request: Request):
         items = await rs.get_history("global_history") if rs else []
         return {"success": True, "items": items}
     except Exception as e:
-        request.app.state.logger.warning("Redis error on get_history: %s", e)
+        log.warning("Redis error on get_history: %s", e)
         return {"success": True, "items": [], "_warning": "History temporarily unavailable"}
 
 
@@ -63,7 +65,7 @@ async def add_history(request: Request, payload: AddHistoryPayload, _csrf = Depe
     if rs:
         success = await rs.save_history("global_history", items)
         if not success:
-            request.app.state.logger.warning("Failed to persist history to Redis")
+            log.warning("Failed to persist history to Redis")
             
     return {"success": True}
 
