@@ -6,6 +6,7 @@ import time
 import uuid
 import json as _json
 import asyncio
+import urllib.parse
 import httpx
 import secrets
 import datetime
@@ -158,6 +159,8 @@ class ProgressTracker:
         
         if self.phase == "download":
             pct = round((sent_bytes / tot) * 50.0, 1)
+        elif self.phase == "streaming":
+            pct = round((sent_bytes / tot) * 100.0, 1)
         else:
             pct = round(50.0 + (sent_bytes / tot) * 50.0, 1)
 
@@ -335,6 +338,90 @@ async def _trigger_next_transfer_locked(app):
             pass
 
 
+class QueueStream:
+    def __init__(self, queue: asyncio.Queue, name: str, file_size: int, cancel_flag: list[bool]):
+        self.queue = queue
+        self.name = name
+        self.file_size = file_size
+        self.cancel_flag = cancel_flag
+        self._buffer = bytearray()
+        self._eof = False
+
+    async def read(self, n: int) -> bytes:
+        if self.cancel_flag and self.cancel_flag[0]:
+            raise ValueError("Cancelled by user")
+
+        while len(self._buffer) < n and not self._eof:
+            try:
+                output_queue = self.queue
+                chunk = await asyncio.wait_for(output_queue.get(), timeout=90.0)
+                self.queue.task_done()
+            except asyncio.TimeoutError:
+                raise TimeoutError("Timeout waiting for downloaded data from queue")
+            except Exception as e:
+                raise e
+
+            if self.cancel_flag and self.cancel_flag[0]:
+                raise ValueError("Cancelled by user")
+
+            if chunk is None:
+                self._eof = True
+                break
+            elif isinstance(chunk, Exception):
+                raise chunk
+
+            self._buffer.extend(chunk)
+
+        res = bytes(self._buffer[:n])
+        del self._buffer[:n]
+        return res
+
+
+async def download_to_queue(
+    queue: asyncio.Queue,
+    url: str,
+    worker_url: str,
+    headers: dict,
+    exact_size: int,
+    cancel_flag: list[bool]
+):
+    try:
+        downloaded = 0
+        if worker_url:
+            try:
+                encoded_url = urllib.parse.quote(url, safe='')
+                worker_endpoint = f"{worker_url.rstrip('/')}/?url={encoded_url}"
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with client.stream("GET", worker_endpoint, headers=headers) as response:
+                        if response.status_code != 403:
+                            response.raise_for_status()
+                            async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
+                                if cancel_flag[0]:
+                                    break
+                                await queue.put(chunk)
+                                downloaded += len(chunk)
+                            if not cancel_flag[0] and downloaded == exact_size:
+                                return
+            except Exception as e:
+                log.warning("Proxy stream download failed, falling back to direct: %s", e)
+        
+        downloaded = 0
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("GET", url, headers=headers) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
+                    if cancel_flag[0]:
+                        break
+                    await queue.put(chunk)
+                    downloaded += len(chunk)
+                if not cancel_flag[0] and downloaded != exact_size:
+                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
+    except Exception as e:
+        await queue.put(e)
+    finally:
+        await queue.put(None)
+
+
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
     cancel_flag = [False]
     
@@ -352,7 +439,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     cancel_poller = asyncio.create_task(poll_cancel_request())
     
     client = None
-    temp_path = None
     try:
         client = tg_manager.get_upload_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
         await client.connect()
@@ -417,80 +503,48 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         backoff = 5.0
         uploaded = None
 
-        import os
-        temp_dir = os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
-        try:
-            os.makedirs(temp_dir, exist_ok=True)
-            test_file = os.path.join(temp_dir, f".write_test_{task_id}")
-            with open(test_file, "w") as tf:
-                tf.write("test")
-            os.remove(test_file)
-        except Exception:
-            temp_dir = os.path.join(os.getcwd(), "temp_downloads")
-            os.makedirs(temp_dir, exist_ok=True)
-
-        temp_file_name = f"transfer_{task_id}_{filename}"
-        temp_path = os.path.join(temp_dir, temp_file_name)
-
         for attempt in range(1, max_attempts + 1):
             log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
             cancel_flag[0] = False
             
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
+            output_queue = asyncio.Queue(maxsize=16)
+            download_task = asyncio.create_task(
+                download_to_queue(
+                    output_queue,
+                    download_url,
+                    app.state.config.cloudflare_worker_proxy,
+                    headers,
+                    exact_size,
+                    cancel_flag
+                )
+            )
+            
+            stream = QueueStream(output_queue, filename, exact_size, cancel_flag)
 
             try:
-                # Phase 1: High-speed proxy-based download
-                tracker.phase = "download"
+                tracker.phase = "streaming"
                 tracker.last_pct = 0.0
                 tracker.last_write_bytes = 0
                 
-                def download_progress(bytes_downloaded, speed_mbps):
-                    if cancel_flag[0]:
-                        raise ValueError("Cancelled by user")
-                    tracker.last_speed_mb = speed_mbps / 8.0
-                    tracker(bytes_downloaded, exact_size)
-
-                log.info("Starting high-speed Seedr download to %s", temp_path)
-                
-                downloader = SeedrDownloader(
-                    worker_url=app.state.config.cloudflare_worker_proxy,
-                    temp_dir=temp_dir
-                )
-                await downloader.download(download_url, filename=temp_file_name, progress_callback=download_progress)
-
-                if not os.path.exists(temp_path):
-                    raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
-                actual_downloaded_size = os.path.getsize(temp_path)
-                if actual_downloaded_size != exact_size:
-                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
-
-                # Phase 2: Native Telethon upload from local file
-                tracker.phase = "upload"
-                tracker.last_pct = 50.0
-                tracker.last_write_bytes = 0
-
                 def upload_progress(current, total):
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
 
-                log.info("Starting native Telegram upload from %s", temp_path)
+                log.info("Starting streaming Telegram upload for task %s", task_id)
                 
-                with open(temp_path, "rb") as f:
-                    uploaded = await client.upload_file(
-                        f,
-                        file_size=exact_size,
-                        file_name=filename,
-                        progress_callback=upload_progress
-                    )
+                uploaded = await client.upload_file(
+                    stream,
+                    file_size=exact_size,
+                    file_name=filename,
+                    progress_callback=upload_progress
+                )
 
                 uploaded_parts = uploaded.parts
                 actual_parts = uploaded_parts
                 # parts=actual_parts
+
+                await download_task
 
                 await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                 log.info("Upload and send completed successfully on attempt %d", attempt)
@@ -498,6 +552,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
                 user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
                 cancel_flag[0] = True
+                download_task.cancel()
+                try:
+                    await download_task
+                except Exception:
+                    pass
                 
                 if user_cancelled:
                     log.info("Transfer cancelled by user. Aborting upload retry loop.")
@@ -527,12 +586,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         raise ValueError(f"Telegram server error: {e.message}") from e
                     else:
                         raise e
-            finally:
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except Exception as ce:
-                        log.warning("Failed to clean up temp file %s: %s", temp_path, ce)
                 
         _completed_state = {
             "progress": 100.0,
