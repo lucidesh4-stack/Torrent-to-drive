@@ -874,7 +874,7 @@ button.icon-btn {
       top: 8px;
       left: 12px;
       height: 48px;
-      width: calc((100% - 24px) / 5);
+      width: calc((100% - 24px) / 4);
       border-radius: 20px;
       background: rgba(47, 156, 240, 0.08);
       border: none;
