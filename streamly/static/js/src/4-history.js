@@ -1,4 +1,4 @@
-  async function saveToHistory(magnet, title, size) {
+  window.saveToHistory = async function(magnet, title, size) {
     try {
       await postJson("/api/history/add", { magnet: magnet, name: title || "Unknown Magnet", size: size || "" });
     } catch (e) {
@@ -7,7 +7,7 @@
     }
   }
 
-  async function renderHistory() {
+  window.renderHistory = async function() {
     const tbody = $("historyBody");
     tbody.innerHTML = "<tr><td colspan='2' class='muted' style='text-align:center;'>Loading...</td></tr>";
     

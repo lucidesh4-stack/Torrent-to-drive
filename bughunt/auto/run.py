@@ -55,8 +55,40 @@ def build_app_client(base: Path):
             return app, app.test_client()
         else:
             from fastapi.testclient import TestClient
-            return app, TestClient(app)
+            from contextlib import contextmanager
+            import json
+            import base64
+            from itsdangerous import Signer
+            import httpx
+            httpx.Response.get_json = lambda self: self.json()
+
+            client = TestClient(app)
+
+            @contextmanager
+            def session_transaction():
+                cookie = client.cookies.get("session")
+                session_data = {}
+                cfg = getattr(app.state, "config", None)
+                secret_key = cfg.secret_key if cfg else "autotest-secret"
+                signer = Signer(secret_key)
+                if cookie:
+                    try:
+                        # Decode url encoding first if needed, but TestClient cookies are raw
+                        signed_data = cookie.encode("utf-8")
+                        data = signer.unsign(signed_data)
+                        session_data = json.loads(base64.b64decode(data).decode("utf-8"))
+                    except Exception:
+                        session_data = {}
+                yield session_data
+                data = base64.b64encode(json.dumps(session_data).encode("utf-8"))
+                signed_value = signer.sign(data).decode("utf-8")
+                client.cookies.set("session", signed_value)
+
+            client.session_transaction = session_transaction
+            return app, client
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"! could not build Flask app for dynamic checks: {e}", file=sys.stderr)
         return None, None
 

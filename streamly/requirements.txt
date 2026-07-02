@@ -8,4 +8,3 @@ itsdangerous
 seedrcc
 telethon
 cryptg
-requests
