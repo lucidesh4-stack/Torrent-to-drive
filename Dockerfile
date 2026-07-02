@@ -3,7 +3,8 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    APP_ENV=production
+    APP_ENV=production \
+    PYTHONPATH=/app
 
 WORKDIR /app
 
@@ -16,11 +17,11 @@ RUN useradd -m -u 1000 user
 WORKDIR /app
 
 # Install Python deps first (done as root)
-COPY streamly_hardened/requirements.txt /app/requirements.txt
+COPY streamly_optimized/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy package and set ownership to user 1000
-COPY --chown=user:user streamly_hardened /app/streamly_hardened
+COPY --chown=user:user streamly_optimized /app/streamly_optimized
 COPY --chown=user:user run.py /app/run.py
 
 # Switch to the non-root user
