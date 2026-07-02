@@ -780,7 +780,7 @@ async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_de
     return False
 
 
-@telegram_router.post("/api/telegram/send-file")
+@telegram_router.post("/api/telegram/send")
 @rate_limited(cost=3.0)
 async def telegram_send_file(request: Request, payload: SendFilePayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
