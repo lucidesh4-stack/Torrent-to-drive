@@ -196,7 +196,7 @@
     if (resultsContainer) {
       resultsContainer.classList.remove("hidden");
       resultsContainer.textContent = "";
-      resultsContainer.appendChild(seriesHeaderRow());
+      resultsContainer.appendChild(window.seriesHeaderRow());
       
       const frag = document.createDocumentFragment();
       for (let i = 0; i < 5; i++) {

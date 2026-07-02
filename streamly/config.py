@@ -93,7 +93,7 @@ class AppConfig(BaseSettings):
             seedr_email=os.getenv("SEEDR_EMAIL", ""),
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             telegram_api_id=tg_id,
-            telegram_api_hash=os.getenv("TELEGRAM_api_hash", ""),
+            telegram_api_hash=os.getenv("TELEGRAM_API_HASH") or os.getenv("TELEGRAM_api_hash") or "",
             telegram_phone=os.getenv("TELEGRAM_PHONE", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "-1004247146382"),
             cloudflare_worker_proxy=os.getenv("CLOUDFLARE_WORKER_PROXY", "").strip() or "https://streamly-proxy.lucidesh.workers.dev",

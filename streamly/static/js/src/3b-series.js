@@ -117,9 +117,10 @@
 
   // Clickable header row for the sectioned views (Normal + Series).
   // Mirrors the desktop table columns: Name | SE(seeds) | Time | Size | Add.
-  window.seriesHeaderRow = function() {
+  function seriesHeaderRow() {
     return document.createDocumentFragment();
   }
+  window.seriesHeaderRow = seriesHeaderRow;
 
   window.makeAccordion = function(section, header, container, groupSel) {
     header.addEventListener("click", (e) => {
