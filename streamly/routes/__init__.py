@@ -1,15 +1,10 @@
-from fastapi import FastAPI
-from .auth import auth_router
-from .cloud import cloud_router
-from .search import search_router
-from .history import history_router
-from .telegram import telegram_router
-from .queue import queue_router
+from fastapi import APIRouter
+from . import search, cloud, auth, history, queue, telegram
 
-def register_routes(app: FastAPI):
-    app.include_router(auth_router)
-    app.include_router(cloud_router)
-    app.include_router(search_router)
-    app.include_router(history_router)
-    app.include_router(telegram_router)
-    app.include_router(queue_router)
+def register_routes(app):
+    app.include_router(auth.router)
+    app.include_router(search.router)
+    app.include_router(cloud.router)
+    app.include_router(history.router)
+    app.include_router(queue.router)
+    app.include_router(telegram.router)

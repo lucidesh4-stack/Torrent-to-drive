@@ -39,17 +39,11 @@ class TelegramClientManager:
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
 
-    def create_client(self, session_str: str, *, api_id=None, api_hash=None, app=None) -> TelegramClient:
+    def create_client(self, session_str: str, *, api_id=None, api_hash=None) -> TelegramClient:
         if api_id is None or api_hash is None:
-            if app is not None:
-                api_id = app.state.config.telegram_api_id
-                api_hash = app.state.config.telegram_api_hash
-            else:
-                from ..config import AppConfig
-                cfg = AppConfig.from_env()
-                api_id = cfg.telegram_api_id
-                api_hash = cfg.telegram_api_hash
-
+            from flask import current_app
+            api_id = current_app.config.get("TELEGRAM_API_ID")
+            api_hash = current_app.config.get("TELEGRAM_API_HASH")
         if not api_id or not api_hash:
             raise ValueError("Telegram credentials missing in configuration")
 
@@ -100,16 +94,22 @@ class TelegramClientManager:
             self.stats.active = max(0, self.stats.active - 1)
 
     @asynccontextmanager
-    async def get_client(self, session_str: str, *, api_id=None, api_hash=None, app=None):
-        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
+    async def get_client(self, session_str: str, *, api_id=None, api_hash=None):
+        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash)
         try:
             await self.safe_connect(client)
             yield client
         finally:
             await self.safe_disconnect(client)
 
-    def get_upload_client(self, session_str: str, *, api_id=None, api_hash=None, app=None) -> TelegramClient:
-        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
+    # === A1 Phase 2: Upload-specific helper ===
+    def get_upload_client(self, session_str: str, *, api_id=None, api_hash=None) -> TelegramClient:
+        """Specialized factory for long-lived upload clients.
+        Currently identical to create_client but provides a clear seam
+        for future pooling, DC affinity, or metrics tagging.
+        """
+        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash)
+        # Tag for debugging
         setattr(client, "_streamly_use", "upload")
         return client
 
@@ -130,8 +130,8 @@ class TelegramClientManager:
 
 manager = TelegramClientManager()
 
-def get_telegram_client(session_str: str, app=None):
-    return manager.create_client(session_str, app=app)
+def get_telegram_client(session_str: str):
+    return manager.create_client(session_str)
 
 async def safe_disconnect(client):
     await manager.safe_disconnect(client)

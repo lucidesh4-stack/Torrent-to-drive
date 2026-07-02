@@ -1,22 +1,19 @@
 from __future__ import annotations
-
-import os
-import secrets as _secrets
-from typing import Tuple, Optional
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Tuple
 
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
-class AppConfig(BaseSettings):
-    """Application configuration.
-
-    Production deployments must inject this via environment/secret manager.
-    Never commit real secrets. SECRET_KEY is intentionally mandatory outside tests.
-    """
-
-    secret_key: str = "test-only-not-for-production"
-    environment: str = "production"
-    request_timeout_seconds: float = 6.0
-    archive_timeout_seconds: float = 10.0
+    secret_key: str = Field(default="test-only-not-for-production", validation_alias="SECRET_KEY")
+    app_env: str = Field(default="production", validation_alias="APP_ENV")
+    request_timeout_seconds: float = Field(default=6.0, validation_alias="REQUEST_TIMEOUT_SECONDS")
+    archive_timeout_seconds: float = Field(default=10.0, validation_alias="ARCHIVE_TIMEOUT_SECONDS")
     max_query_length: int = 128
     max_magnet_length: int = 8192
     max_folder_id: int = 9_007_199_254_740_991
@@ -26,77 +23,27 @@ class AppConfig(BaseSettings):
     client_store_max_entries: int = 100_000
     rate_limit_capacity: int = 60
     rate_limit_refill_per_second: float = 1.0
-    bitsearch_url: str = "https://bitsearch.eu/api/v1/search"
-    # Torrent search providers tried in PRIORITY ORDER (failover, not merge):
-    # multi_search uses the FIRST provider that returns results, so normal
-    # operation draws from a single source (no cross-source duplicates).
-    # bitsearch first, then apibay, then torrents-csv. Configurable via
-    # SEARCH_PROVIDERS env (comma-separated, in priority order).
+    bitsearch_url: str = Field(default="https://bitsearch.eu/api/v1/search", validation_alias="BITSEARCH_URL")
     search_providers: Tuple[str, ...] = ("bitsearch", "apibay", "torrents-csv")
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
-    upstash_redis_url: str = ""
-    upstash_redis_token: str = ""
-    seedr_email: str = ""
-    seedr_password: str = ""
-    telegram_api_id: Optional[int] = None
-    telegram_api_hash: str = ""
-    telegram_phone: str = ""
-    telegram_chat_id: str = "-1004247146382"
-    cloudflare_worker_proxy: str = "https://streamly-proxy.lucidesh.workers.dev"
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    upstash_redis_url: str = Field(default="", validation_alias="UPSTASH_REDIS_REST_URL")
+    upstash_redis_token: str = Field(default="", validation_alias="UPSTASH_REDIS_REST_TOKEN")
+    seedr_email: str = Field(default="", validation_alias="SEEDR_EMAIL")
+    seedr_password: str = Field(default="", validation_alias="SEEDR_PASSWORD")
+    telegram_api_id: int | None = Field(default=None, validation_alias="TELEGRAM_API_ID")
+    telegram_api_hash: str = Field(default="", validation_alias="TELEGRAM_API_HASH")
+    telegram_phone: str = Field(default="", validation_alias="TELEGRAM_PHONE")
+    telegram_chat_id: str = Field(default="-1004247146382", validation_alias="TELEGRAM_CHAT_ID")
+    cloudflare_worker_proxy: str = Field(default="https://streamly-proxy.lucidesh.workers.dev", validation_alias="CLOUDFLARE_WORKER_PROXY")
 
     @classmethod
-    def from_env(cls) -> AppConfig:
-        env = os.getenv("APP_ENV", "production")
-        secret = os.getenv("SECRET_KEY")
-        upstash_url = os.getenv("UPSTASH_REDIS_REST_URL", "")
-        upstash_token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
-        if not secret and env != "test":
-            # In hosted dev/prod without explicit SECRET_KEY: derive from Upstash if available,
-            # else generate ephemeral (logs out users on restart — acceptable for solo/free tier).
-            if upstash_url and upstash_token:
-                try:
-                    import requests
-                    headers = {"Authorization": f"Bearer {upstash_token}"}
-                    r = requests.post(upstash_url.rstrip("/"), headers=headers, json=["GET", "streamly:secret_key"], timeout=3.0)
-                    if r.status_code == 200:
-                        secret = r.json().get("result")
-                    if not secret:
-                        secret = _secrets.token_hex(32)
-                        requests.post(upstash_url.rstrip("/"), headers=headers, json=["SET", "streamly:secret_key", secret], timeout=3.0)
-                except Exception:
-                    secret = _secrets.token_hex(32)
-            else:
-                secret = _secrets.token_hex(32)
-        
-        tg_id_raw = os.getenv("TELEGRAM_API_ID", "")
-        tg_id = int(tg_id_raw) if tg_id_raw.isdigit() else None
-        
-        providers_raw = os.getenv("SEARCH_PROVIDERS", "bitsearch,apibay,torrents-csv")
-        providers = tuple(
-            p.strip() for p in providers_raw.split(",") if p.strip()
-        ) or ("bitsearch", "apibay", "torrents-csv")
-        
-        return cls(
-            secret_key=secret or "test-only-not-for-production",
-            environment=env,
-            request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "6.0")),
-            archive_timeout_seconds=float(os.getenv("ARCHIVE_TIMEOUT_SECONDS", "10.0")),
-            session_ttl_seconds=int(os.getenv("SESSION_TTL_SECONDS", str(60 * 60 * 12))),
-            upstash_redis_url=upstash_url,
-            upstash_redis_token=upstash_token,
-            seedr_email=os.getenv("SEEDR_EMAIL", ""),
-            seedr_password=os.getenv("SEEDR_PASSWORD", ""),
-            telegram_api_id=tg_id,
-            telegram_api_hash=os.getenv("TELEGRAM_api_hash", ""),
-            telegram_phone=os.getenv("TELEGRAM_PHONE", ""),
-            telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "-1004247146382"),
-            cloudflare_worker_proxy=os.getenv("CLOUDFLARE_WORKER_PROXY", "").strip() or "https://streamly-proxy.lucidesh.workers.dev",
-            bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
-            search_providers=providers,
-        )
+    def load(cls):
+        # Handle the comma-separated search_providers env var if it exists
+        import os
+        sp_env = os.getenv("SEARCH_PROVIDERS")
+        settings = cls()
+        if sp_env:
+            settings.search_providers = tuple(p.strip() for p in sp_env.split(",") if p.strip())
+        return settings
+
+settings = Settings.load()

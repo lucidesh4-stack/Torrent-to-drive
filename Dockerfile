@@ -13,11 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gcc python
 RUN useradd -m -u 1000 user
 WORKDIR /app
 
-# USE THE OPTIMIZED REQUIREMENTS
+# Install from the FINAL path
 COPY streamly/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# USE THE OPTIMIZED PACKAGE
+# Copy the FINAL package
 COPY --chown=user:user streamly /app/streamly
 
 USER user
@@ -28,5 +28,5 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
-# RUN THE OPTIMIZED FASTAPI APP
+# Boot the FINAL optimized app
 CMD ["sh", "-c", "uvicorn streamly.app:create_app --host 0.0.0.0 --port ${PORT} --workers 1"]

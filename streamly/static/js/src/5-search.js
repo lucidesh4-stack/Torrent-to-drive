@@ -1,8 +1,8 @@
 
-  window.suppressSuggestions = false;
-  window.searchAbort = null;
+  let suppressSuggestions = false;
+  let searchAbort = null;
 
-  window.isMagnetLink = function(value) {
+  function isMagnetLink(value) {
     const val = String(value || "").trim();
     if (/^\s*magnet:\?xt=urn:btih:/i.test(val)) return true;
     const lower = val.toLowerCase();
@@ -10,7 +10,7 @@
     return false;
   }
 
-  window.magnetInfoHash = function(value) {
+  function magnetInfoHash(value) {
     const text = String(value || "");
     const m = text.match(/xt=urn:btih:([^&]+)/i);
     if (!m) return "";
@@ -18,7 +18,7 @@
     catch (_) { return String(m[1] || "").trim().toLowerCase(); }
   }
 
-  window.setSearchAction = function(action) {
+  function setSearchAction(action) {
     const isAdd = action === "add";
     const searchBtn = $("searchBtn");
     const addBtn = $("addMagnetBtn");
@@ -28,13 +28,13 @@
     }
   }
 
-  window.setMagnetUiState = function(value) {
+  function setMagnetUiState(value) {
     const isMagnet = isMagnetLink(value);
     setSearchAction(isMagnet ? "add" : "search");
     return isMagnet;
   }
 
-  window.maybeAutoAddMagnet = function(value, source = "input") {
+  function maybeAutoAddMagnet(value, source = "input") {
     const magnet = String(value || "").trim();
     if (!setMagnetUiState(magnet)) return false;
 
@@ -56,7 +56,7 @@
     return true;
   }
 
-  window.ingestClipboardMagnet = async function(autoAdd = true) {
+  async function ingestClipboardMagnet(autoAdd = true) {
     // Do not auto-detect/overwrite if the user already has text in the search box.
     if ($("searchQuery") && $("searchQuery").value.trim()) return false;
     if (!navigator.clipboard || !navigator.clipboard.readText) return false;
@@ -72,7 +72,7 @@
     }
   }
 
-  window.scheduleClipboardMagnetCheck = function(reason = "event") {
+  function scheduleClipboardMagnetCheck(reason = "event") {
     if (!$("searchView") || $("searchView").classList.contains("hidden")) return;
     const now = Date.now();
     const wait = Math.max(0, CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS - (now - lastClipboardMagnetCheckAt));
@@ -83,7 +83,7 @@
     }, wait);
   }
 
-  window.extractMagnetFromUrl = function() {
+  function extractMagnetFromUrl() {
     const candidates = [];
     const url = new URL(window.location.href);
     candidates.push(url.searchParams.get("magnet"));
@@ -106,14 +106,14 @@
     return "";
   }
 
-  window.cleanMagnetUrl = function() {
+  function cleanMagnetUrl() {
     const url = new URL(window.location.href);
     url.searchParams.delete("magnet");
     const keepHash = window.location.hash && !window.location.hash.toLowerCase().includes("magnet") ? window.location.hash : "";
     window.history.replaceState(null, null, url.pathname + url.search + keepHash);
   }
 
-  window.ingestUrlMagnet = function() {
+  function ingestUrlMagnet() {
     // Do not auto-detect/overwrite if the user already has text in the search box.
     if ($("searchQuery") && $("searchQuery").value.trim()) return false;
     const magnet = extractMagnetFromUrl();
@@ -125,7 +125,7 @@
     return true;
   }
 
-  window.providerStatusText = function(data) {
+  function providerStatusText(data) {
     if (!data || !data.provider) return "";
     const provider = data.provider;
     const attempts = Array.isArray(data.provider_attempts) ? data.provider_attempts : [];
@@ -146,7 +146,7 @@
     return label + " after " + details;
   }
 
-  window.search = async function(keepPage, page) {
+  async function search(keepPage, page) {
     const q = $("searchQuery").value.trim();
     if (!q) return status($("searchStatus"), "Enter a search query", "error");
 
@@ -263,7 +263,7 @@
     }
   }
 
-  window.makeAddButton = function(result) {
+  function makeAddButton(result) {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "add-btn";
@@ -307,9 +307,9 @@
     return add;
   }
 
-  window.fieldsWarned = false;
+  let fieldsWarned = false;
 
-  window.getSuggestions = async function() {
+  async function getSuggestions() {
     const q = $("searchQuery").value.trim();
     const box = $("suggestBox");
     clearTimeout(suggestTimer);

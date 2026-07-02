@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cloudflow | Protected Space</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root { --bg: #0d1117; --panel: rgba(22, 27, 34, 0.85); --line: rgba(255, 255, 255, 0.08); --accent: #2f9cf0; --text: #f0f6fc; --muted: #8b949e; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .card { background: var(--panel); backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); border: 1px solid var(--line); border-radius: 16px; padding: 32px; width: 100%; max-width: 380px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45); text-align: center; }
+        h2 { margin: 0 0 8px 0; font-size: 24px; font-weight: 700; }
+        p { color: var(--muted); font-size: 14px; margin: 0 0 24px 0; }
+        input { width: 100%; padding: 12px 16px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--line); border-radius: 8px; color: var(--text); box-sizing: border-box; font-size: 15px; margin-bottom: 16px; outline: none; transition: border-color 0.2s; }
+        input:focus { border-color: var(--accent); }
+        button { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; transition: filter 0.2s, transform 0.1s; }
+        button:hover { filter: brightness(1.1); }
+        button:active { transform: scale(0.98); }
+        .error { color: #ff7b72; font-size: 13px; margin-bottom: 16px; text-align: left; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Protected Space</h2>
+        <p>Enter the site password to access Cloudflow</p>
+        <form method="POST" action="/site-login">
+            {% if error %}<div class="error">{{ error }}</div>{% endif %}
+            <input type="password" name="password" placeholder="Password" autofocus required>
+            <button type="submit">Unlock</button>
+        </form>
+    </div>
+</body>
+</html>

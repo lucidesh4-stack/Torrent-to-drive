@@ -20,7 +20,7 @@
     }
   };
 
-  window.setTab = async function(name) {
+  async function setTab(name) {
     if (name === "cloud" && !isAuthenticated) {
       // Trigger a silent re-login attempt first. If that works, proceed.
       const restored = await attemptSilentRelogin();
@@ -109,7 +109,7 @@
   if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
 
   // Multi-select dropdowns (Quality / Encoders)
-  window.toggleDd = function(ddId) {
+  function toggleDd(ddId) {
     const dd = $(ddId);
     if (!dd) return;
     const panel = dd.querySelector(".ms-dd-panel");
@@ -123,8 +123,8 @@
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".ms-dd")) document.querySelectorAll(".ms-dd-panel").forEach((p) => p.classList.add("hidden"));
   });
-  window.filterSearchTimer = null;
-  window.debouncedFilterSearch = function() {
+  let filterSearchTimer = null;
+  function debouncedFilterSearch() {
     if (typeof search !== "function" || !$("searchQuery").value.trim()) return;
     clearTimeout(filterSearchTimer);
     filterSearchTimer = setTimeout(() => search(false, 1), 350);
@@ -138,7 +138,7 @@
 
 
   // Mobile search filters: bottom sheet mirrors the desktop dropdown checkbox state.
-  window.syncMobileFiltersFromDesktop = function() {
+  function syncMobileFiltersFromDesktop() {
     document.querySelectorAll(".mQualityOpt").forEach((m) => {
       const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
       if (d) m.checked = d.checked;
@@ -148,7 +148,7 @@
       if (d) m.checked = d.checked;
     });
   }
-  window.syncDesktopFiltersFromMobile = function() {
+  function syncDesktopFiltersFromMobile() {
     document.querySelectorAll(".mQualityOpt").forEach((m) => {
       const d = document.querySelector(`.qualityOpt[value="${m.value}"]`);
       if (d) d.checked = m.checked;
@@ -159,7 +159,7 @@
     });
     if (typeof updateDropdownLabels === "function") updateDropdownLabels();
   }
-  window.closeMobileFilters = function() {
+  function closeMobileFilters() {
     const sheet = $("mobileFilterSheet");
     if (!sheet || sheet.classList.contains("hidden")) return;
     
@@ -179,7 +179,7 @@
       }
     }, 350);
   }
-  window.openMobileFilters = function() {
+  function openMobileFilters() {
     if (typeof isMobileSearchUi === "function" && !isMobileSearchUi()) {
       const sidebar = $("searchSidebar");
       if (sidebar) {
@@ -279,12 +279,12 @@
   });
 
   // ----- Linked Devices modal (click account email in topbar) -----
-  window.esc = function(s) {
+  function esc(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
-  window.openDevicesModal = async function() {
+  async function openDevicesModal() {
     const ov = $("devicesOverlay");
     if (!ov) return;
     const body = $("devicesBody");
@@ -435,7 +435,7 @@
   });
 
   // Initialization Sequence
-  window.init = async function() {
+  async function init() {
     try {
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);

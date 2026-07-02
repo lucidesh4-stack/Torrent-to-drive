@@ -1,35 +1,35 @@
   /* ===== Series Mode v2 + Normal grouped ===== */
-  window.seriesMode = false;
+  let seriesMode = false;
   // Holds the last rendered dataset so client-side sorting can re-order without re-fetching.
-  window.lastNormalGroups = null;   // [{quality,label,count,rows}]
-  window.lastSeriesData = null;     // {packs, encoders, ...}
+  let lastNormalGroups = null;   // [{quality,label,count,rows}]
+  let lastSeriesData = null;     // {packs, encoders, ...}
   // True once the user clicks a column header; until then Series keeps its native
   // S/E order (Normal always uses size-asc default regardless).
-  window.userSorted = false;
-  window.activeNormalQuality = "";
-  window.activeSeriesQuality = "";
-  window.activeSeriesSeason = Object.create(null);
+  let userSorted = false;
+  let activeNormalQuality = "";
+  let activeSeriesQuality = "";
+  const activeSeriesSeason = Object.create(null);
 
-  window.isMobileSearchUi = function() {
+  function isMobileSearchUi() {
     return window.matchMedia && window.matchMedia("(max-width: 768px)").matches;
   }
 
-  window.qualityLabel = function(q) {
+  function qualityLabel(q) {
     return ({ "2160p": "4K", "1080p": "1080p", "720p": "720p", "Other": "Other" })[q] || q || "Other";
   }
 
-  window.qualityBucketFromName = function(name) {
+  function qualityBucketFromName(name) {
     const m = String(name || "").match(/(?:^|[^0-9])(2160p|1080p|720p)(?:[^0-9]|$)/i);
     return m ? m[1].toLowerCase() : "Other";
   }
 
-  window.normalizeQualityList = function(list) {
+  function normalizeQualityList(list) {
     const order = ["2160p", "1080p", "720p", "Other"];
     const set = new Set((list || []).filter(Boolean));
     return order.filter(q => set.has(q));
   }
 
-  window.chooseActiveQuality = function(available, current) {
+  function chooseActiveQuality(available, current) {
     const qs = normalizeQualityList(available);
     if (!qs.length) return "";
     if (current && qs.includes(current)) return current;
@@ -39,7 +39,7 @@
     return qs[0];
   }
 
-  window.mobileQualityNav = function(available, active, onPick) {
+  function mobileQualityNav(available, active, onPick) {
     const qs = normalizeQualityList(available);
     if (!qs.length) return null;
     const nav = document.createElement("div");
@@ -61,27 +61,27 @@
     return nav;
   }
 
-  window.openSectionKeys = function(container) {
+  function openSectionKeys(container) {
     if (!container) return new Set();
     return new Set(Array.from(container.querySelectorAll(":scope > .encoder-section:not(.collapsed)[data-acc-key]")).map(el => el.dataset.accKey));
   }
 
-  window.applyOpenState = function(section, key, openKeys) {
+  function applyOpenState(section, key, openKeys) {
     section.dataset.accKey = key;
     if (openKeys && openKeys.has(key)) section.classList.remove("collapsed");
   }
 
-  window.getSelectedQualities = function() {
+  function getSelectedQualities() {
     const sel = isMobileSearchUi() ? ".mQualityOpt:checked" : ".qualityOpt:checked";
     const values = Array.from(document.querySelectorAll(sel)).map(c => c.value);
     return values.length ? values : Array.from(document.querySelectorAll(".qualityOpt:checked")).map(c => c.value);
   }
-  window.getSelectedEncoders = function() {
+  function getSelectedEncoders() {
     const sel = isMobileSearchUi() ? ".mEncoderOpt:checked" : ".encoderOpt:checked";
     return Array.from(document.querySelectorAll(sel)).map(c => c.value);
   }
 
-  window.updateDropdownLabels = function() {
+  function updateDropdownLabels() {
     const qs = getSelectedQualities();
     const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
     const qBtn = $("qualityDdBtn");
@@ -91,7 +91,7 @@
     if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
   }
 
-  window.setSeriesMode = function(on) {
+  function setSeriesMode(on) {
     seriesMode = !!on;
     const nBtn = $("modeNormal"), sBtn = $("modeSeries");
     if (nBtn) nBtn.classList.toggle("active", !seriesMode);
@@ -103,7 +103,7 @@
   }
 
   // ---- Client-side sort state (re-orders loaded rows; no re-fetch) ----
-  window.sortRows = function(rows) {
+  function sortRows(rows) {
     const dir = currentOrder === "asc" ? 1 : -1;
     const key = currentSort;
     const val = (r) => {
@@ -121,7 +121,7 @@
     return document.createDocumentFragment();
   }
 
-  window.makeAccordion = function(section, header, container, groupSel) {
+  function makeAccordion(section, header, container, groupSel) {
     header.addEventListener("click", (e) => {
       if (e.target.closest("button")) return; // ignore Add-all clicks
       const wasCollapsed = section.classList.contains("collapsed");
@@ -130,7 +130,7 @@
     });
   }
 
-  window.plainRow = function(row) {
+  function plainRow(row) {
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
 
@@ -195,7 +195,7 @@
 
   // Normal mode: render quality sections. On mobile, quality tabs navigate one
   // quality at a time; desktop keeps the existing accordion sections.
-  window.renderNormalGrouped = function(groups) {
+  function renderNormalGrouped(groups) {
     lastNormalGroups = groups || [];
     const container = $("seriesResults");
     const prevOpen = openSectionKeys(container);
@@ -260,7 +260,7 @@
     });
   }
 
-  window.seriesEpisodeRow = function(row, labelParts) {
+  function seriesEpisodeRow(row, labelParts) {
     const wrap = document.createElement("div");
     wrap.className = "episode-row";
 
@@ -323,7 +323,7 @@
     return wrap;
   }
 
-  window.sectionHeader = function(opts) {
+  function sectionHeader(opts) {
     // opts: {title, sub, count}. Bulk Add-all buttons intentionally removed.
     const header = document.createElement("div");
     header.className = "encoder-header";
@@ -352,7 +352,7 @@
     return header;
   }
 
-  window.renderSeriesGrouped = function(data) {
+  function renderSeriesGrouped(data) {
     lastSeriesData = data || null;
     const container = $("seriesResults");
     const prevOpen = openSectionKeys(container);

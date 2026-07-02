@@ -1,11 +1,11 @@
-  window.storageSnapshotLoading = false;
-  window.storageSnapshotLoaded = false;
-  window.seedrQueue = [];
-  window.lastRequestedFolderId = 0;
+  let storageSnapshotLoading = false;
+  let storageSnapshotLoaded = false;
+  let seedrQueue = [];
+  let lastRequestedFolderId = 0;
   // Navigation stack of folder IDs we descended through. Bottom is always root (0),
   // so going "up" from a top-level folder reliably returns to 0 (where queue +
   // loading-transfers are shown) regardless of Seedr's non-zero root parent_id.
-  window.folderStack = [];
+  let folderStack = [];
   // Expose a deterministic "go up" the Up buttons can call.
   window.cloudGoUp = function () {
     if (currentFolder === 0) return;
@@ -18,7 +18,7 @@
     loadFolder(id);
   };
 
-  window.updateSelection = function() {
+  function updateSelection() {
     refreshSelectedShim();
     const count = selectedKeys.size;
     const heading = $("selectionHeading");
@@ -95,7 +95,7 @@
     }
   }
 
-  window.toggleKey = function(key, additive, range) {
+  function toggleKey(key, additive, range) {
     if (range && lastClickedKey) {
       // Shift+click: select range between lastClickedKey and key
       const visibleKeys = items.map(it => it.key);
@@ -119,13 +119,13 @@
     updateSelection();
   }
 
-  window.transferPct = function(t) {
+  function transferPct(t) {
     const n = Number(t && t.progress);
     if (!isFinite(n)) return 0;
     return Math.max(0, Math.min(100, n));
   }
 
-  window.transferMeta = function(t) {
+  function transferMeta(t) {
     const parts = [];
     const pct = transferPct(t).toFixed(1).replace(/\.0$/, "");
     parts.push(pct + "%");
@@ -135,7 +135,7 @@
     return parts.join(" · ");
   }
 
-  window.transferBar = function(t) {
+  function transferBar(t) {
     const bar = document.createElement("div");
     bar.className = "transfer-bar";
     const fill = document.createElement("div");
@@ -144,7 +144,7 @@
     return bar;
   }
 
-  window.renderTransferRow = function(t) {
+  function renderTransferRow(t) {
     const tr = document.createElement("tr");
     tr.className = "transfer-row";
     const iconTd = document.createElement("td");
@@ -182,7 +182,7 @@
     return tr;
   }
 
-  window.renderQueuedRow = function(q) {
+  function renderQueuedRow(q) {
     const tr = document.createElement("tr");
     tr.className = "transfer-row queued-row";
     
@@ -224,7 +224,7 @@
     return tr;
   }
 
-  window.syncCloudAutoRefresh = function() {
+  function syncCloudAutoRefresh() {
     clearTimeout(cloudAutoRefreshTimer);
     cloudAutoRefreshTimer = null;
     const cloudVisible = $("cloudView") && !$("cloudView").classList.contains("hidden");
@@ -233,7 +233,7 @@
     }
   }
 
-  window.renderCloud = function() {
+  function renderCloud() {
     const body = $("cloudBody");
     body.textContent = "";
     const pathLabel = $("pathLabel");
@@ -306,9 +306,9 @@
     renderCloudMobile();
   }
 
-  window.cmTapTimer = null; // distinguishes single-tap (select) from double-tap (open)
+  let cmTapTimer = null; // distinguishes single-tap (select) from double-tap (open)
 
-  window.renderCloudMobile = function() {
+  function renderCloudMobile() {
     const list = $("cloudMobileList");
     if (!list) return;
     list.textContent = "";
@@ -435,7 +435,7 @@
 
 
 
-  window.updateStorage = function(used, max) {
+  function updateStorage(used, max) {
     storageSnapshotLoaded = true;
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
     const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
@@ -473,7 +473,7 @@
     if (cmText) cmText.textContent = compactLabel;
   }
 
-  window.bytes = function(n) {
+  function bytes(n) {
     n = Number(n || 0);
     if (n >= 1024 ** 4) return (n / 1024 ** 4).toFixed(2) + " TB";
     if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(2) + " GB";
@@ -482,7 +482,7 @@
     return n + " B";
   }
 
-  window.refreshStorageSnapshot = async function(force = false) {
+  async function refreshStorageSnapshot(force = false) {
     if (!isAuthenticated) return;
     if (storageSnapshotLoading) return;
     if (storageSnapshotLoaded && !force) return;
@@ -497,7 +497,7 @@
     }
   }
 
-  window.loadFolder = async function(id, opts = {}) {
+  async function loadFolder(id, opts = {}) {
     const silent = !!(opts && opts.silent);
     const folderId = Number(id) || 0;
     
@@ -554,7 +554,7 @@
     }
   }
 
-  window.cancelTransfer = async function(t) {
+  async function cancelTransfer(t) {
     if (!t || !t.id) return toast("Transfer id unavailable");
     if (!confirm(`Cancel transfer: ${t.name || "loading torrent"}?`)) return;
     status($("cloudStatus"), "Cancelling transfer...", "");
@@ -570,7 +570,7 @@
     }
   }
 
-  window.cancelQueuedItem = async function(q) {
+  async function cancelQueuedItem(q) {
     if (!q || !q.task_id) return toast("Task ID unavailable");
     if (!confirm(`Remove from queue: ${q.name || "queued torrent"}?`)) return;
     status($("cloudStatus"), "Cancelling queued item...", "");
@@ -586,14 +586,14 @@
     }
   }
 
-  window.getFileUrl = async function(item) {
+  async function getFileUrl(item) {
     if (!item || item.type !== "file") throw new Error("Select a file first");
     const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
     if (!data.url) throw new Error("No download/stream URL returned");
     return data.url;
   }
 
-  window.copySelectedLink = async function() {
+  async function copySelectedLink() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter(it => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
@@ -623,7 +623,7 @@
   }
 
 
-  window.openItem = async function(item = selected) {
+  async function openItem(item = selected) {
     if (!item) return toast("Select an item first");
     if (item.type === "folder") return window.cloudOpenFolder(item.id);
     try {
@@ -652,7 +652,7 @@
     }
   }
 
-  window.downloadSelected = async function() {
+  async function downloadSelected() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter(it => selectedKeys.has(it.key));
 
@@ -694,7 +694,7 @@
     status($("cloudStatus"), `Started ${done} download(s).`, "ok");
   }
 
-  window.zipSelected = async function() {
+  async function zipSelected() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const payload = items
       .filter(it => selectedKeys.has(it.key))
@@ -712,7 +712,7 @@
     }
   }
 
-  window.deleteSelected = async function() {
+  async function deleteSelected() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const payload = items
       .filter(it => selectedKeys.has(it.key))
@@ -735,7 +735,7 @@
     }
   }
 
-  window.sendSelectedToTelegram = async function() {
+  async function sendSelectedToTelegram() {
     if (selectedKeys.size === 0) return toast("Select a file first");
     
     const filesToSend = [];
@@ -787,10 +787,10 @@
   }
 
 
-  window.telegramPollTimer = null;
-  window.isTgTransferring = false;
+  let telegramPollTimer = null;
+  let isTgTransferring = false;
 
-  window.pollActiveTransfer = async function() {
+  async function pollActiveTransfer() {
     if (telegramPollTimer) clearTimeout(telegramPollTimer);
     
     try {
@@ -818,7 +818,7 @@
     }
   }
 
-  window.openTelegramSettings = async function() {
+  async function openTelegramSettings() {
     $("telegramAuthOverlay").classList.remove("hidden");
     status($("tgAuthStatus"), "Checking status...", "");
     
@@ -848,7 +848,7 @@
     }
   }
 
-  window.showTelegramAuthModal = function() {
+  function showTelegramAuthModal() {
     openTelegramSettings();
   }
 
