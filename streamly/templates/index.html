@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>CloudFlow</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}?v={{ asset_ver }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v={{ asset_ver }}">
+  <link rel="stylesheet" href="/static/css/base.css?v={{ asset_ver }}">
+  <link rel="stylesheet" href="/static/css/responsive.css?v={{ asset_ver }}">
 </head>
 <body>
   <section id="loginScreen" class="login-wrap hidden">
@@ -394,6 +394,6 @@
     </div>
   </div>
 
-  <script type="module" src="{{ url_for('static', filename='js/app.js') }}?v={{ asset_ver }}"></script>
+  <script type="module" src="/static/js/app.js?v={{ asset_ver }}"></script>
 </body>
 </html>
