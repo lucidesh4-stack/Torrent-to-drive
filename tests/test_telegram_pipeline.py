@@ -9,17 +9,17 @@ import httpx
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from streamly_optimized.core.http_client import (
+from streamly.core.http_client import (
     SeedrDownloader,
     managed_seedr_downloader,
 )
-from streamly_optimized.services.seedr_service import (
+from streamly.services.seedr_service import (
     SeedrService,
     SeedrSession,
     SeedrError,
     SeedrRateLimitError,
 )
-from streamly_optimized.routes.telegram import (
+from streamly.routes.telegram import (
     upload_file_native,
     TelegramSession,
     TelegramFilePartError,

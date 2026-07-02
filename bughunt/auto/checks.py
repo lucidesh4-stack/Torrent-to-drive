@@ -29,7 +29,7 @@ class CheckResult:
 
 @dataclass
 class Ctx:
-    root: Path                       # bughunt/live/streamly_optimized
+    root: Path                       # bughunt/live/streamly
     head: str
     app_client: object = None        # flask test client, or None
     app_obj: object = None

@@ -41,7 +41,7 @@ def pull(base: Path):
 def build_app_client(base: Path):
     """Best-effort: build the real Flask app + test client. Returns (app, client) or (None, None).
 
-    `base` is the directory that CONTAINS the `streamly_optimized` package.
+    `base` is the directory that CONTAINS the `streamly` package.
     """
     try:
         os.environ.setdefault("SPACE_ID", "x")
@@ -49,7 +49,7 @@ def build_app_client(base: Path):
         os.environ.setdefault("APP_ENV", "production")
         # No Upstash creds -> app boots with rs=None (graceful). That's fine for our checks.
         sys.path.insert(0, str(base))
-        from streamly_optimized.app import create_app  # type: ignore
+        from streamly.app import create_app  # type: ignore
         app = create_app()
         return app, app.test_client()
     except Exception as e:
@@ -62,7 +62,7 @@ def main():
     ap.add_argument("--pull", action="store_true",
                     help="re-pull the live repo into bughunt/live before running")
     ap.add_argument("--root", default="",
-                    help="dir CONTAINING streamly_optimized/ (CI: the repo checkout). "
+                    help="dir CONTAINING streamly/ (CI: the repo checkout). "
                          "Default: bughunt/live (or $CLOUDFLOW_ROOT)")
     ap.add_argument("--json", default="")
     ap.add_argument("--only", default="")
@@ -71,15 +71,15 @@ def main():
                          "(known/accepted, e.g. cosmetic). They still run and show in the report.")
     args = ap.parse_args()
 
-    # Resolve base (the dir that holds the streamly_optimized package).
+    # Resolve base (the dir that holds the streamly package).
     base = Path(args.root or os.environ.get("CLOUDFLOW_ROOT", "") or DEFAULT_BASE).resolve()
-    root = base / "streamly_optimized"
+    root = base / "streamly"
 
     if args.pull:
         pull(base)
 
     if not root.exists():
-        print(f"FATAL: streamly_optimized/ not found under {base}. "
+        print(f"FATAL: streamly/ not found under {base}. "
               f"Use --root <repo> or run with --pull.", file=sys.stderr)
         sys.exit(99)
 

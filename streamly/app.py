@@ -129,7 +129,7 @@ class AsyncRedisLogHandler(logging.Handler):
     """Buffered logger handler pushing logs to an in-memory queue to prevent blocking the event loop."""
     def __init__(self):
         super().__init__()
-        self._skip_prefix = "streamly_optimized.redis_store"
+        self._skip_prefix = "streamly.redis_store"
 
     def emit(self, record):
         if record.name.startswith(self._skip_prefix):

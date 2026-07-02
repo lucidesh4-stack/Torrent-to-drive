@@ -12,7 +12,7 @@ import httpx
 from pathlib import Path
 from typing import Optional, Tuple
 
-from streamly_optimized.core.http_client import managed_http_client, create_ssl_context, RateLimitedHTTPClient
+from streamly.core.http_client import managed_http_client, create_ssl_context, RateLimitedHTTPClient
 
 
 class SeedrError(Exception):
