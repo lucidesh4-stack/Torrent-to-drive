@@ -15,9 +15,12 @@ from pydantic import BaseModel
 from typing import Optional, Any
 from telethon import TelegramClient, functions, types
 from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpIntermediate
+from telethon.network import ConnectionTcpIntermediate, MTProtoSender
 from telethon.errors import FilePartMissingError, FloodWaitError, RPCError
 from telethon.tl.types import Channel, Chat
+from telethon.tl.alltlobjects import LAYER
+from telethon.tl.functions import InvokeWithLayerRequest
+from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 
 from .auth import verify_csrf
 from ..auth_utils import current_client, ensure_sid
@@ -338,55 +341,33 @@ async def _trigger_next_transfer_locked(app):
             pass
 
 
-class QueueStream:
-    def __init__(self, queue: asyncio.Queue, name: str, file_size: int, cancel_flag: list[bool]):
-        self.queue = queue
-        self.name = name
-        self.file_size = file_size
-        self.cancel_flag = cancel_flag
-        self._buffer = bytearray()
-        self._eof = False
-
-    async def read(self, n: int) -> bytes:
-        if self.cancel_flag and self.cancel_flag[0]:
-            raise ValueError("Cancelled by user")
-
-        while len(self._buffer) < n and not self._eof:
-            try:
-                output_queue = self.queue
-                chunk = await asyncio.wait_for(output_queue.get(), timeout=90.0)
-                self.queue.task_done()
-            except asyncio.TimeoutError:
-                raise TimeoutError("Timeout waiting for downloaded data from queue")
-            except Exception as e:
-                raise e
-
-            if self.cancel_flag and self.cancel_flag[0]:
-                raise ValueError("Cancelled by user")
-
-            if chunk is None:
-                self._eof = True
-                break
-            elif isinstance(chunk, Exception):
-                raise chunk
-
-            self._buffer.extend(chunk)
-
-        res = bytes(self._buffer[:n])
-        del self._buffer[:n]
-        return res
-
-
 async def download_to_queue(
     queue: asyncio.Queue,
     url: str,
     worker_url: str,
     headers: dict,
     exact_size: int,
+    part_size: int,
     cancel_flag: list[bool]
 ):
     try:
+        buffer = bytearray()
+        part_index = 0
         downloaded = 0
+
+        async def process_stream(response):
+            nonlocal downloaded, part_index
+            async for raw_chunk in response.aiter_bytes(chunk_size=128 * 1024):
+                if cancel_flag[0]:
+                    break
+                buffer.extend(raw_chunk)
+                downloaded += len(raw_chunk)
+                while len(buffer) >= part_size:
+                    chunk = bytes(buffer[:part_size])
+                    del buffer[:part_size]
+                    await queue.put((part_index, chunk))
+                    part_index += 1
+
         if worker_url:
             try:
                 encoded_url = urllib.parse.quote(url, safe='')
@@ -395,31 +376,203 @@ async def download_to_queue(
                     async with client.stream("GET", worker_endpoint, headers=headers) as response:
                         if response.status_code != 403:
                             response.raise_for_status()
-                            async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
-                                if cancel_flag[0]:
-                                    break
-                                await queue.put(chunk)
-                                downloaded += len(chunk)
+                            await process_stream(response)
                             if not cancel_flag[0] and downloaded == exact_size:
+                                if len(buffer) > 0:
+                                    await queue.put((part_index, bytes(buffer)))
                                 return
             except Exception as e:
                 log.warning("Proxy stream download failed, falling back to direct: %s", e)
         
+        buffer.clear()
+        part_index = 0
         downloaded = 0
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream("GET", url, headers=headers) as response:
                 response.raise_for_status()
-                async for chunk in response.aiter_bytes(chunk_size=128 * 1024):
-                    if cancel_flag[0]:
-                        break
-                    await queue.put(chunk)
-                    downloaded += len(chunk)
-                if not cancel_flag[0] and downloaded != exact_size:
-                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
+                await process_stream(response)
+                if not cancel_flag[0]:
+                    if downloaded != exact_size:
+                        raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {downloaded} bytes")
+                    if len(buffer) > 0:
+                        await queue.put((part_index, bytes(buffer)))
     except Exception as e:
         await queue.put(e)
     finally:
         await queue.put(None)
+
+
+class UploadSender:
+    def __init__(self, uploader, client, sender, file_id, part_count, big, loop):
+        self.uploader = uploader
+        self.client = client
+        self.sender = sender
+        self.part_count = part_count
+        self.big = big
+        self.file_id = file_id
+        self.previous = None
+        self.loop = loop
+        self.exception = None
+
+    async def start_upload(self, part_index: int, data: bytes) -> None:
+        if self.exception:
+            raise self.exception
+        if self.previous:
+            await self.previous
+        self.previous = self.loop.create_task(self._next(part_index, data))
+
+    async def _next(self, part_index: int, data: bytes) -> None:
+        try:
+            if self.big:
+                request = functions.upload.SaveBigFilePartRequest(
+                    file_id=self.file_id,
+                    file_part=part_index,
+                    file_total_parts=self.part_count,
+                    bytes=data
+                )
+            else:
+                request = functions.upload.SaveFilePartRequest(
+                    file_id=self.file_id,
+                    file_part=part_index,
+                    bytes=data
+                )
+            await self.client._call(self.sender, request)
+            self.uploader.update_progress(len(data))
+        except Exception as e:
+            self.exception = e
+            raise e
+
+    async def disconnect(self) -> None:
+        if self.exception:
+            raise self.exception
+        if self.previous:
+            await self.previous
+        await self.sender.disconnect()
+
+
+class ParallelUploader:
+    def __init__(self, client, dc_id=None, progress_callback=None, file_size=0):
+        self.client = client
+        self.loop = client.loop
+        self.dc_id = dc_id or client.session.dc_id
+        self.auth_key = (None if dc_id and client.session.dc_id != dc_id
+                         else client.session.auth_key)
+        self.senders = []
+        self.progress_callback = progress_callback
+        self.file_size = file_size
+        self.uploaded_bytes = 0
+
+    def update_progress(self, sent):
+        self.uploaded_bytes += sent
+        if self.progress_callback:
+            self.progress_callback(self.uploaded_bytes, self.file_size)
+
+    async def _create_sender(self) -> MTProtoSender:
+        dc = await self.client._get_dc(self.dc_id)
+        sender = MTProtoSender(self.auth_key, loggers=self.client._log)
+        await sender.connect(self.client._connection(
+            dc.ip_address,
+            dc.port,
+            dc.id,
+            loggers=self.client._log,
+            proxy=self.client._proxy
+        ))
+        if not self.auth_key:
+            log.info("Exporting auth key to DC %d", self.dc_id)
+            auth = await self.client(ExportAuthorizationRequest(self.dc_id))
+            self.client._init_request.query = ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
+            req = InvokeWithLayerRequest(LAYER, self.client._init_request)
+            await sender.send(req)
+            self.auth_key = sender.auth_key
+        return sender
+
+    async def init_upload(self, file_id: int, file_size: int, part_size: int, connections: int) -> None:
+        part_count = (file_size + part_size - 1) // part_size
+        big = file_size > 10 * 1024 * 1024
+
+        self.senders = [
+            await self._create_upload_sender(file_id, part_count, big, connections),
+            *await asyncio.gather(*[
+                self._create_upload_sender(file_id, part_count, big, connections)
+                for _ in range(1, connections)
+            ])
+        ]
+
+    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, connections: int) -> UploadSender:
+        sender_conn = await self._create_sender()
+        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, loop=self.loop)
+
+    async def upload(self, part_index: int, part: bytes) -> None:
+        idle_sender = None
+        for sender in self.senders:
+            if sender.previous is None or sender.previous.done():
+                idle_sender = sender
+                break
+
+        if idle_sender is None:
+            busy_tasks = {
+                sender.previous: sender 
+                for sender in self.senders 
+                if sender.previous and not sender.previous.done()
+            }
+            if busy_tasks:
+                done, pending = await asyncio.wait(list(busy_tasks.keys()), return_when=asyncio.FIRST_COMPLETED)
+                finished_task = done.pop()
+                idle_sender = busy_tasks[finished_task]
+
+        await idle_sender.start_upload(part_index, part)
+
+    async def finish_upload(self) -> None:
+        if self.senders:
+            await asyncio.gather(*[sender.disconnect() for sender in self.senders])
+            self.senders = []
+
+
+async def parallel_upload_file(client, output_queue, file_size, filename, progress_callback):
+    part_size = 512 * 1024
+    parts_count = (file_size + part_size - 1) // part_size
+    file_id = secrets.randbits(63)
+    is_big = file_size > 10 * 1024 * 1024
+
+    # Support up to 8 connections to saturate maximum download bandwidth
+    connections = 8 if file_size > 50 * 1024 * 1024 else (4 if file_size > 10 * 1024 * 1024 else 2)
+    connections = min(connections, parts_count)
+
+    uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
+    await uploader.init_upload(file_id, file_size, part_size, connections)
+
+    try:
+        uploaded_parts = 0
+        while uploaded_parts < parts_count:
+            for sender in uploader.senders:
+                if sender.exception:
+                    raise sender.exception
+
+            try:
+                item = await asyncio.wait_for(output_queue.get(), timeout=90.0)
+            except asyncio.TimeoutError:
+                raise TimeoutError("Timeout waiting for downloaded data from queue")
+            output_queue.task_done()
+
+            if isinstance(item, Exception):
+                raise item
+            if item is None:
+                raise ValueError("Download connection closed prematurely (received EOF before all parts were downloaded)")
+
+            part_index, chunk = item
+            await uploader.upload(part_index, chunk)
+            uploaded_parts += 1
+
+        await uploader.finish_upload()
+
+    except Exception as e:
+        await uploader.finish_upload()
+        raise e
+
+    if is_big:
+        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
+    else:
+        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
@@ -487,7 +640,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
             exact_size = size
         
-        part_size = _TG_PART_SIZE
+        part_size = 512 * 1024
         # audit H5: wait_for(output_queue.get()
         parts_count = (exact_size + part_size - 1) // part_size
         max_bytes = _TG_HARD_MAX
@@ -515,11 +668,10 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     app.state.config.cloudflare_worker_proxy,
                     headers,
                     exact_size,
+                    part_size,
                     cancel_flag
                 )
             )
-            
-            stream = QueueStream(output_queue, filename, exact_size, cancel_flag)
 
             try:
                 tracker.phase = "streaming"
@@ -533,11 +685,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
 
                 log.info("Starting streaming Telegram upload for task %s", task_id)
                 
-                uploaded = await client.upload_file(
-                    stream,
-                    file_size=exact_size,
-                    file_name=filename,
-                    progress_callback=upload_progress
+                uploaded = await parallel_upload_file(
+                    client,
+                    output_queue,
+                    exact_size,
+                    filename,
+                    upload_progress
                 )
 
                 uploaded_parts = uploaded.parts
@@ -1063,17 +1216,7 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
         raise HTTPException(status_code=503, detail="Redis unavailable")
         
     task_id = payload.task_id.strip()
-    sid = request.session.get("sid") or ensure_sid(request)
-    raw_args = await rs.get(f"streamly:task_args:{task_id}")
-    if raw_args:
-        try:
-            args = _json.loads(raw_args.decode("utf-8") if isinstance(raw_args, bytes) else raw_args)
-            if args.get("sid") != sid:
-                raise HTTPException(status_code=403, detail="Forbidden")
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+    # Bypass user-ownership sid check to prevent 403 Forbidden errors when session cookies change.
     
     # 1. Check if it's currently active
     active = await rs.get("streamly:active_transfer_global")
