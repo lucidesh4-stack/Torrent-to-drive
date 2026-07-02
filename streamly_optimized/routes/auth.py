@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 
 from ..auth_utils import current_client, ensure_sid, get_csrf_token
 from ..store import NotAuthenticated
-from ..security import validate_email, validate_password
+from ..security import validate_email, validate_password, rate_limited
 
 log = logging.getLogger(__name__)
 auth_router = APIRouter()
@@ -26,12 +26,14 @@ async def verify_csrf(request: Request):
 
 
 @auth_router.get("/api/csrf")
+@rate_limited(cost=0.2)
 async def csrf(request: Request):
     ensure_sid(request)
     return {"success": True, "csrfToken": get_csrf_token(request)}
 
 
 @auth_router.get("/api/status")
+@rate_limited(cost=0.2)
 async def status_route(request: Request, client = Depends(current_client)):
     return {
         "success": True,
@@ -41,6 +43,7 @@ async def status_route(request: Request, client = Depends(current_client)):
 
 
 @auth_router.post("/api/login")
+@rate_limited(cost=5.0)
 async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_csrf)):
     # Check body size and type (handled by FastAPI/Pydantic automatically)
     try:
@@ -73,6 +76,7 @@ async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_
 
 
 @auth_router.post("/api/login/silent")
+@rate_limited(cost=1.0)
 async def login_silent(request: Request):
     try:
         await current_client(request)

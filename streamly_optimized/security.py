@@ -12,6 +12,9 @@ import ipaddress
 import socket
 from urllib.parse import urlsplit
 import httpx
+import inspect
+from functools import wraps
+from fastapi import Request, HTTPException
 
 class ValidationError(ValueError):
     """Raised when client-controlled input is malformed or unsafe."""
@@ -201,3 +204,32 @@ class TokenBucketRateLimiter:
             return
         oldest = min(self._buckets, key=lambda k: self._buckets[k].updated_at)
         del self._buckets[oldest]
+
+
+def rate_limited(cost: float = 1.0):
+    """Decorator to limit request rate based on request's app state limiter."""
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            request = kwargs.get("request")
+            if request is None:
+                for arg in args:
+                    if isinstance(arg, Request):
+                        request = arg
+                        break
+            
+            if request is None:
+                return await func(*args, **kwargs)
+
+            limiter = getattr(request.app.state, "limiter", None)
+            if limiter is not None:
+                sid = request.session.get("sid") or (request.client.host if request.client else "unknown")
+                key = f"{sid}:{request.url.path}"
+                if not await limiter.allow(key, cost=cost):
+                    raise HTTPException(status_code=429, detail="Too many requests")
+
+            return await func(*args, **kwargs)
+
+        wrapper.__signature__ = inspect.signature(func)
+        return wrapper
+    return decorator

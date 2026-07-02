@@ -573,6 +573,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
 
 
 @telegram_router.get("/api/telegram/status")
+@rate_limited(cost=1.0)
 async def telegram_status(request: Request):
     rs = getattr(request.app.state, "rs", None)
     if not rs:
@@ -619,6 +620,7 @@ async def telegram_status(request: Request):
 
 
 @telegram_router.get("/api/telegram/test-download")
+@rate_limited(cost=3.0)
 async def test_download_speed(request: Request):
     raw_url = request.query_params.get("url")
     pinned_ip = None
@@ -674,6 +676,7 @@ class CodePayload(BaseModel):
 
 
 @telegram_router.post("/api/telegram/send-code")
+@rate_limited(cost=3.0)
 async def send_code(request: Request, payload: PhonePayload, _csrf = Depends(verify_csrf)):
     rs = request.app.state.rs
     if not rs:
@@ -711,6 +714,7 @@ async def send_code(request: Request, payload: PhonePayload, _csrf = Depends(ver
 
 
 @telegram_router.post("/api/telegram/verify-code")
+@rate_limited(cost=3.0)
 async def verify_code(request: Request, payload: CodePayload, _csrf = Depends(verify_csrf)):
     rs = request.app.state.rs
     if not rs:
@@ -767,6 +771,7 @@ async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_de
 
 
 @telegram_router.post("/api/telegram/send-file")
+@rate_limited(cost=3.0)
 async def telegram_send_file(request: Request, payload: SendFilePayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     rs = request.app.state.rs
@@ -880,6 +885,7 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
 
 
 @telegram_router.get("/api/telegram/task/{task_id}")
+@rate_limited(cost=0.5)
 async def telegram_task_status(request: Request, task_id: str):
     rs = request.app.state.rs
     if not rs:
@@ -903,6 +909,7 @@ async def telegram_task_status(request: Request, task_id: str):
 
 
 @telegram_router.get("/api/telegram/queue")
+@rate_limited(cost=0.5)
 async def get_telegram_queue(request: Request):
     rs = request.app.state.rs
     if not rs:
@@ -973,6 +980,7 @@ class CancelPayload(BaseModel):
 
 
 @telegram_router.post("/api/telegram/cancel")
+@rate_limited(cost=1.0)
 async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _csrf = Depends(verify_csrf)):
     rs = request.app.state.rs
     if not rs:
@@ -1005,6 +1013,7 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
 
 
 @telegram_router.post("/api/telegram/logout")
+@rate_limited(cost=1.0)
 async def telegram_logout(request: Request, _csrf = Depends(verify_csrf)):
     rs = request.app.state.rs
     if not rs:
@@ -1029,6 +1038,7 @@ class SettingsPayload(BaseModel):
 
 
 @telegram_router.post("/api/telegram/settings")
+@rate_limited(cost=1.0)
 async def save_telegram_settings(request: Request, payload: SettingsPayload, _csrf = Depends(verify_csrf)):
     chat_id = payload.chat_id.strip()
     if not chat_id:

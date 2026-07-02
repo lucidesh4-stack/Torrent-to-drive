@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 
 from .auth import verify_csrf
-from ..security import validate_magnet
+from ..security import validate_magnet, rate_limited
 
 history_router = APIRouter()
 
@@ -21,6 +21,7 @@ class DeleteHistoryPayload(BaseModel):
 
 
 @history_router.get("/api/history")
+@rate_limited(cost=1.0)
 async def get_history(request: Request):
     rs = request.app.state.rs
     try:
@@ -32,6 +33,7 @@ async def get_history(request: Request):
 
 
 @history_router.post("/api/history/add")
+@rate_limited(cost=1.0)
 async def add_history(request: Request, payload: AddHistoryPayload, _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     try:
@@ -67,6 +69,7 @@ async def add_history(request: Request, payload: AddHistoryPayload, _csrf = Depe
 
 
 @history_router.post("/api/history/delete")
+@rate_limited(cost=1.0)
 async def delete_history(request: Request, payload: DeleteHistoryPayload, _csrf = Depends(verify_csrf)):
     magnet = payload.magnet
     if not magnet or not isinstance(magnet, str):
@@ -82,6 +85,7 @@ async def delete_history(request: Request, payload: DeleteHistoryPayload, _csrf 
 
 
 @history_router.post("/api/history/clear")
+@rate_limited(cost=1.0)
 async def clear_history(request: Request, _csrf = Depends(verify_csrf)):
     rs = request.app.state.rs
     if rs:

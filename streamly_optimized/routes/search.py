@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Optional
 
 from ..auth_utils import current_client
-from ..security import validate_query
+from ..security import validate_query, rate_limited
 from ..search_service import (
     group_series_results,
     build_packs,
@@ -36,6 +36,7 @@ def _csv(value: str | None) -> list[str]:
 
 
 @search_router.get("/api/suggest")
+@rate_limited(cost=0.5)
 async def suggest(request: Request, q: str):
     config = request.app.state.config
     try:
@@ -50,6 +51,7 @@ async def suggest(request: Request, q: str):
 
 
 @search_router.get("/api/search")
+@rate_limited(cost=1.0)
 async def search_route(
     request: Request,
     q: str,

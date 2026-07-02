@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 
 from .auth import verify_csrf
+from ..security import rate_limited
 from ..cloud_service import format_size, _safe_int
 
 log = logging.getLogger(__name__)
@@ -267,6 +268,7 @@ def trigger_seedr_queue(app):
 
 
 @queue_router.get("/api/queue")
+@rate_limited(cost=0.5)
 async def get_queue(request: Request):
     rs = getattr(request.app.state, "rs", None)
     if not rs:
@@ -289,6 +291,7 @@ async def get_queue(request: Request):
 
 
 @queue_router.post("/api/queue/cancel")
+@rate_limited(cost=1.0)
 async def cancel_queued_item(request: Request, payload: CancelQueuePayload, _csrf = Depends(verify_csrf)):
     rs = getattr(request.app.state, "rs", None)
     if not rs:

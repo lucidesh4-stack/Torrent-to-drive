@@ -14,6 +14,7 @@ from ..security import (
     validate_item_type,
     validate_positive_int,
     validate_magnet,
+    rate_limited,
 )
 from ..cloud_service import format_size, _safe_int
 
@@ -55,6 +56,7 @@ class AddMagnetPayload(BaseModel):
 
 
 @cloud_router.get("/api/devices")
+@rate_limited(cost=1.0)
 async def list_devices(request: Request, client = Depends(current_client)):
     cloud = request.app.state.cloud
     try:
@@ -66,6 +68,7 @@ async def list_devices(request: Request, client = Depends(current_client)):
 
 
 @cloud_router.get("/fs/folder/{folder_id}/items")
+@rate_limited(cost=1.0)
 async def list_items(request: Request, folder_id: str, client = Depends(current_client)):
     config = request.app.state.config
     try:
@@ -107,6 +110,7 @@ async def list_items(request: Request, folder_id: str, client = Depends(current_
 
 
 @cloud_router.post("/api/transfer/cancel")
+@rate_limited(cost=2.0)
 async def cancel_transfer(request: Request, payload: CancelTransferPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     try:
@@ -124,6 +128,7 @@ async def cancel_transfer(request: Request, payload: CancelTransferPayload, clie
 
 
 @cloud_router.post("/api/delete")
+@rate_limited(cost=2.0)
 async def delete_item(request: Request, payload: DeleteItemPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     try:
@@ -142,6 +147,7 @@ async def delete_item(request: Request, payload: DeleteItemPayload, client = Dep
 
 
 @cloud_router.post("/api/zip")
+@rate_limited(cost=2.0)
 async def zip_item(request: Request, payload: ZipItemPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     try:
@@ -160,6 +166,7 @@ async def zip_item(request: Request, payload: ZipItemPayload, client = Depends(c
 
 
 @cloud_router.post("/api/delete/bulk")
+@rate_limited(cost=3.0)
 async def delete_bulk(request: Request, payload: BulkDeletePayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     items = payload.items
@@ -185,6 +192,7 @@ async def delete_bulk(request: Request, payload: BulkDeletePayload, client = Dep
 
 
 @cloud_router.post("/api/zip/bulk")
+@rate_limited(cost=3.0)
 async def zip_bulk(request: Request, payload: BulkZipPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     config = request.app.state.config
     items = payload.items
@@ -215,6 +223,7 @@ async def zip_bulk(request: Request, payload: BulkZipPayload, client = Depends(c
 
 
 @cloud_router.post("/api/add")
+@rate_limited(cost=2.0)
 async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     rs = getattr(request.app.state, "rs", None)
     config = request.app.state.config
@@ -327,6 +336,7 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
 
 
 @cloud_router.get("/api/url")
+@rate_limited(cost=1.0)
 async def get_url(request: Request, file_id: str, client = Depends(current_client)):
     config = request.app.state.config
     try:

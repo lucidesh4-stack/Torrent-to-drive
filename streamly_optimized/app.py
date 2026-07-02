@@ -155,6 +155,14 @@ async def periodic_log_flush_task(rs: RedisStore, interval_seconds: int = 5, max
             pass
 
 
+def run_background_task(app: FastAPI, coro) -> asyncio.Task:
+    """Helper to run a coroutine in the background and track it in app.state."""
+    task = asyncio.create_task(coro)
+    app.state.background_tasks.add(task)
+    task.add_done_callback(app.state.background_tasks.discard)
+    return task
+
+
 def create_app(
     config: AppConfig | None = None,
     *,
@@ -168,6 +176,7 @@ def create_app(
     # Store settings in state
     app.state.config = config
     app.state.background_tasks = set()
+    app.state.run_background_task = lambda coro: run_background_task(app, coro)
     
     # Configure Session Middleware
     is_hf = "SPACE_ID" in os.environ
