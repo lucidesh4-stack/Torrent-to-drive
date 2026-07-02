@@ -476,8 +476,22 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    # Use 12 connections for large files to reach 15 MB/s upload speed
-    connections = 12 if file_size > 50 * 1024 * 1024 else (6 if file_size > 10 * 1024 * 1024 else 2)
+    # Connection count for parallel SaveBigFilePartRequest/SaveFilePartRequest calls.
+    #
+    # Previously 12/6/2. Log analysis of a real transfer (Enola.Holmes.3, ~1.3GB) showed
+    # 12 connections triggered 61 separate "SaveBigFilePartRequest flood wait" events in
+    # ~85s of upload time, each forcing a 7-8s sleep -- roughly half the total upload
+    # window was spent idle waiting out Telegram's per-method rate limiter, not uploading.
+    # Reducing concurrency lowers the rate at which this single RPC method is hit, which
+    # should reduce (not necessarily eliminate) how often the limiter triggers.
+    #
+    # NOTE: the right number depends on Telegram's rate-limit tier for the account/session
+    # in use, which isn't observable from static analysis. This value is a conservative
+    # starting point based on the evidence above and should be re-validated against a real
+    # transfer's flood-wait count/frequency (visible in the app logs) after deploying --
+    # if flood waits are still frequent, reduce further; if none occur, it may be safe to
+    # raise it again.
+    connections = 6 if file_size > 50 * 1024 * 1024 else (3 if file_size > 10 * 1024 * 1024 else 2)
     connections = min(connections, parts_count)
 
     uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
@@ -495,9 +509,16 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
                     break
                 await uploader.upload(part_index, chunk)
         await uploader.finish_upload()
-    except Exception as e:
-        await uploader.finish_upload()
-        raise e
+    except BaseException as e:
+        # BaseException (not Exception) is required here: asyncio.CancelledError
+        # inherits from BaseException, not Exception, since Python 3.8. Without this,
+        # a task.cancel() during upload skips finish_upload() entirely, leaking every
+        # open MTProtoSender connection (up to 12) until the GC reaps them minutes later.
+        try:
+            await uploader.finish_upload()
+        except Exception:
+            log.warning("finish_upload() raised during cleanup after %s", type(e).__name__, exc_info=True)
+        raise
 
     if is_big:
         return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
@@ -562,9 +583,22 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         try:
             log.info("Querying Content-Length directly from Seedr: %s", download_url)
             async with httpx.AsyncClient(http2=True, timeout=15.0) as client_cl:
-                r = await client_cl.get(download_url, headers=headers)
-                r.raise_for_status()
-                content_len_header = r.headers.get("content-length")
+                content_len_header = None
+                try:
+                    # Prefer HEAD: gets headers only, never downloads the body. A GET here
+                    # (even without reading the body) previously caused the FULL file to be
+                    # fetched and discarded before the real download even started, doubling
+                    # egress from Seedr and adding tens of seconds of dead time per transfer.
+                    r = await client_cl.head(download_url, headers=headers)
+                    r.raise_for_status()
+                    content_len_header = r.headers.get("content-length")
+                except Exception as head_err:
+                    log.info("HEAD request unsupported/failed (%s: %s); falling back to a streamed GET (headers only, body not read).", type(head_err).__name__, head_err)
+                    async with client_cl.stream("GET", download_url, headers=headers) as r:
+                        r.raise_for_status()
+                        content_len_header = r.headers.get("content-length")
+                        # Deliberately do not iterate/read the body: closing the stream here
+                        # (via context-manager exit) avoids downloading the file a second time.
                 if content_len_header:
                     exact_size = int(content_len_header)
         except Exception as e:
@@ -648,12 +682,19 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     tracker(current, total)
 
                 log.info("Starting parallel Telegram upload from disk")
+                upload_start = time.time()
                 uploaded = await parallel_upload_local_file(
                     client,
                     temp_path,
                     exact_size,
                     filename,
                     upload_progress
+                )
+                upload_elapsed = time.time() - upload_start
+                upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
+                log.info(
+                    "Upload phase complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                    exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                 )
 
                 uploaded_parts = uploaded.parts

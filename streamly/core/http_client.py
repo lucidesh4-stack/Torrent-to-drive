@@ -3,9 +3,13 @@ import httpx
 import asyncio
 import time
 import os
+import logging
 import urllib.parse
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
+
+log = logging.getLogger(__name__)
+
 
 def create_ssl_context() -> ssl.SSLContext:
     """Create a custom SSL context with SECLEVEL=1 to prevent UNEXPECTED_EOF_WHILE_READING errors."""
@@ -206,12 +210,21 @@ class OptimizedDownloader:
                 result = await self._download_via_worker(url, dest_path, progress_callback)
                 if result:
                     self._update_stats(result)
+                    log.info(
+                        "Download complete via %s: %.2f MB in %.1fs (%.2f Mbps)",
+                        result["method"], result["size"] / (1024 * 1024), result["time_s"], result["speed_mbps"],
+                    )
                     return result
-            except Exception:
-                pass
+                log.warning("Worker proxy returned 403 (blocked); falling back to direct download for this and future transfers.")
+            except Exception as e:
+                log.warning("Worker proxy download failed (%s: %s); falling back to direct download.", type(e).__name__, e)
         
         result = await self._download_via_direct(url, dest_path, progress_callback)
         self._update_stats(result)
+        log.info(
+            "Download complete via %s: %.2f MB in %.1fs (%.2f Mbps)",
+            result["method"], result["size"] / (1024 * 1024), result["time_s"], result["speed_mbps"],
+        )
         return result
 
     def _update_stats(self, result: Dict):

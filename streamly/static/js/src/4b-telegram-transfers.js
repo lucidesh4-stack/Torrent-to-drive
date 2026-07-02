@@ -22,10 +22,20 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
+  window._cancelInFlight = window._cancelInFlight || new Set();
+
   window.cancelTransfer = async function(taskId) {
+    // Guard against empty/missing task ids (stray clicks on placeholder rows) and
+    // duplicate in-flight cancels for the same task (double-click, repeated clicks
+    // before the queue re-renders) -- both previously produced needless 422s.
+    const tid = String(taskId || "").trim();
+    if (!tid) return;
+    if (window._cancelInFlight.has(tid)) return;
+
     if (!confirm("Are you sure you want to cancel this transfer?")) return;
+    window._cancelInFlight.add(tid);
     try {
-      const res = await postJson("/api/telegram/cancel", { task_id: taskId });
+      const res = await postJson("/api/telegram/cancel", { task_id: tid });
       if (res.success) {
         toast(res.message || "Transfer cancelled successfully.");
         // Immediate refresh
@@ -35,6 +45,8 @@
       }
     } catch (e) {
       toast(e.message || "Failed to cancel transfer.");
+    } finally {
+      window._cancelInFlight.delete(tid);
     }
   }
 
