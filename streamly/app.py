@@ -344,8 +344,8 @@ def create_app(
             asset_ver = 1
             
         response = templates.TemplateResponse(
-            "index.html",
-            {"request": request, "csrf_token": get_csrf_token(request), "asset_ver": asset_ver}
+            name="index.html",
+            context={"request": request, "csrf_token": get_csrf_token(request), "asset_ver": asset_ver}
         )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
