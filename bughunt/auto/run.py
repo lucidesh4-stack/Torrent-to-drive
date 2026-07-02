@@ -51,7 +51,11 @@ def build_app_client(base: Path):
         sys.path.insert(0, str(base))
         from streamly.app import create_app  # type: ignore
         app = create_app()
-        return app, app.test_client()
+        if hasattr(app, "test_client"):
+            return app, app.test_client()
+        else:
+            from fastapi.testclient import TestClient
+            return app, TestClient(app)
     except Exception as e:
         print(f"! could not build Flask app for dynamic checks: {e}", file=sys.stderr)
         return None, None
