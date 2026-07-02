@@ -365,7 +365,7 @@ def create_app(
 
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True}
+        return {"status": "ok", "env": "production"}
 
     @app.get("/healthz/deep")
     async def healthz_deep():
@@ -527,3 +527,8 @@ def create_app(
         await HttpClientManager.get_instance().close()
 
     return app
+
+
+# Native app instance definition for uvicorn compatibility without --factory flag
+app = create_app()
+create_app = app

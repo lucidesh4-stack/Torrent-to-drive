@@ -11,8 +11,8 @@ sys.path.insert(0, str(HERE.parent / "live"))
 os.environ.setdefault("SECRET_KEY", "stress-test")
 os.environ.setdefault("APP_ENV", "test")
 
-from streamly_hardened.app import create_app
-from streamly_hardened.routes.telegram_client import manager as tg_manager
+from streamly_optimized.app import create_app
+from streamly_optimized.routes.telegram_client import manager as tg_manager
 
 def main():
     p = argparse.ArgumentParser()

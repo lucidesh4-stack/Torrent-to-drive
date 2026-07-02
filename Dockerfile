@@ -35,4 +35,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
 # Runs FastAPI app under Uvicorn
-CMD ["python", "run.py"]
+CMD ["sh", "-c", "uvicorn streamly_optimized.app:create_app --host 0.0.0.0 --port 7860"]
