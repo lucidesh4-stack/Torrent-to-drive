@@ -83,7 +83,7 @@ def c1(ctx: Ctx) -> CheckResult:
     still_exempt = "test_download_speed" in exempt_line
     has_validator = "def validate_public_url" in sec
     endpoint_validates = "validate_public_url(" in tg
-    rate_limited = bool(re.search(r"@rate_limited[^\n]*\n\s*def test_download_speed", tg))
+    rate_limited = bool(re.search(r"@rate_limited[^\n]*\n\s*(async\s+)?def test_download_speed", tg))
 
     problems = []
     if still_exempt:

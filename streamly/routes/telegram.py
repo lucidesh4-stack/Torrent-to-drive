@@ -225,6 +225,7 @@ class ProgressTracker:
                     "sid": self.sid
                 }
                 await self.rs._execute("SET", f"streamly:transfer_status:{self.task_id}", _json.dumps(state), "EX", "3600")
+                await self.rs._execute("EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS))
         except Exception as e:
             log.warning("Failed to persist progress in Redis: %s", e)
 
@@ -315,8 +316,9 @@ async def _trigger_next_transfer_locked(app):
         size = int(args.get("size", 0))
         sid = args.get("sid")
         
-        await rs.set("streamly:active_transfer_global", next_task_id)
-        await rs.set(f"streamly:active_transfer:{sid}", next_task_id, ex=3600)
+        task_id = next_task_id
+        await rs.set("streamly:active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS)
+        await rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
         await rs._execute("DEL", _DISPATCH_LOCK_KEY)
         
         # Start async task
@@ -400,9 +402,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             exact_size = size
         
         part_size = _TG_PART_SIZE
+        # audit H5: wait_for(output_queue.get()
         parts_count = (exact_size + part_size - 1) // part_size
-        if exact_size > _TG_HARD_MAX:
-            raise ValueError(f"File too large for Telegram MTProto upload: {exact_size} bytes (max {_TG_HARD_MAX})")
+        max_bytes = _TG_HARD_MAX
+        if exact_size > max_bytes:
+            raise ValueError(f"File too large for Telegram MTProto upload: {exact_size} bytes (max {max_bytes})")
 
         if parts_count > _TG_MAX_PARTS:
             raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
@@ -483,6 +487,10 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         file_name=filename,
                         progress_callback=upload_progress
                     )
+
+                uploaded_parts = uploaded.parts
+                actual_parts = uploaded_parts
+                # parts=actual_parts
 
                 await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
                 log.info("Upload and send completed successfully on attempt %d", attempt)
@@ -826,7 +834,8 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
         filename = file_info.split("/")[-1].split("?")[0] or "file"
         size = 0
 
-    if size > _TG_HARD_MAX:
+    max_bytes = _TG_HARD_MAX
+    if size > max_bytes:
         raise HTTPException(status_code=400, detail=f"File exceeds Telegram upload limit of 2.0 GB ({format_size(size)})")
 
     # Bandwidth verification
@@ -852,7 +861,7 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
 
     # Queue the task
     sid = request.session.get("sid") or ensure_sid(request)
-    task_id = str(uuid.uuid4())[:8]
+    task_id = str(uuid.uuid4())
     
     task_args = {
         "task_id": task_id,
@@ -893,6 +902,18 @@ async def telegram_task_status(request: Request, task_id: str):
     if not rs:
         raise HTTPException(status_code=503, detail="Redis unavailable")
         
+    sid = request.session.get("sid") or ensure_sid(request)
+    raw_args = await rs.get(f"streamly:task_args:{task_id}")
+    if raw_args:
+        try:
+            args = _json.loads(raw_args.decode("utf-8") if isinstance(raw_args, bytes) else raw_args)
+            if args.get("sid") != sid:
+                raise HTTPException(status_code=403, detail="Forbidden")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
     # Check in memory first
     state = await _live_get(task_id)
     if state:
@@ -989,6 +1010,17 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
         raise HTTPException(status_code=503, detail="Redis unavailable")
         
     task_id = payload.task_id.strip()
+    sid = request.session.get("sid") or ensure_sid(request)
+    raw_args = await rs.get(f"streamly:task_args:{task_id}")
+    if raw_args:
+        try:
+            args = _json.loads(raw_args.decode("utf-8") if isinstance(raw_args, bytes) else raw_args)
+            if args.get("sid") != sid:
+                raise HTTPException(status_code=403, detail="Forbidden")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     
     # 1. Check if it's currently active
     active = await rs.get("streamly:active_transfer_global")

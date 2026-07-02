@@ -148,7 +148,7 @@
 
   window.search = async function(keepPage, page) {
     const q = $("searchQuery").value.trim();
-    if (!q) return status($("searchStatus"), "Enter a search query", "error");
+    if (!q) return updateStatus($("searchStatus"), "Enter a search query", "error");
 
     suppressSuggestions = true;
     if (searchAbort) searchAbort.abort();
@@ -165,14 +165,14 @@
         try { magnetName = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
       }
       saveToHistory(q, magnetName);
-      status($("searchStatus"), "Adding magnet to Seedr...", "");
+      updateStatus($("searchStatus"), "Adding magnet to Seedr...", "");
       try {
         const res = await postJson("/api/add", { magnet: q });
         if (res && res.queued) {
-          status($("searchStatus"), "\u2713 Added to Queue: " + magnetName, "ok");
+          updateStatus($("searchStatus"), "\u2713 Added to Queue: " + magnetName, "ok");
           toast("Added to local queue: " + magnetName);
         } else {
-          status($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+          updateStatus($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
           toast("Added to Seedr: " + magnetName);
         }
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
@@ -180,7 +180,7 @@
         $("searchQuery").value = "";
         setMagnetUiState("");
       } catch (err) {
-        status($("searchStatus"), err.message || "Failed to add magnet", "error");
+        updateStatus($("searchStatus"), err.message || "Failed to add magnet", "error");
       }
       return;
     }
@@ -189,7 +189,7 @@
     const providerOrderText = (typeof seriesMode !== "undefined" && seriesMode)
       ? "apibay → bitsearch → torrents-csv"
       : "bitsearch → apibay → torrents-csv";
-    status($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
+    updateStatus($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
     if ($("resultCount")) $("resultCount").textContent = "";
 
     const resultsContainer = $("seriesResults");
@@ -241,7 +241,7 @@
         const extra = (less || other) ? " + " + (less + other) + " other" : "";
         if ($("resultCount")) $("resultCount").textContent = "";
         const providerText = providerStatusText(data);
-        status($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s)" + extra + " \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
+        updateStatus($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s)" + extra + " \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
         return;
       }
 
@@ -255,11 +255,11 @@
       const groupCount = primaryGroups.length;
       if ($("resultCount")) $("resultCount").textContent = "";
       const providerText = providerStatusText(data);
-      status($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
+      updateStatus($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
       if (err && err.name === "AbortError") return; // superseded by a newer search
       if ($("resultCount")) $("resultCount").textContent = "";
-      status($("searchStatus"), err.message || "Search failed", "error");
+      updateStatus($("searchStatus"), err.message || "Search failed", "error");
     }
   }
 

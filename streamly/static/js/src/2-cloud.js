@@ -508,7 +508,7 @@
     // Track requested folder to prevent race conditions on slow connections
     lastRequestedFolderId = folderId;
     
-    if (!silent) status($("cloudStatus"), "Loading folder...", "");
+    if (!silent) updateStatus($("cloudStatus"), "Loading folder...", "");
     try {
       // Fetch Seedr folder contents (backend already embeds queue in root response via data.queue)
       const folderRes = await fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" });
@@ -544,12 +544,12 @@
       
       updateStorage(data.used || 0, data.max || 1);
       renderCloud();
-      if (!silent) status($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + (seedrQueue.length ? ` · ${seedrQueue.length} queued` : "") + ".", "ok");
+      if (!silent) updateStatus($("cloudStatus"), `Loaded ${items.length} item(s)` + (transfers.length ? ` · ${transfers.length} loading` : "") + (seedrQueue.length ? ` · ${seedrQueue.length} queued` : "") + ".", "ok");
       syncCloudAutoRefresh();
     } catch (err) {
       if (lastRequestedFolderId !== folderId) return;
       if ((err.message || "").toLowerCase().includes("login")) showLogin();
-      if (!silent) status($("cloudStatus"), err.message || "Failed to load folder", "error");
+      if (!silent) updateStatus($("cloudStatus"), err.message || "Failed to load folder", "error");
       syncCloudAutoRefresh();
     }
   }
@@ -557,32 +557,32 @@
   window.cancelTransfer = async function(t) {
     if (!t || !t.id) return toast("Transfer id unavailable");
     if (!confirm(`Cancel transfer: ${t.name || "loading torrent"}?`)) return;
-    status($("cloudStatus"), "Cancelling transfer...", "");
+    updateStatus($("cloudStatus"), "Cancelling transfer...", "");
     try {
       await postJson("/api/transfer/cancel", { id: t.id });
       toast("Transfer cancelled");
       await loadFolder(currentFolder || 0, { silent: true });
-      status($("cloudStatus"), "Transfer cancelled.", "ok");
+      updateStatus($("cloudStatus"), "Transfer cancelled.", "ok");
     } catch (err) {
       const message = err.message || "Cancel failed";
       toast(message);
-      status($("cloudStatus"), message, "error");
+      updateStatus($("cloudStatus"), message, "error");
     }
   }
 
   window.cancelQueuedItem = async function(q) {
     if (!q || !q.task_id) return toast("Task ID unavailable");
     if (!confirm(`Remove from queue: ${q.name || "queued torrent"}?`)) return;
-    status($("cloudStatus"), "Cancelling queued item...", "");
+    updateStatus($("cloudStatus"), "Cancelling queued item...", "");
     try {
       await postJson("/api/queue/cancel", { task_id: q.task_id });
       toast("Item removed from queue");
       await loadFolder(currentFolder || 0, { silent: true });
-      status($("cloudStatus"), "Queue item removed.", "ok");
+      updateStatus($("cloudStatus"), "Queue item removed.", "ok");
     } catch (err) {
       const message = err.message || "Failed to cancel queue item";
       toast(message);
-      status($("cloudStatus"), message, "error");
+      updateStatus($("cloudStatus"), message, "error");
     }
   }
 
@@ -598,7 +598,7 @@
     const selectedItems = items.filter(it => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
 
-    status($("cloudStatus"), selectedItems.length === 1 && selectedItems[0].type === "file" ? "Preparing file link..." : "Preparing zip link...", "");
+    updateStatus($("cloudStatus"), selectedItems.length === 1 && selectedItems[0].type === "file" ? "Preparing file link..." : "Preparing zip link...", "");
     try {
       let url = "";
       if (selectedItems.length === 1 && selectedItems[0].type === "file") {
@@ -614,11 +614,11 @@
       if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard is not available in this browser");
       await navigator.clipboard.writeText(url);
       toast("Link copied to clipboard");
-      status($("cloudStatus"), "Link copied to clipboard.", "ok");
+      updateStatus($("cloudStatus"), "Link copied to clipboard.", "ok");
     } catch (err) {
       const message = err.message || "Could not copy link";
       toast(message);
-      status($("cloudStatus"), message, "error");
+      updateStatus($("cloudStatus"), message, "error");
     }
   }
 
@@ -670,7 +670,7 @@
     }
 
     // All files: trigger individual downloads with delay
-    status($("cloudStatus"), `Downloading ${files.length} file(s)...`, "");
+    updateStatus($("cloudStatus"), `Downloading ${files.length} file(s)...`, "");
     let done = 0;
     for (const file of files) {
       try {
@@ -685,13 +685,13 @@
         a.click();
         document.body.removeChild(a);
         done++;
-        status($("cloudStatus"), `Downloading ${done}/${files.length}...`, "");
+        updateStatus($("cloudStatus"), `Downloading ${done}/${files.length}...`, "");
         if (done < files.length) await new Promise(r => setTimeout(r, 500));
       } catch (err) {
         toast(`Failed: ${file.name} — ${err.message}`);
       }
     }
-    status($("cloudStatus"), `Started ${done} download(s).`, "ok");
+    updateStatus($("cloudStatus"), `Started ${done} download(s).`, "ok");
   }
 
   window.zipSelected = async function() {
@@ -699,16 +699,16 @@
     const payload = items
       .filter(it => selectedKeys.has(it.key))
       .map(it => ({ type: it.type, id: it.id }));
-    status($("cloudStatus"), `Preparing zip of ${payload.length} item(s)...`, "");
+    updateStatus($("cloudStatus"), `Preparing zip of ${payload.length} item(s)...`, "");
     try {
       const endpoint = payload.length === 1 ? "/api/zip" : "/api/zip/bulk";
       const body = payload.length === 1 ? { type: payload[0].type, id: payload[0].id } : { items: payload };
       const data = await postJson(endpoint, body);
       if (!data.url) throw new Error("Zip URL was not returned");
       window.open(data.url, "_blank", "noopener,noreferrer");
-      status($("cloudStatus"), "Zip link opened.", "ok");
+      updateStatus($("cloudStatus"), "Zip link opened.", "ok");
     } catch (err) {
-      status($("cloudStatus"), err.message || "Zip failed", "error");
+      updateStatus($("cloudStatus"), err.message || "Zip failed", "error");
     }
   }
 
@@ -721,7 +721,7 @@
       ? `Delete ${selected.type}: ${selected.name}?`
       : `Delete ${payload.length} items? This cannot be undone.`;
     if (!confirm(msg)) return;
-    status($("cloudStatus"), `Deleting ${payload.length} item(s)...`, "");
+    updateStatus($("cloudStatus"), `Deleting ${payload.length} item(s)...`, "");
     try {
       if (payload.length === 1) {
         await postJson("/api/delete", { type: payload[0].type, id: payload[0].id });
@@ -731,7 +731,7 @@
       toast(`Deleted ${payload.length} item(s)`);
       await loadFolder(currentFolder);
     } catch (err) {
-      status($("cloudStatus"), err.message || "Delete failed", "error");
+      updateStatus($("cloudStatus"), err.message || "Delete failed", "error");
     }
   }
 
@@ -754,11 +754,11 @@
     for (const item of filesToSend) {
       if (item.size > 2097152000) {
         toast(`File "${item.name}" exceeds 1.95 GB limit.`);
-        return status($("cloudStatus"), `File "${item.name}" exceeds 1.95 GB limit`, "error");
+        return updateStatus($("cloudStatus"), `File "${item.name}" exceeds 1.95 GB limit`, "error");
       }
     }
     
-    status($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
+    updateStatus($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
     
     let successCount = 0;
     for (const item of filesToSend) {
@@ -799,13 +799,13 @@
         const data = await response.json();
         
         if (data.status === "QUEUED" || data.status === "UPLOADING") {
-          status($("cloudStatus"), "", "");
+          updateStatus($("cloudStatus"), "", "");
           telegramPollTimer = setTimeout(pollActiveTransfer, 10000);
         } else if (data.status === "COMPLETED") {
-          status($("cloudStatus"), "", "");
+          updateStatus($("cloudStatus"), "", "");
           isTgTransferring = false;
         } else if (data.status === "FAILED") {
-          status($("cloudStatus"), `Telegram upload failed: ${data.error || "unknown error"}`, "error");
+          updateStatus($("cloudStatus"), `Telegram upload failed: ${data.error || "unknown error"}`, "error");
           if (isTgTransferring) {
             toast("Upload failed");
             isTgTransferring = false;
@@ -820,7 +820,7 @@
 
   window.openTelegramSettings = async function() {
     $("telegramAuthOverlay").classList.remove("hidden");
-    status($("tgAuthStatus"), "Checking status...", "");
+    updateStatus($("tgAuthStatus"), "Checking status...", "");
     
     // Clear inputs
     $("tgPhone").value = "";
@@ -841,10 +841,10 @@
           $("tgCodeStep").classList.add("hidden");
         }
       }
-      status($("tgAuthStatus"), "", "");
+      updateStatus($("tgAuthStatus"), "", "");
     } catch (err) {
       console.error("Error loading Telegram status:", err);
-      status($("tgAuthStatus"), "Failed to load connection status", "error");
+      updateStatus($("tgAuthStatus"), "Failed to load connection status", "error");
     }
   }
 

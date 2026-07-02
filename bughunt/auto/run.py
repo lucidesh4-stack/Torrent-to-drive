@@ -58,7 +58,7 @@ def build_app_client(base: Path):
             from contextlib import contextmanager
             import json
             import base64
-            from itsdangerous import Signer
+            from itsdangerous import TimestampSigner
             import httpx
             httpx.Response.get_json = lambda self: self.json()
 
@@ -70,7 +70,7 @@ def build_app_client(base: Path):
                 session_data = {}
                 cfg = getattr(app.state, "config", None)
                 secret_key = cfg.secret_key if cfg else "autotest-secret"
-                signer = Signer(secret_key)
+                signer = TimestampSigner(secret_key)
                 if cookie:
                     try:
                         # Decode url encoding first if needed, but TestClient cookies are raw

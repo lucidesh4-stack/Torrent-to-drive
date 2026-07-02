@@ -55,14 +55,14 @@
     event.preventDefault();
     const btn = $("loginBtn");
     btn.disabled = true;
-    status($("loginStatus"), "Connecting to Seedr...", "");
+    updateStatus($("loginStatus"), "Connecting to Seedr...", "");
     try {
       const data = await postJson("/api/login", { email: $("email").value, password: $("password").value });
       $("password").value = "";
       showApp(data.username || "Logged in");
       await loadFolder(0);
     } catch (err) {
-      status($("loginStatus"), err.message || "Login failed", "error");
+      updateStatus($("loginStatus"), err.message || "Login failed", "error");
     } finally {
       btn.disabled = false;
     }
@@ -334,17 +334,17 @@
   if ($("tgUnlinkBtn")) {
     $("tgUnlinkBtn").addEventListener("click", async () => {
       if (!confirm("Are you sure you want to unlink your Telegram account?")) return;
-      status($("tgAuthStatus"), "Unlinking account...", "");
+      updateStatus($("tgAuthStatus"), "Unlinking account...", "");
       try {
         await postJson("/api/telegram/logout", {});
-        status($("tgAuthStatus"), "Account unlinked!", "ok");
+        updateStatus($("tgAuthStatus"), "Account unlinked!", "ok");
         toast("Telegram account unlinked.");
         $("tgLinkedStep").classList.add("hidden");
         $("tgUnlinkedStep").classList.remove("hidden");
         $("tgPhoneStep").classList.remove("hidden");
         $("tgCodeStep").classList.add("hidden");
       } catch (err) {
-        status($("tgAuthStatus"), err.message || "Failed to unlink account", "error");
+        updateStatus($("tgAuthStatus"), err.message || "Failed to unlink account", "error");
       }
     });
   }
@@ -352,16 +352,16 @@
   if ($("tgSendCodeBtn")) {
     $("tgSendCodeBtn").addEventListener("click", async () => {
       const phone = $("tgPhone").value.trim();
-      if (!phone) return status($("tgAuthStatus"), "Enter your phone number", "error");
-      status($("tgAuthStatus"), "Requesting code...", "");
+      if (!phone) return updateStatus($("tgAuthStatus"), "Enter your phone number", "error");
+      updateStatus($("tgAuthStatus"), "Requesting code...", "");
       try {
         await postJson("/api/telegram/setup/send-code", { phone });
-        status($("tgAuthStatus"), "Verification code sent to Telegram app", "ok");
+        updateStatus($("tgAuthStatus"), "Verification code sent to Telegram app", "ok");
         $("tgPhoneStep").classList.add("hidden");
         $("tgCodeStep").classList.remove("hidden");
         $("tgCode").focus();
       } catch (err) {
-        status($("tgAuthStatus"), err.message || "Failed to send code", "error");
+        updateStatus($("tgAuthStatus"), err.message || "Failed to send code", "error");
       }
     });
   }
@@ -369,18 +369,18 @@
   if ($("tgVerifyCodeBtn")) {
     $("tgVerifyCodeBtn").addEventListener("click", async () => {
       const code = $("tgCode").value.trim();
-      if (!code) return status($("tgAuthStatus"), "Enter the verification code", "error");
-      status($("tgAuthStatus"), "Verifying...", "");
+      if (!code) return updateStatus($("tgAuthStatus"), "Enter the verification code", "error");
+      updateStatus($("tgAuthStatus"), "Verifying...", "");
       try {
         await postJson("/api/telegram/setup/verify-code", { code });
-        status($("tgAuthStatus"), "Telegram successfully linked!", "ok");
+        updateStatus($("tgAuthStatus"), "Telegram successfully linked!", "ok");
         toast("Telegram account linked successfully!");
         setTimeout(() => {
           $("telegramAuthOverlay").classList.add("hidden");
           if (typeof sendSelectedToTelegram === "function") sendSelectedToTelegram();
         }, 1500);
       } catch (err) {
-        status($("tgAuthStatus"), err.message || "Verification failed", "error");
+        updateStatus($("tgAuthStatus"), err.message || "Verification failed", "error");
       }
     });
   }

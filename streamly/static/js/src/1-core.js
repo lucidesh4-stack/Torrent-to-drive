@@ -27,7 +27,7 @@
 
   window.$ = (id) => document.getElementById(id);
 
-  window.status = function(el, message, kind) {
+  window.updateStatus = function(el, message, kind) {
     el.textContent = message || "";
     el.className = "status" + (kind ? " " + kind : "");
   };
