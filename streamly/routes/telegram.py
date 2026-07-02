@@ -329,6 +329,9 @@ async def _trigger_next_transfer_locked(app):
         
         # Start async task
         task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid))
+        if not hasattr(app.state, "active_tasks"):
+            app.state.active_tasks = {}
+        app.state.active_tasks[next_task_id] = task
         app.state.background_tasks.add(task)
         task.add_done_callback(app.state.background_tasks.discard)
         log.info("Queue check: started transfer background task for %s", next_task_id)
@@ -534,8 +537,8 @@ async def parallel_upload_file(client, output_queue, file_size, filename, progre
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    # Support up to 8 connections to saturate maximum download bandwidth
-    connections = 8 if file_size > 50 * 1024 * 1024 else (4 if file_size > 10 * 1024 * 1024 else 2)
+    # Use up to 4 parallel connections to optimize startup time and avoid flood waits
+    connections = 4 if file_size > 50 * 1024 * 1024 else (2 if file_size > 10 * 1024 * 1024 else 1)
     connections = min(connections, parts_count)
 
     uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
@@ -757,6 +760,26 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "EX",
             "3600"
         )
+    except asyncio.CancelledError:
+        log.info("Telegram background upload cancelled via task.cancel()")
+        _failed_state = {
+            "progress": 0.0,
+            "status": "FAILED",
+            "error": "Cancelled by user",
+            "filename": filename,
+            "sent_bytes": 0,
+            "total_bytes": exact_size,
+            "sid": sid
+        }
+        await _live_set(task_id, _failed_state)
+        await rs._execute(
+            "SET",
+            f"streamly:transfer_status:{task_id}",
+            _json.dumps(_failed_state),
+            "EX",
+            "3600"
+        )
+        raise
     except Exception as e:
         log.exception("Telegram background upload failed")
         _failed_state = {
@@ -777,6 +800,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "3600"
         )
     finally:
+        if hasattr(app.state, "active_tasks"):
+            app.state.active_tasks.pop(task_id, None)
         cancel_flag[0] = True
         if not cancel_poller.done():
             cancel_poller.cancel()
@@ -1221,7 +1246,12 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
     # 1. Check if it's currently active
     active = await rs.get("streamly:active_transfer_global")
     if active and (isinstance(active, bytes) and active.decode("utf-8") == task_id or active == task_id):
-        await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=10)
+        if hasattr(request.app.state, "active_tasks") and task_id in request.app.state.active_tasks:
+            task = request.app.state.active_tasks[task_id]
+            task.cancel()
+            log.info("Cancelled running task %s directly via task.cancel()", task_id)
+        else:
+            await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=10)
         return {"success": True, "message": "Cancellation request sent to active task."}
         
     # 2. Check if it's in the queue
