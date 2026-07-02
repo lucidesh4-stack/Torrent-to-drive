@@ -23,9 +23,8 @@ from .redis_store import RedisStore
 from .security import (
     ValidationError,
     TokenBucketRateLimiter,
-    ensure_sid,
-    get_csrf_token,
 )
+from .auth_utils import ensure_sid, get_csrf_token
 from .cloud_service import CloudService
 from .search_service import SearchService
 from .store import NotAuthenticated, TTLStore
