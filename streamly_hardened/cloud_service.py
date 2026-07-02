@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Callable, Protocol
-import requests
+import ssl
+from typing import Any, Callable, Optional
+import httpx
+from seedrcc.token import Token
 
 from .config import AppConfig
 from .security import ValidationError
@@ -11,26 +13,15 @@ from .security import ValidationError
 log = logging.getLogger(__name__)
 
 
-class SeedrClientProtocol(Protocol):
-    token: Any
+class AsyncSeedrClient:
+    """Async wrapper representing a Seedr API Client session."""
+    def __init__(self, token: Token, username: str = ""):
+        self.token = token
+        self.username = username
 
-    def get_settings(self) -> Any: ...
-    def list_contents(self, folder_id: int) -> Any: ...
-    def delete_folder(self, folder_id: int) -> Any: ...
-    def delete_file(self, file_id: int) -> Any: ...
-    def delete_torrent(self, torrent_id: str) -> Any: ...
-    def add_torrent(self, magnet: str) -> Any: ...
-    def fetch_file(self, file_id: int) -> Any: ...
-    def get_torrent_progress(self, progress_url: str) -> Any: ...
-    def get_devices(self) -> Any: ...
-
-
-ClientFactory = Callable[[str, str], SeedrClientProtocol]
-
-
-def default_seedr_client_factory(email: str, password: str) -> SeedrClientProtocol:
-    from seedrcc import Seedr
-    return Seedr.from_password(email, password)
+    @property
+    def access_token(self) -> str:
+        return self.token.access_token
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -56,110 +47,113 @@ def _safe_name(value: Any) -> str:
 
 
 class CloudService:
-    def __init__(self, config: AppConfig, client_factory: ClientFactory = default_seedr_client_factory):
+    def __init__(self, config: AppConfig):
         self.config = config
-        self.client_factory = client_factory
-        self.http = requests.Session()
 
-    def login(self, email: str, password: str) -> tuple[SeedrClientProtocol, str]:
+    async def _get_client(self) -> httpx.AsyncClient:
+        from .core.http_client import HttpClientManager
         try:
-            client = self.client_factory(email, password)
-            settings = client.get_settings()
-            username = _safe_name(getattr(getattr(settings, "account", None), "username", ""))
-            return client, username
-        except requests.RequestException as e:
+            return await HttpClientManager.get_instance().get_client()
+        except Exception:
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+            return httpx.AsyncClient(verify=ssl_ctx, timeout=30.0)
+
+    async def _api_post(self, client: AsyncSeedrClient, endpoint: str, data: dict[str, Any] = None) -> dict[str, Any]:
+        http_client = await self._get_client()
+        url = f"https://www.seedr.cc/api{endpoint}"
+        headers = {
+            "Authorization": f"Bearer {client.access_token}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        resp = await http_client.post(url, data=data or {}, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _api_get(self, client: AsyncSeedrClient, url: str) -> dict[str, Any]:
+        http_client = await self._get_client()
+        headers = {"Authorization": f"Bearer {client.access_token}"}
+        resp = await http_client.get(url, headers=headers, timeout=15.0)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def login(self, email: str, password: str) -> tuple[AsyncSeedrClient, str]:
+        http_client = await self._get_client()
+        url = "https://www.seedr.cc/api/account"
+        data = {"username": email, "password": password}
+        try:
+            resp = await http_client.post(url, data=data, headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15.0)
+            resp.raise_for_status()
+            result = resp.json()
+            if result.get("error"):
+                raise PermissionError(result["error"])
+            token_str = result.get("token")
+            if not token_str:
+                raise PermissionError("No token in response")
+            # Create Token object
+            token = Token(access_token=token_str)
+            username = _safe_name(result.get("account", {}).get("username", ""))
+            return AsyncSeedrClient(token, username), username
+        except httpx.HTTPError as e:
             log.warning("Seedr network/provider error during login: %s", e)
             raise ConnectionError("Provider unavailable") from None
-        except (AttributeError, ValueError, TypeError):
-            log.exception("Seedr login failed: provider response malformed")
-            raise PermissionError("Invalid credentials") from None
-        except Exception:
-            log.exception("Unexpected error during Seedr login")
+        except Exception as e:
+            log.exception("Unexpected error during Seedr login: %s", e)
             raise PermissionError("Authentication failed") from None
 
-    def login_with_saved_token(self, token_b64: str) -> tuple[SeedrClientProtocol, str]:
+    async def login_with_saved_token(self, token_b64: str) -> tuple[AsyncSeedrClient, str]:
         if not token_b64 or not isinstance(token_b64, str):
             raise PermissionError("No saved token available")
         try:
-            from seedrcc import Seedr
-            from seedrcc.token import Token
             token = Token.from_base64(token_b64)
-            client = Seedr(token=token)
-            settings = client.get_settings()
-            username = _safe_name(getattr(getattr(settings, "account", None), "username", ""))
+            client = AsyncSeedrClient(token)
+            settings = await self._api_post(client, "/account")
+            username = _safe_name(settings.get("account", {}).get("username", ""))
+            client.username = username
             return client, username
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             log.warning("Seedr network/provider error during saved-token login: %s", e)
             raise ConnectionError("Provider unavailable") from None
-        except (AttributeError, ValueError, TypeError):
-            log.exception("Seedr saved-token login failed: provider response malformed")
+        except Exception as e:
+            log.exception("Seedr saved-token login failed: %s", e)
             raise PermissionError("Saved token invalid or expired") from None
-        except Exception:
-            log.exception("Unexpected error during Seedr saved-token login")
-            raise PermissionError("Authentication failed") from None
 
     @staticmethod
-    def serialize_token(client: SeedrClientProtocol) -> str | None:
-        """Serialize Token to base64 for Redis persistence. Returns None on failure."""
-        token_obj = getattr(client, "token", None)
-        if token_obj is None:
+    def serialize_token(client: AsyncSeedrClient) -> str | None:
+        if not client or not client.token:
             return None
         try:
-            b64 = token_obj.to_base64()
-            if not isinstance(b64, str) or not b64:
-                return None
-            return b64
+            return client.token.to_base64()
         except Exception:
             return None
 
-    def _progress_error_types(self) -> tuple[type[BaseException], ...]:
-        types: list[type[BaseException]] = [
-            ConnectionError,
-            TimeoutError,
-            requests.RequestException,
-            ValueError,
-            TypeError,
-            AttributeError,
-        ]
-        try:
-            import httpx
-            types.append(httpx.HTTPError)
-        except ImportError:
-            pass
-        try:
-            from seedrcc.exceptions import SeedrError
-            types.append(SeedrError)
-        except ImportError:
-            pass
-        return tuple(types)
-
-    def _serialize_transfer(self, client: SeedrClientProtocol, torrent: Any) -> dict[str, Any]:
-        progress_url = getattr(torrent, "progress_url", None)
-        name = _safe_name(getattr(torrent, "name", ""))
-        size = max(0, _safe_int(getattr(torrent, "size", 0)))
-        progress = _safe_float(getattr(torrent, "progress", 0.0))
-        stopped = _safe_int(getattr(torrent, "stopped", 0))
-        download_rate = max(0.0, _safe_float(getattr(torrent, "download_rate", 0.0)))
-        seeders = max(0, _safe_int(getattr(torrent, "seeders", 0)))
-        warnings = _safe_name(getattr(torrent, "warnings", ""))
+    async def _serialize_transfer(self, client: AsyncSeedrClient, torrent: Any) -> dict[str, Any]:
+        progress_url = torrent.get("progress_url")
+        name = _safe_name(torrent.get("name", ""))
+        size = max(0, _safe_int(torrent.get("size", 0)))
+        progress = _safe_float(torrent.get("progress", 0.0))
+        stopped = _safe_int(torrent.get("stopped", 0))
+        download_rate = max(0.0, _safe_float(torrent.get("download_rate", 0.0)))
+        seeders = max(0, _safe_int(torrent.get("seeders", 0)))
+        warnings = _safe_name(torrent.get("warnings", ""))
 
         if isinstance(progress_url, str) and progress_url:
             try:
-                details = client.get_torrent_progress(progress_url)
-                name = _safe_name(getattr(details, "title", name) or name)
-                size = max(size, _safe_int(getattr(details, "size", size)))
-                progress = _safe_float(getattr(details, "progress", progress))
-                stopped = _safe_int(getattr(details, "stopped", stopped))
-                download_rate = max(download_rate, _safe_float(getattr(details, "download_rate", download_rate)))
-                warnings = _safe_name(getattr(details, "warnings", warnings) or warnings)
-                stats = getattr(details, "stats", None)
-                if stats is not None:
-                    seeders = max(seeders, _safe_int(getattr(stats, "seeders", seeders)))
-                    size = max(size, _safe_int(getattr(stats, "size", size)))
-                    progress = max(progress, _safe_float(getattr(stats, "progress", progress)))
-                    download_rate = max(download_rate, _safe_float(getattr(stats, "download_rate", download_rate)))
-            except self._progress_error_types() as exc:
-                log.info("Seedr transfer progress unavailable for torrent %s: %s", getattr(torrent, "id", "?"), exc)
+                details = await self._api_get(client, progress_url)
+                name = _safe_name(details.get("title", name) or name)
+                size = max(size, _safe_int(details.get("size", size)))
+                progress = _safe_float(details.get("progress", progress))
+                stopped = _safe_int(details.get("stopped", stopped))
+                download_rate = max(download_rate, _safe_float(details.get("download_rate", download_rate)))
+                warnings = _safe_name(details.get("warnings", warnings) or warnings)
+                stats = details.get("stats")
+                if isinstance(stats, dict):
+                    seeders = max(seeders, _safe_int(stats.get("seeders", seeders)))
+                    size = max(size, _safe_int(stats.get("size", size)))
+                    progress = max(progress, _safe_float(stats.get("progress", progress)))
+                    download_rate = max(download_rate, _safe_float(stats.get("download_rate", download_rate)))
+            except Exception as exc:
+                log.info("Seedr transfer progress unavailable for torrent %s: %s", torrent.get("id", "?"), exc)
 
         progress = min(100.0, max(0.0, progress))
         status = "Stopped" if stopped else ("Finalizing" if progress >= 100 else "Loading")
@@ -167,7 +161,7 @@ class CloudService:
             status = warnings[:80]
 
         return {
-            "id": _safe_int(getattr(torrent, "id", 0)),
+            "id": _safe_int(torrent.get("id", 0)),
             "name": name or "Loading torrent",
             "size": size,
             "progress": progress,
@@ -175,53 +169,55 @@ class CloudService:
             "download_rate": download_rate,
             "seeders": seeders,
             "stopped": stopped,
-            "last_update": getattr(torrent, "last_update", None),
+            "last_update": torrent.get("last_update"),
         }
 
-    def list_items(self, client: SeedrClientProtocol, folder_id: int) -> dict[str, Any]:
+    async def list_items(self, client: AsyncSeedrClient, folder_id: int) -> dict[str, Any]:
         try:
-            contents = client.list_contents(folder_id)
+            contents = await self._api_post(client, "/folder", {"folder_id": folder_id})
             
-            space_used = getattr(contents, "space_used", None)
-            space_max = getattr(contents, "space_max", None)
+            space_used = contents.get("space_used")
+            space_max = contents.get("space_max")
             
             if space_used is None or space_max is None:
                 try:
-                    settings = client.get_settings()
-                    account = getattr(settings, "account", None)
+                    settings = await self._api_post(client, "/account")
+                    account = settings.get("account", {})
                     if space_used is None:
-                        space_used = getattr(account, "space_used", None)
+                        space_used = account.get("space_used")
                     if space_max is None:
-                        space_max = getattr(account, "space_max", None)
+                        space_max = account.get("space_max")
                 except Exception:
                     pass
             
             used_val = _safe_int(space_used) if space_used is not None else 0
             max_val = _safe_int(space_max) if space_max is not None else 1
 
-            transfers = [
-                self._serialize_transfer(client, torrent)
-                for torrent in list(getattr(contents, "torrents", []) or [])[:100]
-            ]
+            transfers_raw = contents.get("torrents", []) or []
+            transfers = []
+            for torrent in transfers_raw[:100]:
+                serialized = await self._serialize_transfer(client, torrent)
+                transfers.append(serialized)
+
             return {
-                "parent": _safe_int(getattr(contents, "parent_id", getattr(contents, "parent", 0))),
+                "parent": _safe_int(contents.get("parent_id", contents.get("parent", 0))),
                 "folders": [
                     {
-                        "id": _safe_int(getattr(folder, "id", 0)),
-                        "name": _safe_name(getattr(folder, "name", "")),
-                        "size": max(0, _safe_int(getattr(folder, "size", 0))),
-                        "last_update": getattr(folder, "last_update", None),
+                        "id": _safe_int(folder.get("id", 0)),
+                        "name": _safe_name(folder.get("name", "")),
+                        "size": max(0, _safe_int(folder.get("size", 0))),
+                        "last_update": folder.get("last_update"),
                     }
-                    for folder in list(getattr(contents, "folders", []) or [])[:1000]
+                    for folder in (contents.get("folders", []) or [])[:1000]
                 ],
                 "files": [
                     {
-                        "id": _safe_int(getattr(file, "folder_file_id", 0)),
-                        "name": _safe_name(getattr(file, "name", "")),
-                        "size": max(0, _safe_int(getattr(file, "size", 0))),
-                        "last_update": getattr(file, "last_update", None),
+                        "id": _safe_int(file.get("folder_file_id", file.get("id", 0))),
+                        "name": _safe_name(file.get("name", "")),
+                        "size": max(0, _safe_int(file.get("size", 0))),
+                        "last_update": file.get("last_update"),
                     }
-                    for file in list(getattr(contents, "files", []) or [])[:1000]
+                    for file in (contents.get("files", []) or [])[:1000]
                 ],
                 "transfers": transfers,
                 "used": max(0, used_val),
@@ -231,28 +227,23 @@ class CloudService:
             log.exception("Error listing items for folder %s: %s", folder_id, e)
             raise ConnectionError("Provider failed to provide storage/item data") from e
 
-    def delete_item(self, client: SeedrClientProtocol, item_type: str, item_id: int) -> None:
+    async def delete_item(self, client: AsyncSeedrClient, item_type: str, item_id: int) -> None:
         if item_type == "folder":
-            client.delete_folder(item_id)
+            await self._api_post(client, "/folder/delete", {"folder_id": item_id})
         elif item_type == "file":
-            client.delete_file(item_id)
+            await self._api_post(client, "/file/delete", {"file_id": item_id})
         else:
             raise ValidationError("Invalid type")
 
-    def delete_transfer(self, client: SeedrClientProtocol, torrent_id: int) -> None:
-        client.delete_torrent(str(torrent_id))
+    async def delete_transfer(self, client: AsyncSeedrClient, torrent_id: int) -> None:
+        await self._api_post(client, "/torrent/delete", {"torrent_id": torrent_id})
 
-    def get_devices(self, client: SeedrClientProtocol) -> list[dict[str, Any]]:
-        """Return the Seedr account's linked clients/devices.
-
-        seedrcc's Device model has exactly: client_id, client_name, device_code, tk.
-        There is NO ip / type / last-active data available from this endpoint — it
-        lists OAuth-authorized clients (apps/extensions), so we only surface the
-        human-meaningful name + id. (device_code/tk are secrets and are NOT returned.)
-        """
+    async def get_devices(self, client: AsyncSeedrClient) -> list[dict[str, Any]]:
         try:
-            raw = client.get_devices()
-        except requests.RequestException as e:
+            raw = await self._api_post(client, "/devices")
+            # Convert raw to a list if not already
+            devices_list = raw if isinstance(raw, list) else []
+        except httpx.HTTPError as e:
             log.warning("Seedr network error fetching devices: %s", e)
             raise ConnectionError("Provider unavailable") from None
         except Exception:
@@ -260,32 +251,26 @@ class CloudService:
             raise
 
         out: list[dict[str, Any]] = []
-        for d in list(raw or []):
-            name = getattr(d, "client_name", None)
-            if name is None and isinstance(d, dict):
-                name = d.get("client_name")
-            cid = getattr(d, "client_id", None)
-            if cid is None and isinstance(d, dict):
-                cid = d.get("client_id")
+        for d in devices_list:
+            if not isinstance(d, dict):
+                continue
+            name = d.get("client_name")
+            cid = d.get("client_id")
             out.append({
                 "name": _safe_name(name or "Unknown client"),
                 "id": _safe_name(str(cid or "")),
             })
         return out
 
-    def add_magnet(self, client: SeedrClientProtocol, magnet: str) -> None:
+    async def add_magnet(self, client: AsyncSeedrClient, magnet: str) -> None:
         try:
-            client.add_torrent(magnet)
+            result = await self._api_post(client, "/torrent", {"torrent": magnet})
+            if result.get("error"):
+                raise ConnectionError(result["error"])
         except Exception as e:
-            # seedrcc raises APIError for provider rejections. A 413 ("Payload
-            # Too Large") from Seedr means the torrent is too big for the
-            # account's free space/quota — not a server bug. Surface it as a
-            # clear ConnectionError so the route returns a meaningful message
-            # instead of a generic 500.
             name = type(e).__name__
             text = str(e).lower()
-            resp = getattr(e, "response", None)
-            status = getattr(resp, "status_code", None)
+            status = getattr(getattr(e, "response", None), "status_code", None)
             if name == "APIError" or status == 413 or "413" in text or "too large" in text:
                 log.warning("Seedr rejected add_torrent (likely storage full / too large): %s", e)
                 raise ConnectionError(
@@ -293,22 +278,24 @@ class CloudService:
                 ) from None
             raise
 
-    def get_stream_url(self, client: SeedrClientProtocol, file_id: int) -> str:
+    async def get_stream_url(self, client: AsyncSeedrClient, file_id: int) -> str:
         try:
-            url = getattr(client.fetch_file(file_id), "url", "")
+            result = await self._api_post(client, "/file", {"file_id": file_id})
+            url = result.get("url", "")
             if not isinstance(url, str) or not url.startswith(("https://", "http://")):
                 return ""
             return url
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             log.warning("Provider error fetching stream URL: %s", e)
             raise ConnectionError("Provider unavailable") from None
         except Exception:
             log.exception("Failed fetching stream URL")
             return ""
 
-    def _fetch_archive_url(self, token: str, archive_arr: list) -> str:
+    async def _fetch_archive_url(self, token: str, archive_arr: list) -> str:
+        http_client = await self._get_client()
         try:
-            response = self.http.post(
+            response = await http_client.post(
                 "https://www.seedr.cc/oauth_test/resource.php",
                 data={
                     "access_token": token,
@@ -323,29 +310,27 @@ class CloudService:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
                 return url
             return ""
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             log.warning("Archive URL request failed: %s", e)
             raise ConnectionError("Provider unavailable") from None
         except Exception:
             log.exception("Failed fetching archive URL")
             return ""
 
-    def get_zip_url_bulk(self, client: SeedrClientProtocol, items: list) -> str:
-        token_obj = getattr(client, "token", None)
-        token = getattr(token_obj, "access_token", None)
-        if not isinstance(token, str) or not token:
+    async def get_zip_url_bulk(self, client: AsyncSeedrClient, items: list) -> str:
+        token = client.access_token
+        if not token:
             raise PermissionError("Provider token unavailable")
-        result = self._fetch_archive_url(token, items)
+        result = await self._fetch_archive_url(token, items)
         if not result:
             raise ConnectionError("Failed to create zip — provider returned no URL")
         return result
 
-    def get_zip_url(self, client: SeedrClientProtocol, item_type: str, item_id: int) -> str:
-        token_obj = getattr(client, "token", None)
-        token = getattr(token_obj, "access_token", None)
-        if not isinstance(token, str) or not token:
+    async def get_zip_url(self, client: AsyncSeedrClient, item_type: str, item_id: int) -> str:
+        token = client.access_token
+        if not token:
             raise PermissionError("Provider token unavailable")
-        return self._fetch_archive_url(token, [{"type": item_type, "id": item_id}])
+        return await self._fetch_archive_url(token, [{"type": item_type, "id": item_id}])
 
 
 def format_size(num_bytes: int) -> str:

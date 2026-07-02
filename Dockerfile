@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -21,6 +21,7 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy package and set ownership to user 1000
 COPY --chown=user:user streamly_hardened /app/streamly_hardened
+COPY --chown=user:user run.py /app/run.py
 
 # Switch to the non-root user
 USER user
@@ -32,6 +33,5 @@ EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${PORT}/healthz" || exit 1
 
-# Runs flask app under gunicorn
-CMD ["sh", "-c", "gunicorn --workers 1 --threads 8 --timeout 60 --bind 0.0.0.0:${PORT} 'streamly_hardened.app:create_app()'"]
-
+# Runs FastAPI app under Uvicorn
+CMD ["python", "run.py"]

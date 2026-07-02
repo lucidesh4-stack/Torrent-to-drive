@@ -3,14 +3,16 @@ Seedr API Service
 Direct Seedr integration (no proxy) with rate limiting.
 FIXES: 429 from aggressive parallel downloads
 """
+from __future__ import annotations
 
 import os
 import json
 import asyncio
+import httpx
 from pathlib import Path
 from typing import Optional, Tuple
 
-from streamly_hardened.core.http_client import managed_http_client, SeedrDownloader
+from streamly_hardened.core.http_client import managed_http_client, create_ssl_context, RateLimitedHTTPClient
 
 
 class SeedrError(Exception):
@@ -56,18 +58,24 @@ class SeedrService:
         self.password = password
         self.max_connections = max_connections
         self._token: Optional[str] = None
+        self._async_client: Optional[httpx.AsyncClient] = None
         self._client: Optional[RateLimitedHTTPClient] = None
     
     async def __aenter__(self):
         await self.authenticate()
-        self._client = SeedrDownloader(num_connections=self.max_connections)
-        await self._client.__aenter__()
+        ssl_ctx = create_ssl_context()
+        limits = httpx.Limits(max_keepalive_connections=self.max_connections, max_connections=self.max_connections)
+        self._async_client = httpx.AsyncClient(verify=ssl_ctx, limits=limits, timeout=30.0, http2=True)
+        if self._token:
+            self._async_client.headers["Authorization"] = f"Bearer {self._token}"
+        self._client = RateLimitedHTTPClient(self._async_client)
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._client:
-            await self._client.__aexit__(exc_type, exc_val, exc_tb)
-            self._client = None
+        if self._async_client:
+            await self._async_client.aclose()
+            self._async_client = None
+        self._client = None
         return False
     
     async def authenticate(self) -> str:
@@ -106,7 +114,7 @@ class SeedrService:
             return self._token
     
     @property
-    def client(self) -> SeedrDownloader:
+    def client(self) -> RateLimitedHTTPClient:
         if self._client is None:
             raise RuntimeError("SeedrService not initialized. Use 'async with' context.")
         return self._client
@@ -179,7 +187,6 @@ class SeedrService:
             SeedrError on failure
             SeedrRateLimitError on 429
         """
-        # Get file metadata and link
         file_info = await self.get_file_link(file_id)
         
         if "url" not in file_info:
@@ -188,16 +195,13 @@ class SeedrService:
         download_url = file_info["url"]
         file_size = file_info.get("size", 0)
         
-        # Ensure destination directory exists
         destination.parent.mkdir(parents=True, exist_ok=True)
         
-        # Download with rate limiting
         async with managed_http_client(max_connections=self.max_connections) as client:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             }
             
-            # For small files, download directly
             if file_size > 0 and file_size < 50 * 1024 * 1024:  # < 50MB
                 response = await client.get(download_url, headers=headers, retry_count=3)
                 
@@ -206,7 +210,6 @@ class SeedrService:
                 
                 return destination, len(response.content)
             
-            # For large files, use streaming with progress
             response = await client.client.get(download_url, headers=headers)
             
             total_bytes = 0
@@ -269,10 +272,6 @@ class SeedrService:
 class SeedrSession:
     """
     Context manager for Seedr operations with automatic token refresh.
-    
-    Usage:
-        async with SeedrSession(username, password) as seedr:
-            file_info = await seedr.get_file_link(12345)
     """
     
     def __init__(

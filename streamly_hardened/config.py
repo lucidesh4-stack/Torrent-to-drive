@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+import secrets as _secrets
+from typing import Tuple, Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-@dataclass(frozen=True)
-class AppConfig:
+class AppConfig(BaseSettings):
     """Application configuration.
 
     Production deployments must inject this via environment/secret manager.
     Never commit real secrets. SECRET_KEY is intentionally mandatory outside tests.
     """
 
-    secret_key: str
+    secret_key: str = "test-only-not-for-production"
     environment: str = "production"
     request_timeout_seconds: float = 6.0
     archive_timeout_seconds: float = 10.0
@@ -31,20 +32,26 @@ class AppConfig:
     # operation draws from a single source (no cross-source duplicates).
     # bitsearch first, then apibay, then torrents-csv. Configurable via
     # SEARCH_PROVIDERS env (comma-separated, in priority order).
-    search_providers: tuple[str, ...] = ("bitsearch", "apibay", "torrents-csv")
+    search_providers: Tuple[str, ...] = ("bitsearch", "apibay", "torrents-csv")
     imdb_suggest_template: str = "https://v3.sg.media-imdb.com/suggestion/h/{query}.json"
     upstash_redis_url: str = ""
     upstash_redis_token: str = ""
     seedr_email: str = ""
     seedr_password: str = ""
-    telegram_api_id: int | None = None
+    telegram_api_id: Optional[int] = None
     telegram_api_hash: str = ""
     telegram_phone: str = ""
     telegram_chat_id: str = "-1004247146382"
     cloudflare_worker_proxy: str = "https://streamly-proxy.lucidesh.workers.dev"
 
-    @staticmethod
-    def from_env() -> "AppConfig":
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    @classmethod
+    def from_env(cls) -> AppConfig:
         env = os.getenv("APP_ENV", "production")
         secret = os.getenv("SECRET_KEY")
         upstash_url = os.getenv("UPSTASH_REDIS_REST_URL", "")
@@ -53,35 +60,43 @@ class AppConfig:
             # In hosted dev/prod without explicit SECRET_KEY: derive from Upstash if available,
             # else generate ephemeral (logs out users on restart — acceptable for solo/free tier).
             if upstash_url and upstash_token:
-                from .redis_store import RedisStore
-                rs = RedisStore(upstash_url, upstash_token)
-                secret = rs.get_or_create_secret()
+                try:
+                    import requests
+                    headers = {"Authorization": f"Bearer {upstash_token}"}
+                    r = requests.post(upstash_url.rstrip("/"), headers=headers, json=["GET", "streamly:secret_key"], timeout=3.0)
+                    if r.status_code == 200:
+                        secret = r.json().get("result")
+                    if not secret:
+                        secret = _secrets.token_hex(32)
+                        requests.post(upstash_url.rstrip("/"), headers=headers, json=["SET", "streamly:secret_key", secret], timeout=3.0)
+                except Exception:
+                    secret = _secrets.token_hex(32)
             else:
-                import secrets as _secrets
                 secret = _secrets.token_hex(32)
         
         tg_id_raw = os.getenv("TELEGRAM_API_ID", "")
         tg_id = int(tg_id_raw) if tg_id_raw.isdigit() else None
         
-        return AppConfig(
+        providers_raw = os.getenv("SEARCH_PROVIDERS", "bitsearch,apibay,torrents-csv")
+        providers = tuple(
+            p.strip() for p in providers_raw.split(",") if p.strip()
+        ) or ("bitsearch", "apibay", "torrents-csv")
+        
+        return cls(
             secret_key=secret or "test-only-not-for-production",
             environment=env,
-            request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "6")),
-            archive_timeout_seconds=float(os.getenv("ARCHIVE_TIMEOUT_SECONDS", "10")),
+            request_timeout_seconds=float(os.getenv("REQUEST_TIMEOUT_SECONDS", "6.0")),
+            archive_timeout_seconds=float(os.getenv("ARCHIVE_TIMEOUT_SECONDS", "10.0")),
             session_ttl_seconds=int(os.getenv("SESSION_TTL_SECONDS", str(60 * 60 * 12))),
             upstash_redis_url=upstash_url,
             upstash_redis_token=upstash_token,
             seedr_email=os.getenv("SEEDR_EMAIL", ""),
             seedr_password=os.getenv("SEEDR_PASSWORD", ""),
             telegram_api_id=tg_id,
-            telegram_api_hash=os.getenv("TELEGRAM_API_HASH", ""),
+            telegram_api_hash=os.getenv("TELEGRAM_api_hash", ""),
             telegram_phone=os.getenv("TELEGRAM_PHONE", ""),
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "-1004247146382"),
             cloudflare_worker_proxy=os.getenv("CLOUDFLARE_WORKER_PROXY", "").strip() or "https://streamly-proxy.lucidesh.workers.dev",
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
-            search_providers=tuple(
-                p.strip() for p in os.getenv(
-                    "SEARCH_PROVIDERS", "bitsearch,apibay,torrents-csv"
-                ).split(",") if p.strip()
-            ) or ("bitsearch", "apibay", "torrents-csv"),
+            search_providers=providers,
         )

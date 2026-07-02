@@ -1,10 +1,10 @@
 (() => {
-  let pollTimer = null;
-  let isOverlayOpen = false;
+  window.pollTimer = null;
+  window.isOverlayOpen = false;
 
   // Escape HTML so server/torrent-supplied values (e.g. filenames) can't inject
   // markup/script when inserted via innerHTML (XSS hardening).
-  function escapeHtml(s) {
+  window.escapeHtml = function(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -13,7 +13,7 @@
       .replace(/'/g, "&#39;");
   }
 
-  function formatBytes(bytes, decimals = 2) {
+  window.formatBytes = function(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
@@ -22,7 +22,7 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
-  async function cancelTransfer(taskId) {
+  window.cancelTransfer = async function(taskId) {
     if (!confirm("Are you sure you want to cancel this transfer?")) return;
     try {
       const res = await postJson("/api/telegram/cancel", { task_id: taskId });
@@ -38,7 +38,7 @@
     }
   }
 
-  function renderQueue(data) {
+  window.renderQueue = function(data) {
     // 1. Render Limit / Target
     const usage = Number(data.bandwidth_usage_gb || 0);
     const projected = Number(data.bandwidth_projected_gb || usage);
@@ -151,7 +151,7 @@
     });
   }
 
-  async function refreshQueueStatus() {
+  window.refreshQueueStatus = async function() {
     try {
       const response = await fetch("/api/telegram/queue", { credentials: "same-origin" });
       if (response.ok) {
