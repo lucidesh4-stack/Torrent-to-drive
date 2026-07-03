@@ -492,20 +492,28 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 
     # Connection count for parallel SaveBigFilePartRequest/SaveFilePartRequest calls.
     #
-    # Previously 12/6/2. Log analysis of a real transfer (Enola.Holmes.3, ~1.3GB) showed
-    # 12 connections triggered 61 separate "SaveBigFilePartRequest flood wait" events in
-    # ~85s of upload time, each forcing a 7-8s sleep -- roughly half the total upload
-    # window was spent idle waiting out Telegram's per-method rate limiter, not uploading.
-    # Reducing concurrency lowers the rate at which this single RPC method is hit, which
-    # should reduce (not necessarily eliminate) how often the limiter triggers.
+    # History: 12 -> 6/3/2 -> (this change) 3/3/2.
+    # Log analysis of a real transfer (Enola.Holmes.3, ~1.3GB) at 12 connections showed
+    # 61 separate "SaveBigFilePartRequest flood wait" events in ~85s of upload time, each
+    # forcing a 7-8s sleep -- roughly half the total upload window was spent idle waiting
+    # out Telegram's per-method rate limiter, not uploading. A later production log at 6
+    # connections (Thank.You.For.Smoking, ~1.5GB) still showed 24 flood-wait events in a
+    # 53+s upload window that hadn't even finished. Reducing concurrency lowers the rate
+    # at which this single RPC method is hit, which should reduce (not necessarily
+    # eliminate) how often the limiter triggers.
+    #
+    # This change (2026-07-03): the >50MB tier is being tested at 3 connections instead
+    # of 6, i.e. tentatively unifying it with the 10-50MB tier, to live-test whether
+    # fewer concurrent SaveBigFilePartRequest calls meaningfully reduces flood-wait
+    # frequency/duration for large files. NOT YET CONFIRMED to be faster overall --
+    # fewer connections means less raw parallelism, so this is only a net win if it cuts
+    # flood-wait sleep time by more than the parallelism it gives up. Re-validate against
+    # real transfer logs (flood-wait count + total upload wall-clock time) after
+    # deploying; revert toward 6 (or try other values) if 3 doesn't clearly win.
     #
     # NOTE: the right number depends on Telegram's rate-limit tier for the account/session
-    # in use, which isn't observable from static analysis. This value is a conservative
-    # starting point based on the evidence above and should be re-validated against a real
-    # transfer's flood-wait count/frequency (visible in the app logs) after deploying --
-    # if flood waits are still frequent, reduce further; if none occur, it may be safe to
-    # raise it again.
-    connections = 6 if file_size > 50 * 1024 * 1024 else (3 if file_size > 10 * 1024 * 1024 else 2)
+    # in use, which isn't observable from static analysis.
+    connections = 3 if file_size > 10 * 1024 * 1024 else 2
     connections = min(connections, parts_count)
 
     uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
@@ -599,30 +607,42 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         download_url = file_url
         log.info("Downloading directly from Seedr (no proxy): %s", download_url)
 
-        try:
-            log.info("Querying Content-Length directly from Seedr: %s", download_url)
-            async with httpx.AsyncClient(http2=True, timeout=15.0) as client_cl:
-                content_len_header = None
-                try:
-                    # Prefer HEAD: gets headers only, never downloads the body. A GET here
-                    # (even without reading the body) previously caused the FULL file to be
-                    # fetched and discarded before the real download even started, doubling
-                    # egress from Seedr and adding tens of seconds of dead time per transfer.
-                    r = await client_cl.head(download_url, headers=headers)
-                    r.raise_for_status()
-                    content_len_header = r.headers.get("content-length")
-                except Exception as head_err:
-                    log.info("HEAD request unsupported/failed (%s: %s); falling back to a streamed GET (headers only, body not read).", type(head_err).__name__, head_err)
-                    async with client_cl.stream("GET", download_url, headers=headers) as r:
+        if size:
+            # Size was already resolved once, at click-time, from the same Seedr
+            # folder listing (cloud.list_items) that populated the file browser the
+            # user picked this file from. Re-querying Content-Length here via a fresh
+            # HEAD/GET round-trip to Seedr for a value we already trust just adds a
+            # network hop (up to a 15s timeout budget) to every single transfer for
+            # no benefit. Only fall back to a live re-check below when the caller
+            # genuinely didn't have a size (size == 0, e.g. folder-listing lookup
+            # failed at click-time) -- see telegram_send_file()'s except-block.
+            log.info("Using known size from folder listing (skipping redundant Content-Length re-check): %d bytes", size)
+            exact_size = size
+        else:
+            try:
+                log.info("Size unknown from folder listing; querying Content-Length directly from Seedr: %s", download_url)
+                async with httpx.AsyncClient(http2=True, timeout=15.0) as client_cl:
+                    content_len_header = None
+                    try:
+                        # Prefer HEAD: gets headers only, never downloads the body. A GET here
+                        # (even without reading the body) previously caused the FULL file to be
+                        # fetched and discarded before the real download even started, doubling
+                        # egress from Seedr and adding tens of seconds of dead time per transfer.
+                        r = await client_cl.head(download_url, headers=headers)
                         r.raise_for_status()
                         content_len_header = r.headers.get("content-length")
-                        # Deliberately do not iterate/read the body: closing the stream here
-                        # (via context-manager exit) avoids downloading the file a second time.
-                if content_len_header:
-                    exact_size = int(content_len_header)
-        except Exception as e:
-            log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
-            exact_size = size
+                    except Exception as head_err:
+                        log.info("HEAD request unsupported/failed (%s: %s); falling back to a streamed GET (headers only, body not read).", type(head_err).__name__, head_err)
+                        async with client_cl.stream("GET", download_url, headers=headers) as r:
+                            r.raise_for_status()
+                            content_len_header = r.headers.get("content-length")
+                            # Deliberately do not iterate/read the body: closing the stream here
+                            # (via context-manager exit) avoids downloading the file a second time.
+                    if content_len_header:
+                        exact_size = int(content_len_header)
+            except Exception as e:
+                log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
+                exact_size = size
         
         part_size = 512 * 1024
         # audit H5: wait_for(output_queue.get()
