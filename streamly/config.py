@@ -56,23 +56,27 @@ class AppConfig(BaseSettings):
         secret = os.getenv("SECRET_KEY")
         upstash_url = os.getenv("UPSTASH_REDIS_REST_URL", "")
         upstash_token = os.getenv("UPSTASH_REDIS_REST_TOKEN", "")
+        if not secret and env == "test":
+            secret = _secrets.token_hex(32)
         if not secret and env != "test":
-            # In hosted dev/prod without explicit SECRET_KEY: derive from Upstash if available,
-            # else generate ephemeral (logs out users on restart — acceptable for solo/free tier).
-            if upstash_url and upstash_token:
-                try:
-                    import requests
-                    headers = {"Authorization": f"Bearer {upstash_token}"}
-                    r = requests.post(upstash_url.rstrip("/"), headers=headers, json=["GET", "streamly:secret_key"], timeout=3.0)
-                    if r.status_code == 200:
-                        secret = r.json().get("result")
-                    if not secret:
-                        secret = _secrets.token_hex(32)
-                        requests.post(upstash_url.rstrip("/"), headers=headers, json=["SET", "streamly:secret_key", secret], timeout=3.0)
-                except Exception:
-                    secret = _secrets.token_hex(32)
-            else:
-                secret = _secrets.token_hex(32)
+            # SECRET_KEY MUST be set explicitly outside test mode. Previously this
+            # silently derived a key from Upstash via a synchronous, blocking
+            # `requests.post()` call (up to ~6s worst case across two round-trips)
+            # made at process startup, before uvicorn's event loop even exists --
+            # or, if Upstash wasn't configured, silently generated an ephemeral key
+            # every restart (logging out every session with no warning). Failing
+            # fast here instead surfaces a clear, actionable error immediately
+            # rather than a confusing runtime symptom (e.g. "why did everyone get
+            # logged out?") days or weeks later.
+            raise RuntimeError(
+                "SECRET_KEY environment variable is required outside test mode "
+                "(APP_ENV=test). Set it explicitly as a secret in your deployment "
+                "environment (e.g. Hugging Face Space secrets) -- for example: "
+                f"SECRET_KEY={_secrets.token_hex(32)!r} (generate your own; do not "
+                "reuse this example value). Auto-derivation via Upstash has been "
+                "removed: it made a blocking network call at startup and provided "
+                "no real security benefit over just setting the value directly."
+            )
         
         tg_id_raw = os.getenv("TELEGRAM_API_ID", "")
         tg_id = int(tg_id_raw) if tg_id_raw.isdigit() else None
