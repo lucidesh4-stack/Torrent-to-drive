@@ -138,9 +138,15 @@ class OptimizedDownloader:
                     return None
                 response.raise_for_status()
                 
+                # f.write() is a blocking syscall. With --workers 1 (a single process,
+                # single event loop), calling it directly here would stall every OTHER
+                # concurrent request (search, queue polling, etc.) for however long the
+                # disk write takes, on EVERY 512KB chunk of EVERY download. Offloading
+                # each write to a thread via asyncio.to_thread keeps the event loop free
+                # to serve other requests while this write is in flight.
                 with open(dest_path, 'wb') as f:
                     async for chunk in response.aiter_bytes(chunk_size=512*1024):
-                        f.write(chunk)
+                        await asyncio.to_thread(f.write, chunk)
                         bytes_downloaded += len(chunk)
                         
                         if progress_callback:
@@ -172,9 +178,10 @@ class OptimizedDownloader:
         async with httpx.AsyncClient(verify=ssl_ctx, timeout=self.timeout, http2=True) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()
+                # See _download_via_worker for why this write is offloaded to a thread.
                 with open(dest_path, 'wb') as f:
                     async for chunk in response.aiter_bytes(chunk_size=512*1024):
-                        f.write(chunk)
+                        await asyncio.to_thread(f.write, chunk)
                         bytes_downloaded += len(chunk)
                         
                         if progress_callback:

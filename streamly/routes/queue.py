@@ -14,6 +14,12 @@ from ..cloud_service import format_size, _safe_int
 log = logging.getLogger(__name__)
 queue_router = APIRouter()
 
+# Cap on non-storage-related add_magnet retries before a queued item is dropped instead
+# of being re-queued forever. Storage-full re-queues (moved to the BACK of the queue,
+# giving other items a chance first) are NOT subject to this cap -- that path is already
+# safe by construction since it only blocks once other items ahead of it are tried.
+_MAX_NON_STORAGE_RETRIES = 5
+
 
 class CancelQueuePayload(BaseModel):
     task_id: str
@@ -244,12 +250,30 @@ async def seedr_queue_daemon_loop(app):
                     except Exception as re_err:
                         log.error("Failed to re-queue torrent to back of queue: %s", re_err)
                 else:
-                    # Other transient errors: re-queue at front (LPUSH)
-                    try:
-                        await rs._execute("LPUSH", "streamly:seedr_queue", _json.dumps(item))
-                        log.info("Re-queued failed torrent at front of queue: %s", item_name)
-                    except Exception as re_err:
-                        log.error("Failed to re-queue failed torrent: %s", re_err)
+                    # Other (non-storage) errors: these might be transient (a momentary
+                    # Seedr API hiccup) or permanent (a malformed/dead torrent Seedr will
+                    # reject identically forever). Re-queuing at the FRONT unconditionally
+                    # previously created an unbounded infinite retry loop for the
+                    # permanent-failure case: the same poisoned item would be popped again
+                    # on every daemon cycle (15-60s), forever, blocking every item queued
+                    # behind it and continuously hammering the Seedr API. Cap retries and
+                    # drop the item instead of retrying forever once the cap is hit.
+                    retries = _safe_int(item.get("retries", 0)) + 1
+                    if retries > _MAX_NON_STORAGE_RETRIES:
+                        log.error(
+                            "Giving up on queued torrent '%s' after %d failed attempts (last error: %s). "
+                            "Dropping from queue instead of retrying forever.",
+                            item_name, retries - 1, e,
+                        )
+                        # Item is already removed from the queue (LPOP'd above) -- simply
+                        # do not re-queue it. Falls through to the next daemon cycle.
+                    else:
+                        item["retries"] = retries
+                        try:
+                            await rs._execute("LPUSH", "streamly:seedr_queue", _json.dumps(item))
+                            log.info("Re-queued failed torrent at front of queue (attempt %d/%d): %s", retries, _MAX_NON_STORAGE_RETRIES, item_name)
+                        except Exception as re_err:
+                            log.error("Failed to re-queue failed torrent: %s", re_err)
                 
         except Exception as e:
             log.exception("Error in SeedrQueueDaemon loop: %s", e)

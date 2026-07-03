@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 
-from ..auth_utils import current_client, ensure_sid, get_csrf_token
+from ..auth_utils import current_client, ensure_sid, get_csrf_token, rotate_sid
 from ..store import NotAuthenticated
 from ..security import validate_email, validate_password, rate_limited
 
@@ -52,7 +52,7 @@ async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 
-    sid = ensure_sid(request)
+    ensure_sid(request)  # guarantees a session exists before we touch it below
     cloud = request.app.state.cloud
     store = request.app.state.store
     rs = request.app.state.rs
@@ -64,6 +64,11 @@ async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_
     except ConnectionError as ce:
         raise HTTPException(status_code=502, detail=str(ce))
     
+    # Rotate the session id NOW, after credentials are verified but before binding the
+    # authenticated client to it. Prevents session fixation: any sid that existed prior
+    # to this successful login (which could have been set by an attacker before the
+    # victim authenticated) is discarded and never gets bound to the real client.
+    sid = rotate_sid(request)
     store.put(sid, client)
     request.session["username"] = username
     

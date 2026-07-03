@@ -512,13 +512,16 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     await uploader.init_upload(file_id, file_size, part_size, connections)
 
     try:
+        # f.read() is a blocking syscall; offloaded via asyncio.to_thread so the event
+        # loop stays free to serve other concurrent requests while this read is in
+        # flight (same reasoning as the writes in core/http_client.py's download path).
         with open(file_path, "rb") as f:
             for part_index in range(parts_count):
                 for sender in uploader.senders:
                     if sender.exception:
                         raise sender.exception
 
-                chunk = f.read(part_size)
+                chunk = await asyncio.to_thread(f.read, part_size)
                 if not chunk:
                     break
                 await uploader.upload(part_index, chunk)
