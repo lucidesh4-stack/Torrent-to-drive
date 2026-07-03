@@ -492,29 +492,31 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 
     # Connection count for parallel SaveBigFilePartRequest/SaveFilePartRequest calls.
     #
-    # History: 12 -> 6/3/2 -> (this change) 3/3/2.
-    # Log analysis of a real transfer (Enola.Holmes.3, ~1.3GB) at 12 connections showed
-    # 61 separate "SaveBigFilePartRequest flood wait" events in ~85s of upload time, each
-    # forcing a 7-8s sleep -- roughly half the total upload window was spent idle waiting
-    # out Telegram's per-method rate limiter, not uploading. A later production log at 6
-    # connections (Thank.You.For.Smoking, ~1.5GB) still showed 24 flood-wait events in a
-    # 53+s upload window that hadn't even finished. Reducing concurrency lowers the rate
-    # at which this single RPC method is hit, which should reduce (not necessarily
-    # eliminate) how often the limiter triggers.
-    #
-    # This change (2026-07-03): the >50MB tier is being tested at 3 connections instead
-    # of 6, i.e. tentatively unifying it with the 10-50MB tier, to live-test whether
-    # fewer concurrent SaveBigFilePartRequest calls meaningfully reduces flood-wait
-    # frequency/duration for large files. NOT YET CONFIRMED to be faster overall --
-    # fewer connections means less raw parallelism, so this is only a net win if it cuts
-    # flood-wait sleep time by more than the parallelism it gives up. Re-validate against
-    # real transfer logs (flood-wait count + total upload wall-clock time) after
-    # deploying; revert toward 6 (or try other values) if 3 doesn't clearly win.
+    # History: 12 -> 6/3/2 -> 3/3/2 -> (this change) env-tunable, default 3/3/2.
+    # Log analysis across real transfers on THIS account's session shows this is a
+    # genuine tradeoff, not a "lower is always better" situation:
+    #   - 12 connections (Enola.Holmes.3, ~1.3GB): 61 flood-wait events in ~85s upload.
+    #   - 6 connections (Thank.You.For.Smoking, ~1.5GB): 24 flood-wait events in a 53+s
+    #     upload that STILL hadn't finished when cancelled (>=28 MB/s ceiling, likely less).
+    #   - 3 connections (~496MB): ZERO flood-waits, but only ~5 MB/s (40 Mbps) -- slower
+    #     than even the incomplete 6-connection run above. This overcorrected: it avoided
+    #     the rate limiter entirely by giving up too much parallelism.
+    # Conclusion: the real sweet spot is somewhere between 3 (too slow, no flood-wait) and
+    # 6 (faster per-connection, but flood-wait-heavy) -- likely 4 or 5. This value is now
+    # controlled by the TG_UPLOAD_CONNECTIONS_LARGE env var (default 3) specifically so it
+    # can be tuned via a Hugging Face Space restart, without needing a code redeploy for
+    # every experiment. Set it in the Space's "Variables and secrets" settings, e.g. to 4
+    # or 5, restart the Space, then send a real large file and compare the "Upload phase
+    # complete: ... Mbps average" log line plus flood-wait event count against the
+    # baselines above to see which is fastest overall.
     #
     # NOTE: the right number depends on Telegram's rate-limit tier for the account/session
-    # in use, which isn't observable from static analysis.
-    connections = 3 if file_size > 10 * 1024 * 1024 else 2
+    # in use, which isn't observable from static analysis -- it must be found empirically,
+    # per-account, exactly as described above.
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "3"))
+    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
     connections = min(connections, parts_count)
+
 
     uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
     await uploader.init_upload(file_id, file_size, part_size, connections)
