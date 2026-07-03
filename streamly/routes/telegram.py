@@ -91,8 +91,8 @@ async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None,
             total = int(active_item.get("total_bytes", 0))
             sent = int(active_item.get("sent_bytes", 0))
             projected += max(0, total - sent)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Could not add active_item remaining bytes to bandwidth projection: %s", e)
     else:
         active_task_id = await rs.get("streamly:active_transfer_global")
         if active_task_id:
@@ -108,15 +108,15 @@ async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None,
                     sent = int(status_data.get("sent_bytes", 0))
                     remaining = max(0, total - sent)
                     projected += remaining
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("Could not add active transfer remaining bytes to bandwidth projection: %s", e)
                 
     if queue_items is not None:
         for item in queue_items:
             try:
                 projected += int(item.get("total_bytes", 0))
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Could not add queued item size to bandwidth projection: %s", e)
     else:
         queue_task_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
         if queue_task_ids:
@@ -130,20 +130,21 @@ async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None,
                             raw_args = raw_args.decode("utf-8")
                         args = _json.loads(raw_args)
                         projected += int(args.get("size", 0))
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("Could not add queued task size to bandwidth projection: %s", e)
                 
     return projected
 
 
 class ProgressTracker:
-    def __init__(self, rs, task_id, filename, total_bytes, cancel_flag, sid=None):
+    def __init__(self, rs, task_id, filename, total_bytes, cancel_flag, sid=None, app=None):
         self.rs = rs
         self.task_id = task_id
         self.filename = filename
         self.total_bytes = total_bytes
         self.cancel_flag = cancel_flag
         self.sid = sid
+        self.app = app
         self.last_pct = 0.0
         self.last_bandwidth_sent_bytes = 0
         self.last_write_time = time.time()
@@ -184,7 +185,7 @@ class ProgressTracker:
         status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
 
         # Update live progress in memory
-        asyncio.create_task(_live_set(self.task_id, {
+        self._spawn(_live_set(self.task_id, {
             "progress": pct,
             "status": status,
             "filename": self.filename,
@@ -211,7 +212,18 @@ class ProgressTracker:
         if do_status:
             self.last_persist_time = now
 
-        asyncio.create_task(self.update_redis_async(status, pct, speed_mb, sent_bytes, tot, bw_diff, do_status, do_bw))
+        self._spawn(self.update_redis_async(status, pct, speed_mb, sent_bytes, tot, bw_diff, do_status, do_bw))
+
+    def _spawn(self, coro) -> None:
+        """Create a background task, tracked the same way every other background task in
+        this app is tracked (app.state.background_tasks), so it can't be silently garbage
+        collected mid-flight ("Task was destroyed but it is pending!") and so shutdown can
+        account for it. Falls back to an untracked task only if no app was supplied (keeps
+        existing test/unit-usage of ProgressTracker without an app instance working)."""
+        task = asyncio.create_task(coro)
+        if self.app is not None:
+            self.app.state.background_tasks.add(task)
+            task.add_done_callback(self.app.state.background_tasks.discard)
 
     async def update_redis_async(self, status, pct, speed_mb, sent_bytes, total_bytes, bw_diff, write_status, write_bw):
         try:
@@ -245,13 +257,13 @@ async def validate_telegram_target(client: TelegramClient, chat_id: str) -> Any:
     if target.startswith("-100") and target[4:].isdigit():
         try:
             return await client.get_input_entity(int(target))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("get_input_entity(%s) failed, falling back to username/string lookup: %s", target, e)
     elif target.isdigit() or (target.startswith("-") and target[1:].isdigit()):
         try:
             return await client.get_input_entity(int(target))
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("get_input_entity(%s) failed, falling back to username/string lookup: %s", target, e)
             
     # Try username or string lookup
     try:
@@ -340,8 +352,10 @@ async def _trigger_next_transfer_locked(app):
         log.exception("Error in queue dispatch trigger: %s", e)
         try:
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
-        except Exception:
-            pass
+        except Exception as del_err:
+            # Not fatal (the lock has a TTL and will expire on its own), but this
+            # delays the next dispatch attempt, so it's worth a trace.
+            log.warning("Failed to release dispatch lock after dispatch error: %s", del_err)
 
 
 class UploadSender:
@@ -536,8 +550,10 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 if res:
                     cancel_flag[0] = True
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                # Best-effort: a transient Redis error here just means this poll cycle
+                # is skipped and we try again in 5s, not a hard failure.
+                log.debug("Cancel-request poll failed for task %s (will retry): %s", task_id, e)
             await asyncio.sleep(5.0)
             
     cancel_poller = asyncio.create_task(poll_cancel_request())
@@ -615,7 +631,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         if parts_count > _TG_MAX_PARTS:
             raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
 
-        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid)
+        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid, app=app)
 
         max_attempts = 3
         backoff = 5.0
@@ -629,7 +645,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             with open(test_file, "w") as tf:
                 tf.write("test")
             os.remove(test_file)
-        except Exception:
+        except Exception as e:
+            log.warning("TEMP_DIR '%s' not writable (%s); falling back to %s/temp_downloads", temp_dir, e, os.getcwd())
             temp_dir = os.path.join(os.getcwd(), "temp_downloads")
             os.makedirs(temp_dir, exist_ok=True)
 
@@ -643,8 +660,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             if os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("Could not remove stale temp file %s before retry: %s", temp_path, e)
 
             try:
                 # Phase 1: High-speed range-based download to disk
@@ -817,7 +834,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
 async def telegram_status(request: Request):
     rs = getattr(request.app.state, "rs", None)
     if not rs:
-        return {"authenticated": False, "error": "Redis unavailable"}
+        return {"success": True, "authenticated": False, "error": "Redis unavailable"}
         
     cryptg_active = False
     try:
@@ -834,16 +851,17 @@ async def telegram_status(request: Request):
         try:
             cached_data = _json.loads(cached)
             return {
+                "success": True,
                 "authenticated": cached_data.get("authenticated", False),
                 "cryptg_active": cryptg_active,
                 "cached": True
             }
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Corrupted tg_auth_cache entry, falling back to a live Telegram check: %s", e)
 
     session_str = await rs.get("streamly:telegram_session")
     if not session_str:
-        return {"authenticated": False}
+        return {"success": True, "authenticated": False}
     
     try:
         async with tg_manager.get_client(session_str, app=request.app) as client:
@@ -851,12 +869,13 @@ async def telegram_status(request: Request):
             
         await rs.set(cache_key, _json.dumps({"authenticated": authorized}), ex=60)
         return {
+            "success": True,
             "authenticated": authorized,
             "cryptg_active": cryptg_active
         }
     except Exception as e:
         log.warning("Telegram status check failed: %s", e)
-        return {"authenticated": False, "error": str(e)}
+        return {"success": True, "authenticated": False, "error": str(e)}
 
 
 @telegram_router.get("/api/telegram/test-download")
@@ -1060,7 +1079,11 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
         else:
             filename = file_info.split("/")[-1].split("?")[0] or "file"
             size = 0
-    except Exception:
+    except Exception as e:
+        # Falling back to size=0 here means the Telegram-upload-limit and monthly
+        # bandwidth checks below effectively get skipped for this transfer -- worth
+        # a trace since it's a real, if rare, gap in enforcement.
+        log.warning("Failed to resolve exact filename/size for file_id via folder listing; size checks will be skipped: %s", e)
         filename = file_info.split("/")[-1].split("?")[0] or "file"
         size = 0
 
@@ -1141,8 +1164,11 @@ async def telegram_task_status(request: Request, task_id: str):
                 raise HTTPException(status_code=403, detail="Forbidden")
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            # Note: a corrupted task_args blob means the ownership check below is
+            # silently skipped (this falls through as if no ownership record existed),
+            # so it's worth a trace even though it isn't fatal to the request.
+            log.warning("Could not parse task_args for %s during ownership check: %s", task_id, e)
 
     # Check in memory first
     state = await _live_get(task_id)
@@ -1155,8 +1181,8 @@ async def telegram_task_status(request: Request, task_id: str):
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8")
             return _json.loads(raw)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("Corrupted transfer_status blob for task %s (will 404): %s", task_id, e)
             
     raise HTTPException(status_code=404, detail="Task not found")
 
@@ -1166,7 +1192,7 @@ async def telegram_task_status(request: Request, task_id: str):
 async def get_telegram_queue(request: Request):
     rs = request.app.state.rs
     if not rs:
-        return {"active": None, "queue": []}
+        return {"success": True, "active": None, "queue": []}
         
     ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
     raw_bw = await rs.get(f"streamly:monthly_bandwidth:{ym}")
@@ -1187,8 +1213,12 @@ async def get_telegram_queue(request: Request):
                         raw_status = raw_status.decode("utf-8")
                     active_item = _json.loads(raw_status)
                     active_item.setdefault("task_id", active_task_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # A corrupted status blob here means the active transfer will
+                    # simply not appear in the /api/telegram/queue response -- from
+                    # the user's side that looks like "my transfer just vanished",
+                    # so this is worth a trace.
+                    log.warning("Corrupted transfer_status blob for active task %s: %s", active_task_id, e)
 
     # Read queue items
     queue_items = []
@@ -1207,8 +1237,10 @@ async def get_telegram_queue(request: Request):
                     "filename": args.get("filename"),
                     "total_bytes": int(args.get("size", 0))
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                # Same as above: a corrupted queued-item entry just silently drops
+                # out of the visible queue instead of erroring loudly.
+                log.warning("Corrupted task_args for queued task %s (dropped from queue view): %s", qid, e)
 
     projected_bytes = await get_projected_bandwidth(
         rs, ym, current_file_size=0, active_item=active_item, queue_items=queue_items, bw_bytes=bw_bytes
@@ -1219,6 +1251,7 @@ async def get_telegram_queue(request: Request):
         dest = "me"
 
     return {
+        "success": True,
         "active": active_item,
         "queue": queue_items,
         "bandwidth_usage_gb": bw_bytes / (1024**3),

@@ -100,8 +100,8 @@ async def list_items(request: Request, folder_id: str, client = Depends(current_
                         if isinstance(raw, bytes):
                             raw = raw.decode("utf-8")
                         queue_items.append(_json.loads(raw))
-                    except Exception:
-                        pass
+                    except Exception as item_err:
+                        log.warning("Skipping corrupted queue entry in list_items: %s", item_err)
             except Exception as q_err:
                 log.warning("Failed to fetch local queue for list_items: %s", q_err)
         data["queue"] = queue_items
@@ -244,8 +244,8 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
             dn = qs.get("dn")
             if dn:
                 name = dn[0]
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Could not extract display name (dn=) from magnet URI: %s", e)
     if not name:
         name = "Unknown Magnet"
         
@@ -326,8 +326,10 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
             await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
             try:
                 await rs._execute("DEL", "streamly:seedr_adding_lock")
-            except Exception:
-                pass
+            except Exception as e:
+                # Not fatal (the lock has a 10s TTL and will expire on its own), but
+                # worth knowing about since it delays the next magnet addition.
+                log.warning("Failed to release seedr_adding_lock after fallback re-queue: %s", e)
             return {"success": True, "queued": True, "fallback": True}
         else:
             raise HTTPException(status_code=502, detail=str(e) or "Provider rejected the request and Redis fallback is unavailable")

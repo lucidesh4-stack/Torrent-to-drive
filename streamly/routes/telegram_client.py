@@ -74,8 +74,10 @@ class TelegramClientManager:
                         await self._on_connect(client)
                     else:
                         self._on_connect(client)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # A failing hook shouldn't break the connection itself, but is
+                    # still worth a trace since it means the hook silently did nothing.
+                    log.debug("on_connect hook raised: %s", e)
 
     async def safe_disconnect(self, client: TelegramClient):
         if client is None:
@@ -90,8 +92,8 @@ class TelegramClientManager:
                         await self._on_disconnect(client)
                     else:
                         self._on_disconnect(client)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("on_disconnect hook raised: %s", e)
         except Exception as e:
             self.stats.errors += 1
             log.warning("safe_disconnect error: %s", e)

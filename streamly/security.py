@@ -26,6 +26,9 @@ BTIH_RE = re.compile(r"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})",
 _GLOBAL_DNS_LOCK = asyncio.Lock()
 
 
+_CGNAT_RANGE = ipaddress.ip_network("100.64.0.0/10")  # RFC 6598 Carrier-Grade NAT
+
+
 def _ip_is_public(ip_str: str) -> bool:
     """True only for globally-routable unicast addresses."""
     try:
@@ -35,6 +38,11 @@ def _ip_is_public(ip_str: str) -> bool:
     mapped = getattr(ip, "ipv4_mapped", None)
     if mapped is not None:
         ip = mapped
+    if ip.version == 4 and ip in _CGNAT_RANGE:
+        # Python's ipaddress module doesn't classify 100.64.0.0/10 as private/reserved,
+        # but it's carrier-grade-NAT space, not meant to be treated as public internet --
+        # explicitly excluded here since none of the checks below catch it.
+        return False
     return not (
         ip.is_private
         or ip.is_loopback
@@ -170,7 +178,16 @@ class Bucket:
 
 
 class TokenBucketRateLimiter:
-    """Thread-safe in-memory token bucket rate limiter."""
+    """Coroutine-safe (not thread-safe) in-memory token bucket rate limiter.
+
+    Guarded by asyncio.Lock, which serializes concurrent coroutines on ONE event loop --
+    it provides no protection across OS threads or separate processes. This is safe
+    under the current deployment (uvicorn --workers 1, single process/event loop) but
+    would silently stop being safe if that were ever changed to --workers > 1 (each
+    worker is a separate process with its own memory, so rate-limit state wouldn't even
+    be shared -- a bigger problem than just lock safety) or if any code path started
+    calling this from a thread pool executor.
+    """
     def __init__(self, capacity: int, refill_per_second: float, max_keys: int = 50_000):
         self.capacity = float(capacity)
         self.refill_per_second = float(refill_per_second)

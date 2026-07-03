@@ -355,7 +355,7 @@
       if (!phone) return updateStatus($("tgAuthStatus"), "Enter your phone number", "error");
       updateStatus($("tgAuthStatus"), "Requesting code...", "");
       try {
-        await postJson("/api/telegram/setup/send-code", { phone });
+        await postJson("/api/telegram/send-code", { phone });
         updateStatus($("tgAuthStatus"), "Verification code sent to Telegram app", "ok");
         $("tgPhoneStep").classList.add("hidden");
         $("tgCodeStep").classList.remove("hidden");
@@ -372,7 +372,7 @@
       if (!code) return updateStatus($("tgAuthStatus"), "Enter the verification code", "error");
       updateStatus($("tgAuthStatus"), "Verifying...", "");
       try {
-        await postJson("/api/telegram/setup/verify-code", { code });
+        await postJson("/api/telegram/verify-code", { code });
         updateStatus($("tgAuthStatus"), "Telegram successfully linked!", "ok");
         toast("Telegram account linked successfully!");
         setTimeout(() => {
@@ -471,7 +471,6 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
-        if (typeof pollActiveTransfer === "function") pollActiveTransfer();
         if (initialTab === "search" && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
         if (initialTab === "cloud") {
           setTab("cloud");

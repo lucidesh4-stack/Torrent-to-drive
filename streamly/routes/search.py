@@ -201,6 +201,7 @@ async def search_route(
             if str(r.get("infohash", "")).lower() not in main_hashes and str(r.get("infohash", "")).lower() not in less_hashes
         ]
         return {
+            "success": True,
             "mode": "series",
             "packs": packs,
             "encoders": groups["encoders"],
@@ -275,6 +276,7 @@ async def search_route(
             "rows": less_relevant_rows,
         })
     return {
+        "success": True,
         "mode": "normal_grouped",
         "quality_groups": quality_groups,
         "provider": locked["provider"],

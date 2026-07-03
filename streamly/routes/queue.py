@@ -36,8 +36,8 @@ async def add_to_history_backend(rs, magnet: str, name: str | None, size_bytes: 
         if raw:
             try:
                 items = _json.loads(raw)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Corrupted history blob in Redis, resetting to empty: %s", e)
         items = [it for it in items if it.get("magnet") != magnet]
         items.insert(0, new_item)
         items = items[:50]
@@ -125,8 +125,8 @@ async def seedr_queue_daemon_loop(app):
                     await rs._execute("SET", "streamly:seedr_active_monitor", "1", "EX", "120")
                 else:
                     await rs._execute("DEL", "streamly:seedr_active_monitor")
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("Failed to update seedr_active_monitor heartbeat: %s", e)
 
             used = max(0, _safe_int(storage.get("used")))
             maximum = max(1, _safe_int(storage.get("max")))
@@ -234,7 +234,10 @@ async def seedr_queue_daemon_loop(app):
                 is_storage_full = "too large" in err_msg or "space" in err_msg or "413" in err_msg or "storage" in err_msg
                 
                 if is_storage_full:
-                    # Move to BACK of queue (RPUSH)
+                    # Move to BACK of queue (RPUSH). Not subject to the retry cap: this
+                    # path only re-blocks once every OTHER queued item has been tried
+                    # first, so it can't create a permanent head-of-line-blocking loop
+                    # the way an immediate front-of-queue retry could.
                     try:
                         await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(item))
                         log.warning("STORAGE_FULL error! Re-queued torrent at BACK of queue: %s", item_name)
@@ -254,8 +257,10 @@ async def seedr_queue_daemon_loop(app):
             if lock_held:
                 try:
                     await rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Not fatal (the lock carries a 20s TTL and will expire on its own),
+                    # but worth knowing about since it delays the next daemon cycle.
+                    log.warning("Failed to release seedr_queue_daemon_lock: %s", e)
 
 
 def trigger_seedr_queue(app):
@@ -282,8 +287,8 @@ async def get_queue(request: Request):
                 if isinstance(raw, bytes):
                     raw = raw.decode("utf-8")
                 items.append(_json.loads(raw))
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Skipping corrupted seedr_queue entry in get_queue: %s", e)
         return {"success": True, "items": items}
     except Exception as e:
         log.warning("Failed to fetch Seedr queue from Redis: %s", e)
@@ -311,8 +316,11 @@ async def cancel_queued_item(request: Request, payload: CancelQueuePayload, _csr
                     removed_item = item
                     removed_raw = decoded
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                # If a queue entry is corrupted, this cancel request will fall through
+                # to the "not found" 404 below with no other clue -- log it so that
+                # isn't a silent mystery when debugging a cancel that mysteriously fails.
+                log.warning("Skipping corrupted seedr_queue entry while scanning for task_id=%s: %s", task_id, e)
  
         if removed_item and removed_raw is not None:
             await rs._execute("LREM", "streamly:seedr_queue", "0", removed_raw)

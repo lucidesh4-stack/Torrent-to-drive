@@ -139,6 +139,8 @@ class AsyncRedisLogHandler(logging.Handler):
             line = self.format(record)
             _LOG_QUEUE.append(line)
         except Exception:
+            # Deliberately not logged: this IS the log handler, so a failure here
+            # logging to itself would risk infinite recursion. Truly best-effort.
             pass
 
 
@@ -152,8 +154,12 @@ async def periodic_log_flush_task(rs: RedisStore, interval_seconds: int = 5, max
                 lines.append(_LOG_QUEUE.popleft())
             if lines:
                 await rs.push_logs(lines, max_lines=max_lines)
-        except Exception:
-            pass
+        except Exception as e:
+            # Note: 'lines' already left _LOG_QUEUE, so a failed push here does lose
+            # them -- surfacing that via the console handler (not the Redis handler,
+            # to avoid recursing back into the same failing path) is strictly better
+            # than silently dropping log history with no trace.
+            log.warning("Periodic log flush to Redis failed (some log lines lost): %s", e)
 
 
 def run_background_task(app: FastAPI, coro) -> asyncio.Task:
@@ -280,7 +286,7 @@ def create_app(
             "connect-src 'self' https://bitsearch.eu https://v3.sg.media-imdb.com https://www.seedr.cc https:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; "
             f"base-uri 'none'; object-src 'none'; {csp_ancestors}"
         )
@@ -531,8 +537,8 @@ def create_app(
                     lines.append(_LOG_QUEUE.popleft())
                 if lines:
                     await rs.push_logs(lines)
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Failed to flush final logs to Redis on shutdown: %s", e)
         
         # Cleanup Telegram sessions
         await tg_manager.cleanup_all()

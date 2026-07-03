@@ -170,8 +170,8 @@ class CloudService:
                         usage = await async_seedr.get_memory_bandwidth()
                         space_used = usage.space_used
                         space_max = usage.space_max
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.info("Fallback get_memory_bandwidth() call also failed; storage usage may be reported as 0/1: %s", e)
                 
                 used_val = _safe_int(space_used)
                 max_val = _safe_int(space_max) if space_max else 1

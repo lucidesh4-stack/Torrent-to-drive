@@ -777,44 +777,14 @@
     
     if (successCount > 0) {
       toast(`Started upload for ${successCount} file(s)`);
-      isTgTransferring = true;
       // Do NOT auto-open the Transfers overlay. Just start background polling so the
       // tab badge updates; the user opens the overlay themselves when they want it.
+      // (Real transfer status lives in /api/telegram/queue, polled via triggerQueuePolling
+      // below -- the old /api/transfer/status endpoint this used to also poll never existed
+      // on the backend and was silently 404ing on every page load; removed.)
       if (typeof window.triggerQueuePolling === "function") {
         window.triggerQueuePolling();
       }
-    }
-  }
-
-
-  window.telegramPollTimer = null;
-  window.isTgTransferring = false;
-
-  window.pollActiveTransfer = async function() {
-    if (telegramPollTimer) clearTimeout(telegramPollTimer);
-    
-    try {
-      const response = await fetch("/api/transfer/status", { credentials: "same-origin", cache: "no-store" });
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.status === "QUEUED" || data.status === "UPLOADING") {
-          updateStatus($("cloudStatus"), "", "");
-          telegramPollTimer = setTimeout(pollActiveTransfer, 10000);
-        } else if (data.status === "COMPLETED") {
-          updateStatus($("cloudStatus"), "", "");
-          isTgTransferring = false;
-        } else if (data.status === "FAILED") {
-          updateStatus($("cloudStatus"), `Telegram upload failed: ${data.error || "unknown error"}`, "error");
-          if (isTgTransferring) {
-            toast("Upload failed");
-            isTgTransferring = false;
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error polling Telegram task status:", err);
-      telegramPollTimer = setTimeout(pollActiveTransfer, 8000);
     }
   }
 
