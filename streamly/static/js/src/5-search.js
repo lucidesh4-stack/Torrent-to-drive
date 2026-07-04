@@ -193,7 +193,6 @@
       ? "apibay → bitsearch → torrents-csv"
       : "bitsearch → apibay → torrents-csv";
     updateStatus($("searchStatus"), "Searching providers: " + providerOrderText + "...", "");
-    if ($("resultCount")) $("resultCount").textContent = "";
 
     const resultsContainer = $("seriesResults");
     if (resultsContainer) {
@@ -242,7 +241,6 @@
         const less = (data.less_relevant || []).length;
         const other = (data.other || []).length;
         const extra = (less || other) ? " + " + (less + other) + " other" : "";
-        if ($("resultCount")) $("resultCount").textContent = "";
         const providerText = providerStatusText(data);
         updateStatus($("searchStatus"), "Found " + packs + " pack(s) + " + eps + " episode(s)" + extra + " \u00b7 " + (data.requests_used || 0) + " request(s)" + (providerText ? " \u00b7 " + providerText : ""), "ok");
         return;
@@ -256,12 +254,10 @@
       const primaryGroups = groups.filter(g => g.quality !== "less_relevant");
       const total = groups.reduce((a, g) => a + (g.count || 0), 0);
       const groupCount = primaryGroups.length;
-      if ($("resultCount")) $("resultCount").textContent = "";
       const providerText = providerStatusText(data);
       updateStatus($("searchStatus"), "Found " + total + " results" + (groupCount ? " across " + groupCount + " quality group" + (groupCount === 1 ? "" : "s") : "") + (providerText ? " · " + providerText : ""), "ok");
     } catch (err) {
       if (err && err.name === "AbortError") return; // superseded by a newer search
-      if ($("resultCount")) $("resultCount").textContent = "";
       updateStatus($("searchStatus"), err.message || "Search failed", "error");
     }
   }

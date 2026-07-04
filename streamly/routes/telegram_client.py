@@ -8,7 +8,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Optional, Callable, Any
+from typing import Optional, Callable
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession

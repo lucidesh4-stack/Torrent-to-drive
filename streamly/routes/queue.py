@@ -2,7 +2,6 @@
 
 import json as _json
 import asyncio
-import uuid
 import logging
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel

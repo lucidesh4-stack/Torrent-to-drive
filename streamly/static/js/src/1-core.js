@@ -105,8 +105,6 @@
     }
     const accountLabel = window.$("accountLabel");
     if (accountLabel) accountLabel.textContent = username ? username : "Guest Mode";
-    const cmAcct = window.$("cmAccount");
-    if (cmAcct) cmAcct.textContent = username ? `Connected as ${username}` : "Guest Mode";
   };
 
   window.showLogin = function() {

@@ -24,7 +24,13 @@
 
   window._cancelInFlight = window._cancelInFlight || new Set();
 
-  window.cancelTransfer = async function(taskId) {
+  // Renamed from window.cancelTransfer -- 2-cloud.js also defined a DIFFERENT
+  // function under that exact name (for cancelling a Seedr download, not a
+  // Telegram upload). Both attached to the shared window object, so whichever
+  // loaded last silently won, and the other's callers ended up invoking this
+  // (wrong) function with the wrong argument shape. Renamed to remove the
+  // collision -- see the matching comment in 2-cloud.js's cancelSeedrTransfer.
+  window.cancelTelegramTransfer = async function(taskId) {
     // Guard against empty/missing task ids (stray clicks on placeholder rows) and
     // duplicate in-flight cancels for the same task (double-click, repeated clicks
     // before the queue re-renders) -- both previously produced needless 422s.
@@ -158,7 +164,7 @@
     document.querySelectorAll(".tg-cancel-btn, #tgQueueBody button").forEach((btn) => {
       btn.onclick = (e) => {
         const tid = e.target.dataset.taskId;
-        if (tid) cancelTransfer(tid);
+        if (tid) cancelTelegramTransfer(tid);
       };
     });
   }

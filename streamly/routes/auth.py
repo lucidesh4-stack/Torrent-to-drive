@@ -2,7 +2,7 @@
 
 import logging
 from fastapi import APIRouter, Request, HTTPException, Depends
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from ..auth_utils import current_client, ensure_sid, get_csrf_token, rotate_sid
 from ..store import NotAuthenticated

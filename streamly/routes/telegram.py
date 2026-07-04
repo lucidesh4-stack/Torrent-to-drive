@@ -6,16 +6,14 @@ import time
 import uuid
 import json as _json
 import asyncio
-import urllib.parse
 import httpx
 import secrets
 import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional, Any
+from typing import Any
 from telethon import TelegramClient, functions, types
-from telethon.sessions import StringSession
-from telethon.network import ConnectionTcpIntermediate, MTProtoSender
+from telethon.network import MTProtoSender
 from telethon.errors import FilePartMissingError, FloodWaitError, RPCError
 from telethon.tl.types import Channel, Chat
 from telethon.tl.alltlobjects import LAYER
@@ -32,7 +30,7 @@ from ..security import (
     ValidationError
 )
 from ..core.http_client import SeedrDownloader
-from .telegram_client import manager as tg_manager, safe_disconnect, FLOOD_SLEEP_THRESHOLD as _FLOOD_SLEEP_THRESHOLD
+from .telegram_client import manager as tg_manager, safe_disconnect
 
 log = logging.getLogger(__name__)
 telegram_router = APIRouter()

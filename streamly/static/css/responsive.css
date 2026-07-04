@@ -1,6 +1,5 @@
     @media (max-width: 980px) {
       .cloud-layout { grid-template-columns: 1fr; }
-      .search-grid { grid-template-columns: 1fr; }
       /* Full-bleed page width on mobile, minimal side gutters */
       .topbar-inner { width: calc(100% - 20px); padding: 10px 0; flex-wrap: nowrap; gap: 10px; }
       .main { width: calc(100% - 20px); padding-bottom: 96px !important; }
@@ -165,7 +164,6 @@
   /* search field spans full width (override inline flex:1) */
   .search-unified-row .search-box-wrap { flex: 1 1 100% !important; min-width: 0 !important; width: 100%; }
   .search-unified-row .search-box-wrap input { width: 100%; }
-  .search-unified-row #category { flex: 1 1 auto !important; width: auto !important; min-width: 0; font-size: 13px; padding: 9px 8px; }
   .search-unified-row #searchBtn,
   .search-unified-row #addMagnetBtn { flex: 0 0 auto; padding: 9px 14px; font-size: 13px; }
   .search-unified-row button.icon-btn { padding: 0; width: 38px; height: 38px; font-size: 16px; }
@@ -298,9 +296,6 @@
 @media (max-width: 768px) {
   #seriesResults { padding: 0 10px 16px; }
 
-  /* Hide column header on mobile */
-  .sec-head { display: none !important; }
-
   .encoder-header { flex-wrap: wrap; padding: 11px 12px; gap: 8px; }
   .encoder-title { gap: 8px; flex: 1 1 100%; min-width: 0; }
   .encoder-name { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -329,7 +324,6 @@
 @media (max-width: 768px) {
   #searchSidebar { display: none !important; }
   .search-layout { display: block; margin-top: 0; }
-  .sec-head .h-encoder { display: none !important; }
   .episode-row .encoder { display: none !important; }
 
   /* Remove wasted title/subtitle area; search starts immediately. */
@@ -441,19 +435,6 @@
 
   /* Header row then global quality navigation. */
   #seriesResults { padding: 0 10px 16px; }
-  .sec-head {
-    grid-template-columns: minmax(0,1fr) 42px 60px 60px 30px;
-    gap: 4px;
-    padding: 10px 12px 8px;
-    margin: 0;
-    background: #0b111c;
-    border: 1px solid transparent;
-    border-top: 1px solid rgba(148,163,184,.08);
-    border-bottom: 1px solid var(--line);
-    color: #c7d2e3;
-    font-size: 10px;
-    letter-spacing: .06em;
-  }
   .mobile-quality-nav {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -842,9 +823,6 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
     margin-bottom: 0 !important;
     background: transparent !important;
-  }
-  .sec-head {
-    display: none !important;
   }
 
   /* Prevent seeder icon leak in skeleton loaders */

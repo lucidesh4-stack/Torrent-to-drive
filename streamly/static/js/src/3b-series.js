@@ -82,13 +82,12 @@
   }
 
   window.updateDropdownLabels = function() {
-    const qs = getSelectedQualities();
-    const qLabelMap = { "2160p": "4K", "1080p": "1080p", "720p": "720p" };
-    const qBtn = $("qualityDdBtn");
-    if (qBtn) qBtn.textContent = "Quality: " + (qs.length ? qs.map(x => qLabelMap[x] || x).join(", ") : "none");
-    const es = getSelectedEncoders();
-    const eBtn = $("encoderDdBtn");
-    if (eBtn) eBtn.textContent = "Encoders: " + (es.length ? (es.length <= 2 ? es.join(", ") : es.length + " selected") : "none");
+    // NOTE: this used to update #qualityDdBtn/#encoderDdBtn button labels, but
+    // neither element exists in the current HTML (leftover from an earlier
+    // dropdown-based filter UI, since replaced by the checkbox-based filter
+    // panel). Kept as a callable no-op rather than removed entirely, since it's
+    // still called from several places below and elsewhere in the app; those
+    // call sites are otherwise harmless to leave as-is.
   }
 
   window.setSeriesMode = function(on) {

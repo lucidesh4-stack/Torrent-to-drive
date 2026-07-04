@@ -176,7 +176,7 @@
     cancelBtn.className = "transfer-cancel-btn";
     cancelBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
     cancelBtn.title = "Cancel transfer";
-    cancelBtn.addEventListener("click", () => cancelTransfer(t));
+    cancelBtn.addEventListener("click", () => cancelSeedrTransfer(t));
     dateTd.appendChild(cancelBtn);
     tr.append(iconTd, nameTd, typeTd, sizeTd, dateTd);
     return tr;
@@ -236,8 +236,6 @@
   window.renderCloud = function() {
     const body = $("cloudBody");
     body.textContent = "";
-    const pathLabel = $("pathLabel");
-    if (pathLabel) pathLabel.textContent = `Folder ID: ${currentFolder}`;
     $("upBtn").disabled = currentFolder == 0;
     $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
@@ -394,7 +392,7 @@
         cancel.className = "cm-transfer-cancel";
         cancel.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
         cancel.title = "Cancel transfer";
-        cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelTransfer(t); });
+        cancel.addEventListener("click", (e) => { e.stopPropagation(); cancelSeedrTransfer(t); });
         
         info.append(fn, transferBar(t), meta);
         row.append(ic, info, cancel);
@@ -438,8 +436,6 @@
   window.updateStorage = function(used, max) {
     storageSnapshotLoaded = true;
     const pct = max > 0 ? Math.min(100, Math.max(0, (used / max) * 100)) : 0;
-    const label = `${bytes(used)} / ${bytes(max)} used (${pct.toFixed(1)}%)`;
-    const compactLabel = `${bytes(used)} / ${bytes(max)} · ${pct.toFixed(1)}%`;
 
     const uGB = used / (1024 ** 3);
     const mGB = max / (1024 ** 3);
@@ -447,14 +443,8 @@
     const mText = (mGB % 1 === 0) ? mGB.toFixed(0) : mGB.toFixed(1);
     const usedTotalLabel = `${uText} / ${mText} GB · ${pct.toFixed(0)}%`;
 
-    const storageMeter = $("storageMeter");
-    const storageText = $("storageText");
-    if (storageMeter) storageMeter.style.width = pct.toFixed(1) + "%";
-    if (storageText) storageText.textContent = label;
-
     const topMeter = $("topStorageMeter");
     const topText = $("topStorageText");
-    const pctText = $("storagePercentText");
     const meterWrap = $("topStorageMeterWrap");
 
     if (topMeter) {
@@ -464,13 +454,7 @@
       topMeter.style.boxShadow = pct >= 95 ? "0 0 8px rgba(239, 68, 68, 0.65)" : (pct >= 80 ? "0 0 8px rgba(245, 158, 11, 0.65)" : "0 0 8px rgba(47, 156, 240, 0.65)");
     }
     if (topText) topText.textContent = usedTotalLabel;
-    if (pctText) pctText.textContent = pct.toFixed(0) + "%";
     if (meterWrap) meterWrap.title = `${used.toLocaleString()} / ${max.toLocaleString()} bytes`;
-
-    const cmMeter = $("cmStorageMeter");
-    const cmText = $("cmStorageText");
-    if (cmMeter) cmMeter.style.width = pct.toFixed(1) + "%";
-    if (cmText) cmText.textContent = compactLabel;
   }
 
   window.bytes = function(n) {
@@ -554,7 +538,15 @@
     }
   }
 
-  window.cancelTransfer = async function(t) {
+  // Renamed from window.cancelTransfer -- that name was ALSO used by
+  // 4b-telegram-transfers.js for an unrelated function (cancelling a Telegram
+  // upload, not a Seedr download). Since both files attach to the same shared
+  // window object, whichever loaded last silently overwrote the other, so
+  // clicking "cancel" on an active Seedr download here was actually invoking the
+  // Telegram-cancel function with the wrong argument (a whole object instead of a
+  // task-id string) -- it never actually cancelled the Seedr transfer. This
+  // rename fixes that: the two functions can no longer collide.
+  window.cancelSeedrTransfer = async function(t) {
     if (!t || !t.id) return toast("Transfer id unavailable");
     if (!confirm(`Cancel transfer: ${t.name || "loading torrent"}?`)) return;
     updateStatus($("cloudStatus"), "Cancelling transfer...", "");

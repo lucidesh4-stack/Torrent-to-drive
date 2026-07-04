@@ -2,10 +2,9 @@
 
 import re
 import logging
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException
 from typing import Optional
 
-from ..auth_utils import current_client
 from ..security import validate_query, rate_limited
 from ..search_service import (
     group_series_results,
