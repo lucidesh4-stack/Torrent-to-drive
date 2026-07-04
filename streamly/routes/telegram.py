@@ -1042,7 +1042,7 @@ async def verify_code(request: Request, payload: CodePayload, _csrf = Depends(ve
 
 class SendFilePayload(BaseModel):
     file_id: Any
-    chat_id: str = "me"
+    chat_id: str = ""
 
 
 async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_delay=0.1):
@@ -1141,10 +1141,14 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     sid = request.session.get("sid") or ensure_sid(request)
     task_id = str(uuid.uuid4())
     
+    target_chat = payload.chat_id.strip() if payload.chat_id else ""
+    if not target_chat:
+        target_chat = os.getenv("TELEGRAM_CHAT_ID", "-1004247146382")
+
     task_args = {
         "task_id": task_id,
         "url": file_info,
-        "chat_id": payload.chat_id,
+        "chat_id": target_chat,
         "filename": filename,
         "size": size,
         "sid": sid
@@ -1272,8 +1276,6 @@ async def get_telegram_queue(request: Request):
     )
 
     dest = os.getenv("TELEGRAM_CHAT_ID", "-1004247146382")
-    if dest == "-1004247146382":
-        dest = "me"
 
     return {
         "success": True,
