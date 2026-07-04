@@ -67,6 +67,26 @@ async def list_devices(request: Request, client = Depends(current_client)):
     return {"success": True, "devices": devices}
 
 
+@cloud_router.get("/api/known-devices")
+@rate_limited(cost=1.0)
+async def list_known_devices(request: Request):
+    """Devices/browsers that have actually connected to THIS app -- distinct from
+    /api/devices above, which lists Seedr's own OAuth-authorized clients (an
+    unrelated Seedr-account concept). Returns each distinct browser session ever
+    seen, with a human-readable label, first/last-seen timestamps, and whether it's
+    currently active (seen within the last few minutes). Never exposes the raw
+    session cookie value -- only a one-way hashed, truncated display id."""
+    rs = getattr(request.app.state, "rs", None)
+    if not rs:
+        return {"success": True, "devices": [], "_warning": "Device tracking unavailable (Redis not configured)"}
+    try:
+        devices = await rs.get_known_devices()
+    except Exception as e:
+        log.warning("Failed to load known-devices list: %s", e)
+        return {"success": True, "devices": [], "_warning": "Device list temporarily unavailable"}
+    return {"success": True, "devices": devices}
+
+
 @cloud_router.get("/fs/folder/{folder_id}/items")
 @rate_limited(cost=1.0)
 async def list_items(request: Request, folder_id: str, client = Depends(current_client)):

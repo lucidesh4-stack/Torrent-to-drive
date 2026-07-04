@@ -11,6 +11,7 @@ import logging
 import secrets
 import ssl
 import asyncio
+import datetime as _dt
 from typing import Optional, Any
 import httpx
 
@@ -20,6 +21,13 @@ _SECRET_KEY = "streamly:secret_key"
 _REFRESH_TTL_SECONDS = 60 * 60 * 24 * 30  # 30 days
 _LOGS_KEY = "streamly:logs"
 _LOGS_MAX_LINES = 50000
+
+# Device/visitor registry: one Redis hash holding every distinct browser session ever
+# seen (permanent, never auto-expired -- "keep forever" per design decision), plus a
+# separate short-TTL key per session used only to compute "active right now".
+_DEVICE_REGISTRY_KEY = "streamly:devices:registry"
+_DEVICE_ACTIVE_KEY_PREFIX = "streamly:devices:active:"
+_DEVICE_ACTIVE_TTL_SECONDS = 5 * 60  # a device is "active" if seen in the last 5 minutes
 
 
 class RedisStore:
@@ -136,3 +144,59 @@ class RedisStore:
         if not isinstance(result, list):
             return []
         return [str(x) for x in reversed(result)]
+
+    # ---- Device/visitor registry ----------------------------------------------
+    # Tracks every distinct browser session (sid) that has ever hit the app, plus
+    # whether it's currently "active" (seen within the last _DEVICE_ACTIVE_TTL_SECONDS).
+    # Intentionally does NOT store IP address (imprecise/misleading signal on shared
+    # or mobile networks -- see design discussion) or the raw sid itself in any
+    # client-facing response (only a one-way, non-reversible short hash of it, so a
+    # session cookie value is never exposed back out through this feature).
+
+    async def record_device_seen(self, sid: str, label: str) -> None:
+        """Record that `sid` (already-hashed display id, not the raw cookie) was just
+        seen, with a human-readable `label` (e.g. "Chrome on Android"). Cheap,
+        best-effort: failures here should never break the request that triggered them
+        (callers should fire this off as a background task, not await it inline)."""
+        try:
+            now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+            existing_raw = await self._execute("HGET", _DEVICE_REGISTRY_KEY, sid)
+            first_seen = now_iso
+            if existing_raw:
+                try:
+                    existing = _json.loads(existing_raw)
+                    first_seen = existing.get("first_seen") or now_iso
+                except Exception:
+                    pass
+            record = _json.dumps({"label": label, "first_seen": first_seen, "last_seen": now_iso})
+            await self._execute("HSET", _DEVICE_REGISTRY_KEY, sid, record)
+            await self._execute("SET", f"{_DEVICE_ACTIVE_KEY_PREFIX}{sid}", "1", "EX", str(_DEVICE_ACTIVE_TTL_SECONDS))
+        except Exception as e:
+            log.debug("record_device_seen failed (non-fatal): %s", e)
+
+    async def get_known_devices(self) -> list[dict[str, Any]]:
+        """Return every known device (sid) ever recorded, each with its label,
+        first/last-seen timestamps, and whether it's currently active. Sorted by
+        most-recently-seen first."""
+        raw = await self._execute("HGETALL", _DEVICE_REGISTRY_KEY)
+        if not raw or not isinstance(raw, list):
+            return []
+        # Upstash returns HGETALL as a flat [field, value, field, value, ...] list.
+        pairs = list(zip(raw[0::2], raw[1::2]))
+        devices: list[dict[str, Any]] = []
+        for sid, record_raw in pairs:
+            try:
+                record = _json.loads(record_raw)
+            except Exception:
+                continue
+            active_marker = await self._execute("GET", f"{_DEVICE_ACTIVE_KEY_PREFIX}{sid}")
+            devices.append({
+                "device_id": sid,
+                "label": record.get("label") or "Unknown device",
+                "first_seen": record.get("first_seen"),
+                "last_seen": record.get("last_seen"),
+                "active": bool(active_marker),
+            })
+        devices.sort(key=lambda d: d.get("last_seen") or "", reverse=True)
+        return devices
+

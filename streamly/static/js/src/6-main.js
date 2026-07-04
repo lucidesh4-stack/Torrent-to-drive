@@ -317,6 +317,25 @@
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
+  // Formats an ISO timestamp as a short relative time ("2m ago", "3h ago", "5d ago")
+  // for the devices list -- falls back to the raw date string if parsing fails.
+  window.fmtRelativeTime = function(isoString) {
+    if (!isoString) return "—";
+    const then = new Date(isoString).getTime();
+    if (Number.isNaN(then)) return isoString;
+    const seconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    if (seconds < 60) return "just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    return `${Math.floor(months / 12)}y ago`;
+  }
+
   window.openDevicesModal = async function() {
     const ov = $("devicesOverlay");
     if (!ov) return;
@@ -329,24 +348,32 @@
     if (status) status.textContent = "Loading devices…";
     ov.classList.remove("hidden");
     try {
-      const res = await fetch("/api/devices", { credentials: "same-origin" });
+      const res = await fetch("/api/known-devices", { credentials: "same-origin" });
       const data = await res.json();
       const devices = (data && data.devices) || [];
-      if (status) status.textContent = "";
+      if (status) status.textContent = data && data._warning ? data._warning : "";
       if (!devices.length) {
         if (empty) empty.classList.remove("hidden");
-        if (sub) sub.textContent = "Apps & clients authorized on this Seedr account";
+        if (sub) sub.textContent = "Browsers/devices that have used this app";
         return;
       }
-      if (sub) sub.textContent = `${devices.length} client${devices.length > 1 ? "s" : ""} authorized on this Seedr account`;
-      if (body) body.innerHTML = devices.map((d) =>
-        `<tr><td class="truncate">${esc(d.name) || "Unknown client"}</td>` +
-        `<td class="truncate muted">${esc(d.id) || "—"}</td></tr>`
-      ).join("");
+      const activeCount = devices.filter((d) => d.active).length;
+      if (sub) sub.textContent = `${devices.length} device${devices.length > 1 ? "s" : ""} recorded · ${activeCount} active now`;
+      if (body) body.innerHTML = devices.map((d) => {
+        const dotColor = d.active ? "seed-green" : "seed-red";
+        const dotTitle = d.active ? "Active now" : "Inactive";
+        return `<tr>` +
+          `<td><span class="seed-dot ${dotColor}" title="${esc(dotTitle)}">\u25cf</span></td>` +
+          `<td class="truncate">${esc(d.label) || "Unknown device"}</td>` +
+          `<td class="truncate muted">${esc(fmtRelativeTime(d.first_seen))}</td>` +
+          `<td class="truncate muted">${esc(fmtRelativeTime(d.last_seen))}</td>` +
+        `</tr>`;
+      }).join("");
     } catch (e) {
       if (status) status.textContent = "Failed to load devices.";
     }
   }
+
   if ($("accountLabel")) {
     $("accountLabel").addEventListener("click", openDevicesModal);
     $("accountLabel").addEventListener("keydown", (e) => {

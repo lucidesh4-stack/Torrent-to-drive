@@ -6,6 +6,7 @@ import uuid
 import datetime
 import asyncio
 import hmac
+import hashlib
 import secrets
 from typing import Any
 from collections import deque
@@ -170,6 +171,71 @@ def run_background_task(app: FastAPI, coro) -> asyncio.Task:
     return task
 
 
+def _friendly_user_agent_label(user_agent: str) -> str:
+    """Best-effort, dependency-free "Browser on OS" label from a raw User-Agent
+    string, e.g. "Chrome on Android", "Safari on iPhone", "Firefox on Windows".
+    Deliberately coarse -- this is a human-readable hint for a device list, not a
+    precise fingerprint. Falls back to "Unknown device" if nothing recognizable."""
+    ua = (user_agent or "")
+
+    if "Android" in ua:
+        os_label = "Android"
+    elif "iPhone" in ua:
+        os_label = "iPhone"
+    elif "iPad" in ua:
+        os_label = "iPad"
+    elif "Windows" in ua:
+        os_label = "Windows"
+    elif "Mac OS X" in ua or "Macintosh" in ua:
+        os_label = "Mac"
+    elif "Linux" in ua:
+        os_label = "Linux"
+    else:
+        os_label = None
+
+    if "Edg/" in ua or "Edge/" in ua:
+        browser_label = "Edge"
+    elif "OPR/" in ua or "Opera" in ua:
+        browser_label = "Opera"
+    elif "Firefox/" in ua:
+        browser_label = "Firefox"
+    elif "CriOS/" in ua:
+        browser_label = "Chrome"  # Chrome on iOS identifies itself differently
+    elif "Chrome/" in ua:
+        browser_label = "Chrome"
+    elif "Safari/" in ua:
+        browser_label = "Safari"
+    else:
+        browser_label = None
+
+    if browser_label and os_label:
+        return f"{browser_label} on {os_label}"
+    if browser_label:
+        return browser_label
+    if os_label:
+        return os_label
+    return "Unknown device"
+
+
+def _record_device_activity(app: FastAPI, request: Request) -> None:
+    """Fire-and-forget: hash the session id (never store/expose the raw cookie
+    value) and record this device as seen. See redis_store.py's device registry
+    for storage details. Any failure here is swallowed inside record_device_seen
+    itself -- this function must never be able to affect the actual request."""
+    try:
+        sid = request.session.get("sid")
+        if not sid:
+            return  # first request for a brand-new session; ensure_sid() will mint
+                     # one and subsequent requests will be recorded from then on.
+        device_id = hashlib.sha256(sid.encode("utf-8")).hexdigest()[:16]
+        label = _friendly_user_agent_label(request.headers.get("user-agent", ""))
+        rs = getattr(app.state, "rs", None)
+        if rs is not None:
+            run_background_task(app, rs.record_device_seen(device_id, label))
+    except Exception as e:
+        log.debug("Failed to schedule device-activity recording (non-fatal): %s", e)
+
+
 def create_app(
     config: AppConfig | None = None,
     *,
@@ -268,8 +334,16 @@ def create_app(
                     )
                 template = Template(SITE_LOGIN_HTML)
                 return HTMLResponse(content=template.render(error=None))
-                
+
+        # Record device/visitor activity (see redis_store.py's "Device/visitor
+        # registry" section). Deliberately fire-and-forget as a background task --
+        # this must never add latency to, or be able to fail, the actual request.
+        # Skips health checks and static assets (not meaningful "visits").
+        if rs is not None and path not in ("/healthz", "/healthz/deep") and not path.startswith("/static/"):
+            _record_device_activity(app, request)
+
         response = await call_next(request)
+
         
         is_hf = "SPACE_ID" in os.environ
         response.headers["X-Content-Type-Options"] = "nosniff"

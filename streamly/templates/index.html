@@ -254,8 +254,8 @@
       <div class="sheet-grabber"></div>
       <div class="panel-head" style="border-radius: 14px 14px 0 0;">
         <div>
-          <h2>Linked Devices</h2>
-          <div class="muted" id="devicesSubtitle">Apps & clients authorized on this Seedr account</div>
+          <h2>Devices</h2>
+          <div class="muted" id="devicesSubtitle">Browsers/devices that have used this app</div>
         </div>
         <button id="closeDevicesBtn" class="ghost" type="button" aria-label="Close devices"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-x"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </div>
@@ -263,13 +263,15 @@
         <table class="table" style="table-layout: fixed; width: 100%;">
           <thead>
             <tr>
-              <th>Client</th>
-              <th style="width: 220px;">Client ID</th>
+              <th></th>
+              <th>Device</th>
+              <th style="width: 140px;">First seen</th>
+              <th style="width: 140px;">Last seen</th>
             </tr>
           </thead>
           <tbody id="devicesBody"></tbody>
         </table>
-        <div id="devicesEmpty" class="empty hidden">No linked clients found.</div>
+        <div id="devicesEmpty" class="empty hidden">No devices recorded yet.</div>
         <div id="devicesStatus" class="status"></div>
       </div>
     </div>
