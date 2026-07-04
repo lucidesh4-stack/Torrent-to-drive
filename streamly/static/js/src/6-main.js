@@ -77,28 +77,51 @@
       setTab("cloud");
     }
   });
-  // Single click: switch to Search (as before) and focus the input so the user can
-  // start typing immediately -- no extra tap needed. Does NOT clear/alter whatever is
-  // already in the search box.
-  // Double click/tap (within DBLTAP_MS): paste clipboard contents into the search box
-  // instead (see pasteClipboardIntoSearch -- the ONLY clipboard read in the app, and
-  // only ever in direct response to this explicit gesture).
-  let searchTabLastTap = 0;
+  // This shortcut only applies when the Search tab is tapped WHILE you're already
+  // viewing Search. Tapping it from anywhere else (e.g. Cloud) just switches views,
+  // exactly like every other bottom-nav tab -- no focus, no double-tap handling.
+  //
+  // While already on Search:
+  //   - A SINGLE tap focuses the input (so you can start typing immediately). The
+  //     focus is deliberately DEFERRED (setTimeout) rather than fired immediately on
+  //     tap-down: focusing instantly pops the mobile keyboard right away, which
+  //     reflows the layout and was interfering with detecting a fast second tap for
+  //     the double-tap gesture below. Waiting until we're sure no second tap is
+  //     coming avoids that interruption.
+  //   - A DOUBLE tap (second tap within DBLTAP_MS) pastes clipboard contents into the
+  //     search box instead of focusing (see pasteClipboardIntoSearch -- the ONLY
+  //     clipboard read in the app, only ever in direct response to this gesture).
+  // Neither gesture ever clears/alters text already in the search box.
+  let searchShortcutTapTimer = null;
   const DBLTAP_MS = 350;
   $("searchTab").addEventListener("click", async () => {
-    const now = Date.now();
-    const isDoubleTap = (now - searchTabLastTap) < DBLTAP_MS;
-    searchTabLastTap = now;
+    const alreadyOnSearch = $("searchView") && !$("searchView").classList.contains("hidden");
 
-    await setTab("search");
+    if (!alreadyOnSearch) {
+      // Arriving at Search from somewhere else: plain tab switch only.
+      if (searchShortcutTapTimer) {
+        clearTimeout(searchShortcutTapTimer);
+        searchShortcutTapTimer = null;
+      }
+      await setTab("search");
+      return;
+    }
 
-    if (isDoubleTap) {
-      searchTabLastTap = 0; // consume the double-tap so a 3rd rapid click doesn't re-trigger
+    if (searchShortcutTapTimer) {
+      // Second tap arrived in time -> double-tap -> paste, not focus.
+      clearTimeout(searchShortcutTapTimer);
+      searchShortcutTapTimer = null;
       if (typeof pasteClipboardIntoSearch === "function") await pasteClipboardIntoSearch();
       return;
     }
 
-    if ($("searchQuery")) $("searchQuery").focus();
+    // First tap while already on Search: wait to see if a second tap follows before
+    // deciding this was a single tap and focusing (see comment above for why this is
+    // deferred instead of immediate).
+    searchShortcutTapTimer = setTimeout(() => {
+      searchShortcutTapTimer = null;
+      if ($("searchQuery")) $("searchQuery").focus();
+    }, DBLTAP_MS);
   });
 
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
