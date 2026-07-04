@@ -20,9 +20,6 @@
   window.isAuthenticated = false;
   window.lastAutoAddedMagnet = "";
   window.autoAddTimer = null;
-  window.clipboardMagnetCheckTimer = null;
-  window.lastClipboardMagnetCheckAt = 0;
-  window.CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS = 1200;
 
 
   window.$ = (id) => document.getElementById(id);

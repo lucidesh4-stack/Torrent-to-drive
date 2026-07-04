@@ -77,9 +77,28 @@
       setTab("cloud");
     }
   });
+  // Single click: switch to Search (as before) and focus the input so the user can
+  // start typing immediately -- no extra tap needed. Does NOT clear/alter whatever is
+  // already in the search box.
+  // Double click/tap (within DBLTAP_MS): paste clipboard contents into the search box
+  // instead (see pasteClipboardIntoSearch -- the ONLY clipboard read in the app, and
+  // only ever in direct response to this explicit gesture).
+  let searchTabLastTap = 0;
+  const DBLTAP_MS = 350;
   $("searchTab").addEventListener("click", async () => {
+    const now = Date.now();
+    const isDoubleTap = (now - searchTabLastTap) < DBLTAP_MS;
+    searchTabLastTap = now;
+
     await setTab("search");
-    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("tab");
+
+    if (isDoubleTap) {
+      searchTabLastTap = 0; // consume the double-tap so a 3rd rapid click doesn't re-trigger
+      if (typeof pasteClipboardIntoSearch === "function") await pasteClipboardIntoSearch();
+      return;
+    }
+
+    if ($("searchQuery")) $("searchQuery").focus();
   });
 
   $("refreshBtn").addEventListener("click", () => loadFolder(currentFolder));
@@ -220,17 +239,8 @@
   if ($("cmBulkDelete")) $("cmBulkDelete").addEventListener("click", deleteSelected);
 
   if ($("pasteBtn")) {
-    $("pasteBtn").addEventListener("click", async () => {
-      const added = typeof ingestClipboardMagnet === "function" ? await ingestClipboardMagnet(true) : false;
-      if (added) return;
-      try {
-        const text = await navigator.clipboard.readText();
-        $("searchQuery").value = text;
-        $("searchQuery").focus();
-        if (typeof setMagnetUiState === "function") setMagnetUiState(text);
-      } catch (err) {
-        toast("Clipboard access denied");
-      }
+    $("pasteBtn").addEventListener("click", () => {
+      if (typeof pasteClipboardIntoSearch === "function") pasteClipboardIntoSearch();
     });
   }
 
@@ -430,9 +440,9 @@
     $("videoOverlay").classList.add("hidden");
   });
 
-  window.addEventListener("focus", () => {
-    if (typeof scheduleClipboardMagnetCheck === "function") scheduleClipboardMagnetCheck("focus");
-  });
+  // NOTE: this app deliberately does NOT read the clipboard on window/tab focus.
+  // Clipboard access only ever happens via an explicit user gesture -- see
+  // pasteClipboardIntoSearch (manual paste button / double-tap on the Search tab).
 
   // Initialization Sequence
   window.init = async function() {
@@ -450,10 +460,9 @@
     
     // Optimistically show header and search tab immediately
     showApp(null); 
-    const hadUrlMagnet = typeof ingestUrlMagnet === "function" && ingestUrlMagnet();
+    if (typeof ingestUrlMagnet === "function") ingestUrlMagnet();
     if (initialTab === "search") {
       setTab("search");
-      if (!hadUrlMagnet && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
     }
 
     try {
@@ -471,7 +480,6 @@
       }
       if (data.authenticated) {
         showApp(data.username || "Logged in");
-        if (initialTab === "search" && typeof ingestClipboardMagnet === "function") ingestClipboardMagnet(true);
         if (initialTab === "cloud") {
           setTab("cloud");
           await loadFolder(0);

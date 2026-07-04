@@ -56,31 +56,34 @@
     return true;
   }
 
-  window.ingestClipboardMagnet = async function(autoAdd = true) {
-    // Do not auto-detect/overwrite if the user already has text in the search box.
-    if ($("searchQuery") && $("searchQuery").value.trim()) return false;
-    if (!navigator.clipboard || !navigator.clipboard.readText) return false;
-    try {
-      const text = (await navigator.clipboard.readText()).trim();
-      if (!isMagnetLink(text)) return false;
-      $("searchQuery").value = text;
-      setMagnetUiState(text);
-      if (autoAdd) maybeAutoAddMagnet(text, "clipboard");
-      return true;
-    } catch (_) {
+  // Deliberate, user-triggered clipboard paste (manual paste button, double-tap on the
+  // Search tab). This is the ONLY place in the app that reads the clipboard, and it only
+  // runs in direct response to an explicit user gesture -- never automatically on page
+  // load, tab switch, or window focus. (Those automatic/passive checks were removed:
+  // silently reading the clipboard on ordinary navigation is intrusive and was flagged
+  // as such -- a deliberate click/double-tap is the same trust level as native Ctrl+V.)
+  //
+  // Behavior: pastes whatever text is on the clipboard into the search box. If it's a
+  // magnet link, it's auto-added to Seedr (reusing the same detection/add path as a
+  // normal manual paste); otherwise the text is just placed in the box for the user to
+  // search manually.
+  window.pasteClipboardIntoSearch = async function() {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      toast("Clipboard access is not available in this browser");
       return false;
     }
-  }
-
-  window.scheduleClipboardMagnetCheck = function(reason = "event") {
-    if (!$("searchView") || $("searchView").classList.contains("hidden")) return;
-    const now = Date.now();
-    const wait = Math.max(0, CLIPBOARD_MAGNET_CHECK_DEBOUNCE_MS - (now - lastClipboardMagnetCheckAt));
-    clearTimeout(clipboardMagnetCheckTimer);
-    clipboardMagnetCheckTimer = setTimeout(async () => {
-      lastClipboardMagnetCheckAt = Date.now();
-      await ingestClipboardMagnet(true);
-    }, wait);
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) return false;
+      $("searchQuery").value = text;
+      $("searchQuery").focus();
+      if (typeof maybeAutoAddMagnet === "function" && maybeAutoAddMagnet(text, "paste")) return true;
+      if (typeof setMagnetUiState === "function") setMagnetUiState(text);
+      return true;
+    } catch (err) {
+      toast("Clipboard access denied");
+      return false;
+    }
   }
 
   window.extractMagnetFromUrl = function() {
