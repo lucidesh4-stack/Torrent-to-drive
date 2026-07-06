@@ -32,7 +32,7 @@
 
     /* --- Mobile overlays (video + history): fit screen, no clipping --- */
     @media (max-width: 700px) {
-      .overlay { padding: 10px; }
+      .overlay { padding: 10px; z-index: 2500 !important; }
       .player-box { width: 96vw; }
       /* Player header: wrap so Close never runs off-screen */
       .player-head { flex-wrap: wrap; gap: 8px; }

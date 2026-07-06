@@ -107,13 +107,13 @@
 
         <!-- ===== Mobile-only Cloud (Seedr-style) ===== -->
         <div id="cloudMobile" class="cloud-mobile">
-          <div class="mode-toggle" id="driveProviderToggleMobile" style="margin: 8px 12px 0;">
-            <button id="driveProviderSeedrMobile" type="button" class="active">Seedr</button>
-            <button id="driveProviderOffcloudMobile" type="button">Offcloud</button>
-          </div>
           <div class="cm-top">
-            <div class="cm-top-left">
+            <div class="cm-top-left" style="gap: 12px;">
               <input type="checkbox" id="cmSelectAll" class="cm-selall" title="Select all">
+              <div class="mode-toggle" id="driveProviderToggleMobile" style="margin: 0;">
+                <button id="driveProviderSeedrMobile" type="button" class="active">Seedr</button>
+                <button id="driveProviderOffcloudMobile" type="button">Offcloud</button>
+              </div>
               <button type="button" id="cmUpBtn" class="cm-tbtn" title="Up"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up"><path d="m5 12 7-7 7 7M12 5v14"/></svg> Up</button>
             </div>
             <button type="button" id="cmRefreshBtn" class="cm-tbtn" title="Refresh"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.72 2.78L21 8"/><path d="M21 3v5h-5"/></svg> Refresh</button>
