@@ -221,3 +221,25 @@ async def offcloud_explore(request: Request, request_id: str):
         })
 
     return {"success": True, "files": files}
+
+
+class DeleteOffcloudPayload(BaseModel):
+    request_id: str
+
+
+@offcloud_router.post("/api/offcloud/delete")
+@rate_limited(cost=2.0)
+async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload, _csrf = Depends(verify_csrf)):
+    rs = getattr(request.app.state, "rs", None)
+    if not rs:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+    
+    submissions = await rs.get_offcloud_submissions()
+    initial_len = len(submissions)
+    submissions = [s for s in submissions if s.get("request_id") != payload.request_id]
+    
+    if len(submissions) != initial_len:
+        await rs.save_offcloud_submissions(submissions)
+        return {"success": True}
+    
+    raise HTTPException(status_code=404, detail="Item not found")

@@ -1042,6 +1042,10 @@ async def verify_code(request: Request, payload: CodePayload, _csrf = Depends(ve
 class SendFilePayload(BaseModel):
     file_id: Any
     chat_id: str = ""
+    provider: str = "seedr"
+    file_name: str = ""
+    file_size: int = 0
+    download_url: str = ""
 
 
 async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_delay=0.1):
@@ -1063,53 +1067,58 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     if not rs:
         raise HTTPException(status_code=503, detail="Redis unavailable")
         
-    try:
-        f_id = validate_positive_int(payload.file_id, name="file_id", maximum=config.max_file_id)
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+    provider = (payload.provider or "seedr").strip().lower()
+    if provider == "offcloud":
+        if not payload.download_url:
+            raise HTTPException(status_code=400, detail="download_url is required for Offcloud files")
+        file_info = payload.download_url
+        filename = payload.file_name or file_info.split("/")[-1].split("?")[0] or "file"
+        size = payload.file_size or 0
+    else:
+        try:
+            f_id = validate_positive_int(payload.file_id, name="file_id", maximum=config.max_file_id)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
 
-    # Fetch file details from Seedr
-    try:
-        file_info = await cloud.get_stream_url(client, f_id)
-        if not file_info:
-            raise HTTPException(status_code=404, detail="File not found or stream URL unavailable")
-    except Exception as e:
-        log.warning("Provider error on send-file lookup: %s", e)
-        raise HTTPException(status_code=502, detail="Failed to retrieve file details from provider")
+        # Fetch file details from Seedr
+        try:
+            file_info = await cloud.get_stream_url(client, f_id)
+            if not file_info:
+                raise HTTPException(status_code=404, detail="File not found or stream URL unavailable")
+        except Exception as e:
+            log.warning("Provider error on send-file lookup: %s", e)
+            raise HTTPException(status_code=502, detail="Failed to retrieve file details from provider")
 
-    # Resolve filename and size
-    try:
-        items = await cloud.list_items(client, 0)
-        # Find the file in folders / files list to get exact name & size
-        file_obj = None
-        for f in items.get("files", []):
-            if f.get("id") == f_id:
-                file_obj = f
-                break
-        if not file_obj:
-            # Look inside subfolders
-            for folder in items.get("folders", []):
-                sub_items = await cloud.list_items(client, folder["id"])
-                for f in sub_items.get("files", []):
-                    if f.get("id") == f_id:
-                        file_obj = f
-                        break
-                if file_obj:
+        # Resolve filename and size
+        try:
+            items = await cloud.list_items(client, 0)
+            # Find the file in folders / files list to get exact name & size
+            file_obj = None
+            for f in items.get("files", []):
+                if f.get("id") == f_id:
+                    file_obj = f
                     break
-        
-        if file_obj:
-            filename = file_obj["name"]
-            size = file_obj["size"]
-        else:
+            if not file_obj:
+                # Look inside subfolders
+                for folder in items.get("folders", []):
+                    sub_items = await cloud.list_items(client, folder["id"])
+                    for f in sub_items.get("files", []):
+                        if f.get("id") == f_id:
+                            file_obj = f
+                            break
+                    if file_obj:
+                        break
+            
+            if file_obj:
+                filename = file_obj["name"]
+                size = file_obj["size"]
+            else:
+                filename = file_info.split("/")[-1].split("?")[0] or "file"
+                size = 0
+        except Exception as e:
+            log.warning("Failed to resolve exact filename/size for file_id via folder listing; size checks will be skipped: %s", e)
             filename = file_info.split("/")[-1].split("?")[0] or "file"
             size = 0
-    except Exception as e:
-        # Falling back to size=0 here means the Telegram-upload-limit and monthly
-        # bandwidth checks below effectively get skipped for this transfer -- worth
-        # a trace since it's a real, if rare, gap in enforcement.
-        log.warning("Failed to resolve exact filename/size for file_id via folder listing; size checks will be skipped: %s", e)
-        filename = file_info.split("/")[-1].split("?")[0] or "file"
-        size = 0
 
     max_bytes = _TG_HARD_MAX
     if size > max_bytes:

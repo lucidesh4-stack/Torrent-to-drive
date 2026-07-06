@@ -710,6 +710,29 @@
 
   window.deleteSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
+    
+    const isOffcloud = window.driveProvider === "offcloud";
+    if (isOffcloud) {
+      const selectedItems = items.filter(it => selectedKeys.has(it.key));
+      const msg = selectedItems.length === 1
+        ? `Delete Offcloud download: ${selected ? selected.name : "this item"}?`
+        : `Delete ${selectedItems.length} Offcloud downloads?`;
+      if (!confirm(msg)) return;
+      
+      updateStatus($("cloudStatus"), `Deleting ${selectedItems.length} item(s)...`, "");
+      try {
+        for (const item of selectedItems) {
+          await postJson("/api/offcloud/delete", { request_id: item.id });
+        }
+        toast(`Deleted ${selectedItems.length} item(s)`);
+        await loadOffcloudList();
+        await loadOffcloudListMobile();
+      } catch (err) {
+        updateStatus($("cloudStatus"), err.message || "Delete failed", "error");
+      }
+      return;
+    }
+
     const payload = items
       .filter(it => selectedKeys.has(it.key))
       .map(it => ({ type: it.type, id: it.id }));
@@ -757,18 +780,37 @@
     updateStatus($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
     
     let successCount = 0;
+    const isOffcloud = window.driveProvider === "offcloud";
     for (const item of filesToSend) {
       try {
-        const data = await postJson("/api/telegram/send", { file_id: item.id });
+        let payload;
+        if (isOffcloud) {
+          let dlUrl = item.download_url;
+          if (!dlUrl) {
+            const res = await fetch(`/api/offcloud/explore/${item.id}`, { credentials: "same-origin" });
+            const data = await res.json();
+            if (data.success && data.files && data.files.length > 0) {
+              dlUrl = data.files[0].download_url;
+            }
+          }
+          if (!dlUrl) {
+            throw new Error("Download URL not found");
+          }
+          payload = {
+            file_id: item.id,
+            provider: "offcloud",
+            file_name: item.name,
+            file_size: item.size,
+            download_url: dlUrl
+          };
+        } else {
+          payload = { file_id: item.id, provider: "seedr" };
+        }
+        
+        const data = await postJson("/api/telegram/send", payload);
         if (data.success) {
           successCount++;
           if (data.warning) {
-            toast(`Warning: ${data.warning}`);
-          }
-        }
-      } catch (err) {
-        toast(`Failed to send "${item.name}": ${err.message || "Error"}`);
-      }
     }
     
     if (successCount > 0) {
@@ -938,26 +980,57 @@
     try {
       const listItems = await fetchOffcloudListItems();
 
-      if (empty) empty.classList.toggle("hidden", listItems.length !== 0);
+      // Normalize Offcloud items to match Seedr item schema
+      window.items = listItems.map(item => {
+        const isArchive = item.file_name && (
+          item.file_name.endsWith(".zip") ||
+          item.file_name.endsWith(".rar") ||
+          item.file_name.endsWith(".tar") ||
+          item.file_name.endsWith(".gz")
+        );
+        const type = isArchive ? "folder" : "file";
+        const key = `offcloud:${item.request_id}`;
+        return {
+          ...item,
+          key: key,
+          id: item.request_id,
+          name: item.file_name || "Unnamed",
+          type: type,
+          size: item.size_bytes || 0,
+          size_str: item.size_bytes ? bytes(item.size_bytes) : "-",
+          last_update: item.created_at || Math.floor(Date.now() / 1000)
+        };
+      });
+
+      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
       selectedKeys.clear();
       lastClickedKey = null;
       updateSelection();
 
-      for (const item of listItems) {
+      for (const item of window.items) {
         const tr = document.createElement("tr");
-        tr.dataset.key = `offcloud:${item.request_id}`;
+        tr.dataset.key = item.key;
 
         const checkTd = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "row-check";
+        cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(item.key, true, false); });
+        checkTd.appendChild(cb);
 
         const nameTd = document.createElement("td");
         const nameCell = document.createElement("div");
         nameCell.className = "name-cell";
         const icon = document.createElement("span");
         icon.className = "icon";
-        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>`;
+        if (item.type === "folder") {
+          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else {
+          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
+        }
         const name = document.createElement("span");
         name.className = "truncate";
-        name.textContent = item.file_name || "Unnamed";
+        name.textContent = item.name;
         nameCell.append(icon, name);
         nameTd.appendChild(nameCell);
 
@@ -967,7 +1040,7 @@
 
         const sizeTd = document.createElement("td");
         sizeTd.className = "muted";
-        sizeTd.textContent = item.size_bytes ? bytes(item.size_bytes) : "-";
+        sizeTd.textContent = item.size_str;
 
         const dateTd = document.createElement("td");
         dateTd.className = "muted";
@@ -975,7 +1048,11 @@
 
         tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
         tr.style.cursor = "pointer";
-        tr.addEventListener("click", () => handleOffcloudRowClick(item));
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest(".row-check")) return;
+          toggleKey(item.key, e.ctrlKey || e.metaKey, e.shiftKey);
+        });
+        tr.addEventListener("dblclick", () => handleOffcloudRowClick(item));
         body.appendChild(tr);
       }
       updateStatus($("cloudStatus"), "", "");
@@ -993,13 +1070,35 @@
     try {
       const listItems = await fetchOffcloudListItems();
 
-      if (cnt) cnt.textContent = `${listItems.length} item${listItems.length === 1 ? "" : "s"}`;
-      if (empty) empty.classList.toggle("hidden", listItems.length !== 0);
+      // Normalize Offcloud items to match Seedr item schema
+      window.items = listItems.map(item => {
+        const isArchive = item.file_name && (
+          item.file_name.endsWith(".zip") ||
+          item.file_name.endsWith(".rar") ||
+          item.file_name.endsWith(".tar") ||
+          item.file_name.endsWith(".gz")
+        );
+        const type = isArchive ? "folder" : "file";
+        const key = `offcloud:${item.request_id}`;
+        return {
+          ...item,
+          key: key,
+          id: item.request_id,
+          name: item.file_name || "Unnamed",
+          type: type,
+          size: item.size_bytes || 0,
+          size_str: item.size_bytes ? bytes(item.size_bytes) : "-",
+          last_update: item.created_at || Math.floor(Date.now() / 1000)
+        };
+      });
 
-      for (const item of listItems) {
+      if (cnt) cnt.textContent = `${window.items.length} item${window.items.length === 1 ? "" : "s"}`;
+      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
+
+      for (const item of window.items) {
         const row = document.createElement("div");
         row.className = "cm-row";
-        row.dataset.key = `offcloud:${item.request_id}`;
+        row.dataset.key = item.key;
 
         const tick = document.createElement("div");
         tick.className = "cm-tick";
@@ -1007,24 +1106,39 @@
 
         const ic = document.createElement("div");
         ic.className = "cm-ic";
-        ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>`;
+        if (item.type === "folder") {
+          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else {
+          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
+        }
 
         const info = document.createElement("div");
         info.className = "cm-info";
         const fn = document.createElement("div");
         fn.className = "cm-fn";
-        fn.textContent = item.file_name || "Unnamed";
+        fn.textContent = item.name;
         const meta = document.createElement("div");
         meta.className = "cm-meta";
         const s1 = document.createElement("span");
         s1.textContent = offcloudStatusLabel(item.status);
         const s2 = document.createElement("span");
-        s2.textContent = item.size_bytes ? bytes(item.size_bytes) : "-";
+        s2.textContent = item.size_str;
         meta.append(s1, s2);
         info.append(fn, meta);
 
         row.append(tick, ic, info);
-        row.addEventListener("click", () => handleOffcloudRowClick(item));
+        row.addEventListener("click", (e) => {
+          if (cmTapTimer) {
+            clearTimeout(cmTapTimer);
+            cmTapTimer = null;
+            handleOffcloudRowClick(item);
+            return;
+          }
+          cmTapTimer = setTimeout(() => {
+            cmTapTimer = null;
+            toggleKey(item.key, true, false);
+          }, 250);
+        });
         list.appendChild(row);
       }
     } catch (err) {
@@ -1049,15 +1163,37 @@
     const subtitle = $("driveProviderSubtitle");
     if (subtitle) subtitle.textContent = "Folder: " + folderName;
 
+    // Normalize explored files to match Seedr item schema
+    window.items = files.map((file, index) => {
+      const key = `offcloud_file:${requestId}:${index}`;
+      return {
+        ...file,
+        key: key,
+        id: file.download_url,
+        name: file.name || "Unnamed",
+        type: "file",
+        size: file.size || 0,
+        size_str: file.size ? bytes(file.size) : "-",
+        last_update: Math.floor(Date.now() / 1000)
+      };
+    });
+
     const body = $("cloudBody");
     const empty = $("cloudEmpty");
     if (body) {
       body.textContent = "";
       if (empty) empty.classList.add("hidden");
       
-      files.forEach((file) => {
+      window.items.forEach((file) => {
         const tr = document.createElement("tr");
+        tr.dataset.key = file.key;
+        
         const checkTd = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "row-check";
+        cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(file.key, true, false); });
+        checkTd.appendChild(cb);
         
         const nameTd = document.createElement("td");
         const nameCell = document.createElement("div");
@@ -1085,7 +1221,11 @@
 
         tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
         tr.style.cursor = "pointer";
-        tr.addEventListener("click", () => playOrDownloadOffcloudFile(file));
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest(".row-check")) return;
+          toggleKey(file.key, e.ctrlKey || e.metaKey, e.shiftKey);
+        });
+        tr.addEventListener("dblclick", () => playOrDownloadOffcloudFile(file));
         body.appendChild(tr);
       });
     }
@@ -1096,11 +1236,12 @@
     if (list) {
       list.textContent = "";
       if (mEmpty) mEmpty.classList.add("hidden");
-      if (cnt) cnt.textContent = `${files.length} item${files.length === 1 ? "" : "s"}`;
+      if (cnt) cnt.textContent = `${window.items.length} item${window.items.length === 1 ? "" : "s"}`;
 
-      files.forEach((file) => {
+      window.items.forEach((file) => {
         const row = document.createElement("div");
         row.className = "cm-row";
+        row.dataset.key = file.key;
 
         const tick = document.createElement("div");
         tick.className = "cm-tick";
@@ -1123,7 +1264,18 @@
         info.append(fn, meta);
 
         row.append(tick, ic, info);
-        row.addEventListener("click", () => playOrDownloadOffcloudFile(file));
+        row.addEventListener("click", (e) => {
+          if (cmTapTimer) {
+            clearTimeout(cmTapTimer);
+            cmTapTimer = null;
+            playOrDownloadOffcloudFile(file);
+            return;
+          }
+          cmTapTimer = setTimeout(() => {
+            cmTapTimer = null;
+            toggleKey(file.key, true, false);
+          }, 250);
+        });
         list.appendChild(row);
       });
     }
