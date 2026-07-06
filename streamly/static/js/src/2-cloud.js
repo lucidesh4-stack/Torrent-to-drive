@@ -240,7 +240,7 @@
   window.renderCloud = function() {
     const body = $("cloudBody");
     body.textContent = "";
-    $("upBtn").classList.toggle("hidden", currentFolder == 0);
+    $("upBtn").classList.remove("hidden");
     $("upBtn").disabled = currentFolder == 0;
     $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
@@ -323,7 +323,7 @@
     }
     const empty = $("cloudMobileEmpty");
     if (empty) empty.classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
-    $("cmUpBtn").classList.toggle("hidden", currentFolder == 0);
+    $("cmUpBtn").classList.remove("hidden");
     $("cmUpBtn").disabled = currentFolder == 0;
 
     // 1. Render items (folders and files) FIRST
@@ -893,23 +893,23 @@
     const subtitle = $("driveProviderSubtitle");
     if (isOffcloud) {
       if (upBtn) {
-        upBtn.classList.add("hidden");
-        upBtn.disabled = true;
+        upBtn.classList.remove("hidden");
+        upBtn.disabled = (window.offcloudCurrentFolder == null);
       }
       if (cmUpBtn) {
-        cmUpBtn.classList.add("hidden");
-        cmUpBtn.disabled = true;
+        cmUpBtn.classList.remove("hidden");
+        cmUpBtn.disabled = (window.offcloudCurrentFolder == null);
       }
       if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
       loadOffcloudList();
       loadOffcloudListMobile();
     } else {
       if (upBtn) {
-        upBtn.classList.toggle("hidden", (currentFolder || 0) == 0);
+        upBtn.classList.remove("hidden");
         upBtn.disabled = (currentFolder || 0) == 0;
       }
       if (cmUpBtn) {
-        cmUpBtn.classList.toggle("hidden", (currentFolder || 0) == 0);
+        cmUpBtn.classList.remove("hidden");
         cmUpBtn.disabled = (currentFolder || 0) == 0;
       }
       if (subtitle) subtitle.textContent = "Browse your saved files and folders";
