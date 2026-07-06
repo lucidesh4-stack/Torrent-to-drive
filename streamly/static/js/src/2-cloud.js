@@ -586,6 +586,10 @@
 
   window.getFileUrl = async function(item) {
     if (!item || item.type !== "file") throw new Error("Select a file first");
+    if (item.download_url) return item.download_url;
+    if (typeof item.id === "string" && (item.id.startsWith("http://") || item.id.startsWith("https://"))) {
+      return item.id;
+    }
     const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
     if (!data.url) throw new Error("No download/stream URL returned");
     return data.url;
