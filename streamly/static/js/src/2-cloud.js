@@ -240,6 +240,7 @@
   window.renderCloud = function() {
     const body = $("cloudBody");
     body.textContent = "";
+    $("upBtn").classList.toggle("hidden", currentFolder == 0);
     $("upBtn").disabled = currentFolder == 0;
     $("cloudEmpty").classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
     selectedKeys.clear();
@@ -322,6 +323,7 @@
     }
     const empty = $("cloudMobileEmpty");
     if (empty) empty.classList.toggle("hidden", items.length + transfers.length + seedrQueue.length !== 0);
+    $("cmUpBtn").classList.toggle("hidden", currentFolder == 0);
     $("cmUpBtn").disabled = currentFolder == 0;
 
     // 1. Render items (folders and files) FIRST
@@ -903,11 +905,11 @@
       loadOffcloudListMobile();
     } else {
       if (upBtn) {
-        upBtn.classList.remove("hidden");
+        upBtn.classList.toggle("hidden", (currentFolder || 0) == 0);
         upBtn.disabled = (currentFolder || 0) == 0;
       }
       if (cmUpBtn) {
-        cmUpBtn.classList.remove("hidden");
+        cmUpBtn.classList.toggle("hidden", (currentFolder || 0) == 0);
         cmUpBtn.disabled = (currentFolder || 0) == 0;
       }
       if (subtitle) subtitle.textContent = "Browse your saved files and folders";

@@ -190,8 +190,8 @@
 
   /* top toolbar: select-all + Up (left), Refresh (right) */
   .cm-top {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 8px; padding: 12px; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: flex-start;
+    gap: 12px; padding: 12px; margin-bottom: 12px;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
@@ -387,6 +387,19 @@
     box-sizing: border-box !important;
     overflow: hidden !important;
   }
+  #driveProviderToggleMobile {
+    position: relative !important;
+    display: inline-flex !important;
+    background: rgba(0, 0, 0, 0.3) !important;
+    border-radius: 20px !important;
+    padding: 2px !important;
+    border: 1px solid var(--line) !important;
+    width: 140px !important;
+    height: 32px !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    flex-shrink: 0 !important;
+  }
   .mode-toggle button {
     position: relative !important;
     z-index: 2 !important;
@@ -420,7 +433,8 @@
     transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1) !important;
     box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35) !important;
   }
-  .mode-toggle:has(#modeSeries.active) .mode-toggle-highlight {
+  .mode-toggle:has(#modeSeries.active) .mode-toggle-highlight,
+  .mode-toggle:has(#driveProviderOffcloudMobile.active) .mode-toggle-highlight {
     transform: translateX(100%) !important;
   }
 
