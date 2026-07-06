@@ -811,15 +811,23 @@
         if (data.success) {
           successCount++;
           if (data.warning) {
+            toast(data.warning);
+          }
+        }
+      } catch (err) {
+        console.warn("Telegram send failed for item:", err);
+      }
+    }
+    
+    if (successCount === filesToSend.length) {
+      toast(`Queued ${successCount} file(s) for Telegram upload`);
+      updateStatus($("cloudStatus"), `Queued ${successCount} file(s) for Telegram upload`, "ok");
+    } else {
+      toast(`Queued ${successCount} of ${filesToSend.length} file(s) for Telegram upload`);
+      updateStatus($("cloudStatus"), `Queued ${successCount} of ${filesToSend.length} file(s) for Telegram upload`, "error");
     }
     
     if (successCount > 0) {
-      toast(`Started upload for ${successCount} file(s)`);
-      // Do NOT auto-open the Transfers overlay. Just start background polling so the
-      // tab badge updates; the user opens the overlay themselves when they want it.
-      // (Real transfer status lives in /api/telegram/queue, polled via triggerQueuePolling
-      // below -- the old /api/transfer/status endpoint this used to also poll never existed
-      // on the backend and was silently 404ing on every page load; removed.)
       if (typeof window.triggerQueuePolling === "function") {
         window.triggerQueuePolling();
       }
