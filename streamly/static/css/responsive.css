@@ -201,17 +201,18 @@
   .cm-tbtn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
     border: 1px solid var(--line);
     background: var(--panel-2);
     color: #cbd5e1;
     border-radius: var(--radius-sm);
-    padding: 7px 12px;
-    font-size: 13px;
-    font-weight: 700;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     transition: all 0.1s ease-out;
+    box-sizing: border-box;
+    flex-shrink: 0;
   }
-  .cm-tbtn svg { flex-shrink: 0; }
   .cm-tbtn:hover:not(:disabled) {
     background: var(--line-soft);
     border-color: var(--blue);
