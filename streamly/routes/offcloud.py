@@ -148,6 +148,13 @@ async def offcloud_list(request: Request):
     if svc:
         changed = False
         for item in submissions:
+            # 1. Sanitize status field in case it was saved as a dict
+            curr_status = item.get("status")
+            if isinstance(curr_status, dict):
+                curr_status = curr_status.get("status") or "created"
+                item["status"] = curr_status
+                changed = True
+
             if item.get("status") in _TERMINAL_STATUSES:
                 continue
             request_id = item.get("request_id")
@@ -155,12 +162,24 @@ async def offcloud_list(request: Request):
                 continue
             try:
                 status_data = await svc.get_status(request_id)
-                new_status = status_data.get("status") if isinstance(status_data, dict) else None
+                new_status = None
+                download_url = None
+                if isinstance(status_data, dict):
+                    status_val = status_data.get("status")
+                    if isinstance(status_val, dict):
+                        new_status = status_val.get("status")
+                        download_url = status_val.get("url")
+                    elif isinstance(status_val, str):
+                        new_status = status_val
+                    
+                    if not download_url:
+                        download_url = status_data.get("url")
+
                 if new_status and new_status != item.get("status"):
                     item["status"] = new_status
                     changed = True
-                if isinstance(status_data, dict) and status_data.get("url"):
-                    item["download_url"] = status_data["url"]
+                if download_url and download_url != item.get("download_url"):
+                    item["download_url"] = download_url
                     changed = True
             except OffcloudError as e:
                 log.debug("Offcloud status refresh failed for %s: %s", request_id, e)
