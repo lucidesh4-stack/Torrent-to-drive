@@ -924,6 +924,23 @@
     }
   }
 
+  function isOffcloudFolder(name) {
+    if (!name) return false;
+    const archiveExtensions = new Set(["zip", "rar", "tar", "gz", "7z"]);
+    const knownFileExtensions = new Set([
+      "mp4", "mkv", "avi", "mov", "m4v", "webm", "flv", "ts", "wmv", "mpg", "mpeg",
+      "mp3", "wav", "m4a", "flac", "ogg", "wma", "iso",
+      "pdf", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+      "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp"
+    ]);
+    const parts = name.split(".");
+    if (parts.length <= 1) return true; // No dot -> folder
+    const ext = parts.pop().toLowerCase();
+    
+    if (archiveExtensions.has(ext)) return true;
+    return !knownFileExtensions.has(ext);
+  }
+
   window.handleOffcloudRowClick = async function(item) {
     if (item.status !== "downloaded") {
       toast("Download is still in progress or has failed (" + item.status + ")");
@@ -990,13 +1007,7 @@
 
       // Normalize Offcloud items to match Seedr item schema
       window.items = listItems.map(item => {
-        const isArchive = item.file_name && (
-          item.file_name.endsWith(".zip") ||
-          item.file_name.endsWith(".rar") ||
-          item.file_name.endsWith(".tar") ||
-          item.file_name.endsWith(".gz")
-        );
-        const type = isArchive ? "folder" : "file";
+        const type = isOffcloudFolder(item.file_name) ? "folder" : "file";
         const key = `offcloud:${item.request_id}`;
         return {
           ...item,
@@ -1080,13 +1091,7 @@
 
       // Normalize Offcloud items to match Seedr item schema
       window.items = listItems.map(item => {
-        const isArchive = item.file_name && (
-          item.file_name.endsWith(".zip") ||
-          item.file_name.endsWith(".rar") ||
-          item.file_name.endsWith(".tar") ||
-          item.file_name.endsWith(".gz")
-        );
-        const type = isArchive ? "folder" : "file";
+        const type = isOffcloudFolder(item.file_name) ? "folder" : "file";
         const key = `offcloud:${item.request_id}`;
         return {
           ...item,
