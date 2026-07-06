@@ -8,6 +8,10 @@
   window.folderStack = [];
   // Expose a deterministic "go up" the Up buttons can call.
   window.cloudGoUp = function () {
+    if (window.driveProvider === "offcloud") {
+      setDriveProvider("offcloud");
+      return;
+    }
     if (currentFolder === 0) return;
     const target = folderStack.length ? folderStack.pop() : 0;
     loadFolder(target, { _fromStack: true });
@@ -812,5 +816,316 @@
 
   window.showTelegramAuthModal = function() {
     openTelegramSettings();
+  }
+
+  // =================== OFFCLOUD INTEGRATION: Drive provider pill ===================
+  window.driveProvider = "seedr"; // "seedr" | "offcloud"
+  window.offcloudCurrentFolder = null; // Stores request_id if exploring an Offcloud folder
+
+  window.setDriveProvider = function(provider) {
+    window.driveProvider = (provider === "offcloud") ? "offcloud" : "seedr";
+    const isOffcloud = window.driveProvider === "offcloud";
+    window.offcloudCurrentFolder = null; // reset folder state on switch
+
+    const seedrBtn = $("driveProviderSeedr");
+    const offcloudBtn = $("driveProviderOffcloud");
+    const seedrBtnMobile = $("driveProviderSeedrMobile");
+    const offcloudBtnMobile = $("driveProviderOffcloudMobile");
+    if (seedrBtn) seedrBtn.classList.toggle("active", !isOffcloud);
+    if (offcloudBtn) offcloudBtn.classList.toggle("active", isOffcloud);
+    if (seedrBtnMobile) seedrBtnMobile.classList.toggle("active", !isOffcloud);
+    if (offcloudBtnMobile) offcloudBtnMobile.classList.toggle("active", isOffcloud);
+
+    const upBtn = $("upBtn");
+    const cmUpBtn = $("cmUpBtn");
+    const subtitle = $("driveProviderSubtitle");
+    if (isOffcloud) {
+      if (upBtn) {
+        upBtn.classList.add("hidden");
+        upBtn.disabled = true;
+      }
+      if (cmUpBtn) {
+        cmUpBtn.classList.add("hidden");
+        cmUpBtn.disabled = true;
+      }
+      if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
+      loadOffcloudList();
+      loadOffcloudListMobile();
+    } else {
+      if (upBtn) {
+        upBtn.classList.remove("hidden");
+        upBtn.disabled = (currentFolder || 0) == 0;
+      }
+      if (cmUpBtn) {
+        cmUpBtn.classList.remove("hidden");
+        cmUpBtn.disabled = (currentFolder || 0) == 0;
+      }
+      if (subtitle) subtitle.textContent = "Browse your saved files and folders";
+      loadFolder(currentFolder || 0);
+    }
+  }
+
+  function offcloudStatusLabel(status) {
+    switch (status) {
+      case "downloaded": return "Ready";
+      case "error": return "Error";
+      case "created": return "Downloading…";
+      default: return status || "Unknown";
+    }
+  }
+
+  window.handleOffcloudRowClick = async function(item) {
+    if (item.status !== "downloaded") {
+      toast("Download is still in progress or has failed (" + item.status + ")");
+      return;
+    }
+    updateStatus($("cloudStatus"), "Exploring archive...", "");
+    try {
+      const res = await fetch(`/api/offcloud/explore/${item.request_id}`, { credentials: "same-origin" });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.detail || "Failed to explore folder");
+      
+      const files = data.files || [];
+      if (files.length === 0) {
+        toast("No files found in this archive.");
+        return;
+      }
+      
+      if (files.length === 1) {
+        await playOrDownloadOffcloudFile(files[0]);
+      } else {
+        renderOffcloudFolder(item.request_id, item.file_name, files);
+      }
+    } catch (e) {
+      toast("Error: " + e.message);
+    } finally {
+      updateStatus($("cloudStatus"), "", "");
+    }
+  }
+
+  window.playOrDownloadOffcloudFile = async function(file) {
+    const ext = String(file.name || "").split(".").pop().toLowerCase();
+    if (["mp4", "webm", "mov", "m4v", "mkv", "avi"].includes(ext)) {
+      $("videoTitle").textContent = file.name || "Video";
+      const video = $("videoPlayer");
+      video.src = file.download_url;
+      
+      const nativeBtn = $("nativePlayerBtn");
+      nativeBtn.onclick = () => {
+        video.pause();
+        const deepLink = `streamlyplayer://play?url=${encodeURIComponent(file.download_url)}`;
+        window.location.href = deepLink;
+      };
+      $("videoOverlay").classList.remove("hidden");
+      video.play().catch(() => {});
+    } else {
+      window.open(file.download_url, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  async function fetchOffcloudListItems() {
+    const res = await fetch("/api/offcloud/list", { credentials: "same-origin", cache: "no-store" });
+    const data = await parseResponse(res);
+    return data.items || [];
+  }
+
+  window.loadOffcloudList = async function() {
+    const body = $("cloudBody");
+    const empty = $("cloudEmpty");
+    if (!body) return;
+    body.textContent = "";
+    updateStatus($("cloudStatus"), "Loading Offcloud list...", "");
+    try {
+      const listItems = await fetchOffcloudListItems();
+
+      if (empty) empty.classList.toggle("hidden", listItems.length !== 0);
+      selectedKeys.clear();
+      lastClickedKey = null;
+      updateSelection();
+
+      for (const item of listItems) {
+        const tr = document.createElement("tr");
+        tr.dataset.key = `offcloud:${item.request_id}`;
+
+        const checkTd = document.createElement("td");
+
+        const nameTd = document.createElement("td");
+        const nameCell = document.createElement("div");
+        nameCell.className = "name-cell";
+        const icon = document.createElement("span");
+        icon.className = "icon";
+        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>`;
+        const name = document.createElement("span");
+        name.className = "truncate";
+        name.textContent = item.file_name || "Unnamed";
+        nameCell.append(icon, name);
+        nameTd.appendChild(nameCell);
+
+        const statusTd = document.createElement("td");
+        statusTd.className = "muted";
+        statusTd.textContent = offcloudStatusLabel(item.status);
+
+        const sizeTd = document.createElement("td");
+        sizeTd.className = "muted";
+        sizeTd.textContent = item.size_bytes ? bytes(item.size_bytes) : "-";
+
+        const dateTd = document.createElement("td");
+        dateTd.className = "muted";
+        dateTd.textContent = item.created_at ? fmtDate(item.created_at * 1000) : "-";
+
+        tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
+        tr.style.cursor = "pointer";
+        tr.addEventListener("click", () => handleOffcloudRowClick(item));
+        body.appendChild(tr);
+      }
+      updateStatus($("cloudStatus"), "", "");
+    } catch (err) {
+      updateStatus($("cloudStatus"), err.message || "Failed to load Offcloud list", "error");
+    }
+  }
+
+  window.loadOffcloudListMobile = async function() {
+    const list = $("cloudMobileList");
+    if (!list) return;
+    list.textContent = "";
+    const cnt = $("cmCount");
+    const empty = $("cloudMobileEmpty");
+    try {
+      const listItems = await fetchOffcloudListItems();
+
+      if (cnt) cnt.textContent = `${listItems.length} item${listItems.length === 1 ? "" : "s"}`;
+      if (empty) empty.classList.toggle("hidden", listItems.length !== 0);
+
+      for (const item of listItems) {
+        const row = document.createElement("div");
+        row.className = "cm-row";
+        row.dataset.key = `offcloud:${item.request_id}`;
+
+        const tick = document.createElement("div");
+        tick.className = "cm-tick";
+        tick.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+        const ic = document.createElement("div");
+        ic.className = "cm-ic";
+        ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></svg>`;
+
+        const info = document.createElement("div");
+        info.className = "cm-info";
+        const fn = document.createElement("div");
+        fn.className = "cm-fn";
+        fn.textContent = item.file_name || "Unnamed";
+        const meta = document.createElement("div");
+        meta.className = "cm-meta";
+        const s1 = document.createElement("span");
+        s1.textContent = offcloudStatusLabel(item.status);
+        const s2 = document.createElement("span");
+        s2.textContent = item.size_bytes ? bytes(item.size_bytes) : "-";
+        meta.append(s1, s2);
+        info.append(fn, meta);
+
+        row.append(tick, ic, info);
+        row.addEventListener("click", () => handleOffcloudRowClick(item));
+        list.appendChild(row);
+      }
+    } catch (err) {
+      updateStatus($("cloudStatus"), err.message || "Failed to load Offcloud list", "error");
+    }
+  }
+
+  window.renderOffcloudFolder = function(requestId, folderName, files) {
+    window.offcloudCurrentFolder = requestId;
+    
+    const upBtn = $("upBtn");
+    const cmUpBtn = $("cmUpBtn");
+    if (upBtn) {
+      upBtn.classList.remove("hidden");
+      upBtn.disabled = false;
+    }
+    if (cmUpBtn) {
+      cmUpBtn.classList.remove("hidden");
+      cmUpBtn.disabled = false;
+    }
+
+    const subtitle = $("driveProviderSubtitle");
+    if (subtitle) subtitle.textContent = "Folder: " + folderName;
+
+    const body = $("cloudBody");
+    const empty = $("cloudEmpty");
+    if (body) {
+      body.textContent = "";
+      if (empty) empty.classList.add("hidden");
+      
+      files.forEach((file) => {
+        const tr = document.createElement("tr");
+        const checkTd = document.createElement("td");
+        
+        const nameTd = document.createElement("td");
+        const nameCell = document.createElement("div");
+        nameCell.className = "name-cell";
+        const icon = document.createElement("span");
+        icon.className = "icon";
+        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
+        const name = document.createElement("span");
+        name.className = "truncate";
+        name.textContent = file.name;
+        nameCell.append(icon, name);
+        nameTd.appendChild(nameCell);
+
+        const statusTd = document.createElement("td");
+        statusTd.className = "muted";
+        statusTd.textContent = "Ready";
+
+        const sizeTd = document.createElement("td");
+        sizeTd.className = "muted";
+        sizeTd.textContent = "-";
+
+        const dateTd = document.createElement("td");
+        dateTd.className = "muted";
+        dateTd.textContent = "-";
+
+        tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
+        tr.style.cursor = "pointer";
+        tr.addEventListener("click", () => playOrDownloadOffcloudFile(file));
+        body.appendChild(tr);
+      });
+    }
+
+    const list = $("cloudMobileList");
+    const mEmpty = $("cloudMobileEmpty");
+    const cnt = $("cmCount");
+    if (list) {
+      list.textContent = "";
+      if (mEmpty) mEmpty.classList.add("hidden");
+      if (cnt) cnt.textContent = `${files.length} item${files.length === 1 ? "" : "s"}`;
+
+      files.forEach((file) => {
+        const row = document.createElement("div");
+        row.className = "cm-row";
+
+        const tick = document.createElement("div");
+        tick.className = "cm-tick";
+        tick.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+        const ic = document.createElement("div");
+        ic.className = "cm-ic";
+        ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
+
+        const info = document.createElement("div");
+        info.className = "cm-info";
+        const fn = document.createElement("div");
+        fn.className = "cm-fn";
+        fn.textContent = file.name;
+        const meta = document.createElement("div");
+        meta.className = "cm-meta";
+        const s1 = document.createElement("span");
+        s1.textContent = "Ready";
+        meta.append(s1);
+        info.append(fn, meta);
+
+        row.append(tick, ic, info);
+        row.addEventListener("click", () => playOrDownloadOffcloudFile(file));
+        list.appendChild(row);
+      });
+    }
   }
 

@@ -241,6 +241,10 @@ def create_app(
     app.state.search = search
     app.state.store = store
 
+    # Initialize Offcloud Service
+    from .offcloud_service import OffcloudService
+    app.state.offcloud = OffcloudService(config.offcloud_api_key)
+
     # Register Routes
     register_routes(app)
 

@@ -113,6 +113,27 @@ class RedisStore:
         """Save history to Redis. Returns True on success, False on failure."""
         return await self.set(f"streamly:history:{sid}", _json.dumps(items))
 
+    async def get_offcloud_key(self) -> Optional[str]:
+        """Retrieve the Offcloud API Key from Redis."""
+        return await self.get("streamly:offcloud:api_key")
+
+    async def save_offcloud_key(self, key: str) -> bool:
+        """Save the Offcloud API Key to Redis."""
+        return await self.set("streamly:offcloud:api_key", key)
+
+    async def get_offcloud_submissions(self) -> list[dict[str, Any]]:
+        raw = await self.get("streamly:offcloud:submissions")
+        if not raw:
+            return []
+        try:
+            return _json.loads(raw)
+        except Exception:
+            return []
+
+    async def save_offcloud_submissions(self, items: list[dict[str, Any]]) -> bool:
+        """Save the tracked Offcloud submissions list. Capped by the caller to bound growth."""
+        return await self.set("streamly:offcloud:submissions", _json.dumps(items))
+
     async def push_log(self, line: str, max_lines: int = _LOGS_MAX_LINES) -> None:
         """Append a single formatted log line to a capped Redis list."""
         await self._execute("LPUSH", _LOGS_KEY, line)

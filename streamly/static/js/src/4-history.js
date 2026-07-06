@@ -60,24 +60,43 @@
           }
         };
 
-        const addBtn = document.createElement("button");
-        addBtn.className = "hist-icon";
-        addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
-        addBtn.title = "Add to Destination";
-        addBtn.onclick = async () => {
-          addBtn.disabled = true;
-          addBtn.innerHTML = `<svg class="btn-spinner" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.2)"/><path d="M12 2a10 10 0 0 1 10 10" class="spin-path"/></svg>`;
-          try {
-            await postJson("/api/add", { magnet: item.magnet });
-            toast("Added from history: " + item.title);
-            await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
-            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
-          } catch (e) {
-            toast("Failed: " + e.message);
-            addBtn.disabled = false;
-            addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
-          }
+        const makeAddBtn = (provider, label) => {
+          const btn = document.createElement("button");
+          btn.style.padding = "4px 8px";
+          btn.style.fontSize = "11px";
+          btn.textContent = label;
+          btn.title = `Add to ${label}`;
+          btn.onclick = async () => {
+            if (provider === "offcloud" && !window.offcloudEnabled) {
+              if (typeof window.promptOffcloudApiKey === "function") {
+                window.promptOffcloudApiKey(async () => {
+                  await performAdd();
+                });
+                return;
+              }
+            }
+            await performAdd();
+
+            async function performAdd() {
+              btn.disabled = true;
+              btn.textContent = "...";
+              try {
+                await postJson("/api/add", { magnet: item.magnet, provider: provider });
+                toast(`Added to ${label}: ` + item.title);
+                await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
+                btn.textContent = "✓";
+              } catch (e) {
+                toast("Failed: " + e.message);
+                btn.disabled = false;
+                btn.textContent = label;
+              }
+            }
+          };
+          return btn;
         };
+
+        const addSeedrBtn = makeAddBtn("seedr", "Seedr");
+        const addOffcloudBtn = makeAddBtn("offcloud", "Offcloud");
         
         const delBtn = document.createElement("button");
         delBtn.className = "danger ghost hist-icon";
@@ -94,7 +113,7 @@
           }
         };
         
-        btnGroup.append(copyBtn, addBtn, delBtn);
+        btnGroup.append(copyBtn, addSeedrBtn, addOffcloudBtn, delBtn);
         actionTd.appendChild(btnGroup);
         
         tr.append(nameTd, actionTd);

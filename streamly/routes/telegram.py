@@ -30,7 +30,8 @@ from ..security import (
     ValidationError
 )
 from ..core.http_client import SeedrDownloader
-from .telegram_client import manager as tg_manager, safe_disconnect
+from .telegram_client import manager as tg_manager, safe_disconnect, get_telegram_client
+from ..cloud_service import format_size
 
 log = logging.getLogger(__name__)
 telegram_router = APIRouter()

@@ -15,6 +15,7 @@ from ..security import (
     validate_positive_int,
     validate_magnet,
     rate_limited,
+    ValidationError,
 )
 from ..cloud_service import format_size, _safe_int
 
@@ -53,6 +54,7 @@ class AddMagnetPayload(BaseModel):
     magnet: str
     size: Any = None
     name: str | None = None
+    provider: str = "auto"
 
 
 @cloud_router.get("/api/devices")
@@ -253,6 +255,56 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
     from .queue import add_to_history_backend
     await add_to_history_backend(rs, magnet, name, size_bytes)
     
+    provider = (payload.provider or "auto").strip().lower()
+    if provider not in ("auto", "seedr", "offcloud"):
+        provider = "auto"
+
+    use_offcloud = (
+        provider == "offcloud"
+        or (provider == "auto" and size_bytes > 4.5 * 1024 * 1024 * 1024)
+    )
+
+    if use_offcloud:
+        from .offcloud import _get_offcloud
+        try:
+            offcloud = await _get_offcloud(request)
+        except Exception:
+            offcloud = None
+
+        if offcloud is None or not offcloud.configured:
+            raise HTTPException(
+                status_code=503,
+                detail="Offcloud is not configured (required for files over 4.5GB). Please enter your API key to enable this.",
+            )
+        from ..offcloud_service import OffcloudError
+        try:
+            result = await offcloud.add_magnet(magnet)
+        except OffcloudError as e:
+            log.warning("Offcloud add_magnet failed for '%s': %s", name, e)
+            raise HTTPException(status_code=502, detail=str(e))
+
+        if rs:
+            try:
+                submissions = await rs.get_offcloud_submissions()
+                submissions.insert(0, {
+                    "request_id": result.get("requestId"),
+                    "file_name": result.get("fileName") or name,
+                    "status": result.get("status") or "created",
+                    "size_bytes": size_bytes,
+                    "created_at": int(time.time()),
+                })
+                await rs.save_offcloud_submissions(submissions[:200])
+            except Exception as e:
+                log.warning("Failed to record Offcloud submission for tracking: %s", e)
+
+        return {
+            "success": True,
+            "provider": "offcloud",
+            "request_id": result.get("requestId"),
+            "file_name": result.get("fileName") or name,
+            "status": result.get("status"),
+        }
+
     if size_bytes > 4.5 * 1024 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File exceeds 4.5 GB limit and cannot be downloaded.")
         

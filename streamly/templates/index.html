@@ -58,12 +58,20 @@
     <main class="main">
       <section id="cloudView" class="grid cloud-layout hidden">
         <div class="panel">
-          <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0;">
+          <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); border-radius: var(--radius-lg) var(--radius-lg) 0 0; flex-wrap: wrap; gap: 10px;">
             <div>
               <h2 style="margin: 0; font-size: 1.25rem;">Cloud Drive</h2>
-              <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">Browse your saved files and folders</div>
+              <div class="muted" style="font-size: 0.8rem; margin-top: 2px;" id="driveProviderSubtitle">Browse your saved files and folders</div>
             </div>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div class="mode-toggle" id="driveProviderToggle">
+                <div class="mode-toggle-highlight"></div>
+                <button id="driveProviderSeedr" type="button" class="active">Seedr</button>
+                <button id="driveProviderOffcloud" type="button">Offcloud</button>
+              </div>
+              <button id="offcloudSettingsBtn" class="secondary" type="button" style="padding: 6px 10px; font-size: 13px; display: flex; align-items: center; justify-content: center;" title="Offcloud Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
               <button id="upBtn" class="secondary" type="button" style="padding: 6px 12px; font-size: 13px;">Up</button>
               <button id="refreshBtn" type="button" style="padding: 6px 12px; font-size: 13px;">Refresh</button>
             </div>
@@ -99,6 +107,10 @@
 
         <!-- ===== Mobile-only Cloud (Seedr-style) ===== -->
         <div id="cloudMobile" class="cloud-mobile">
+          <div class="mode-toggle" id="driveProviderToggleMobile" style="margin: 8px 12px 0;">
+            <button id="driveProviderSeedrMobile" type="button" class="active">Seedr</button>
+            <button id="driveProviderOffcloudMobile" type="button">Offcloud</button>
+          </div>
           <div class="cm-top">
             <div class="cm-top-left">
               <input type="checkbox" id="cmSelectAll" class="cm-selall" title="Select all">
@@ -366,6 +378,27 @@
       </div>
       
       <div id="tgAuthStatus" class="status" style="margin: 0;"></div>
+    </div>
+  </section>
+
+  <!-- Offcloud Configuration Overlay -->
+  <section id="offcloudConfigOverlay" class="overlay hidden">
+    <div class="player-box" style="max-width: 450px; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0; font-size: 1.15rem;">Offcloud Settings</h3>
+        <button id="closeOffcloudConfigBtn" class="ghost" type="button" style="font-size: 20px; padding: 0; line-height: 1;">&times;</button>
+      </div>
+      <p class="muted" style="font-size: 0.85rem; margin-top: 0; margin-bottom: 16px;">
+        Paste your Offcloud API Key below. You can retrieve it from your account settings at offcloud.com.
+      </p>
+      <div style="display: grid; gap: 12px;">
+        <input type="text" id="offcloudApiKeyInput" placeholder="Enter API Key" style="width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2); color: var(--text);">
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button id="disconnectOffcloudBtn" class="danger secondary" type="button" style="padding: 6px 12px; font-size: 13px;">Disconnect</button>
+          <button id="saveOffcloudKeyBtn" class="primary" type="button" style="padding: 6px 12px; font-size: 13px;">Save Key</button>
+        </div>
+      </div>
+      <div id="offcloudConfigStatus" class="status" style="margin-top: 10px; font-size: 0.8rem; text-align: center; margin-bottom: 0;"></div>
     </div>
   </section>
 
