@@ -7,6 +7,7 @@ import logging
 import urllib.parse
 import os
 import time
+import httpx
 from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Any
 from pydantic import BaseModel
