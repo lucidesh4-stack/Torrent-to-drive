@@ -45,6 +45,9 @@ class FakeAsyncClient:
     async def post(self, url, data=None):
         return FakeAsyncClient._next_response
 
+    async def get(self, url):
+        return FakeAsyncClient._next_response
+
 
 async def main():
     failures = 0
@@ -150,6 +153,14 @@ async def main():
     FakeAsyncClient._next_response = FakeResponse(200, {"status": "created"})
     url = await svc.get_download_url("req-1")
     check(url is None, "get_download_url returns None when the file isn't ready yet (no url field)")
+
+    # ---- Test 12: get_history happy path ----
+    FakeAsyncClient._next_response = FakeResponse(200, [
+        {"requestId": "req-1", "fileName": "File.mkv", "status": "downloaded", "size": 1000, "created": "2026-07-06T12:00:00Z"}
+    ])
+    history = await svc.get_history()
+    check(isinstance(history, list) and len(history) == 1, "get_history returns a list with correct elements")
+    check(history[0]["requestId"] == "req-1", "get_history contains correct requestId")
 
     print("\n" + ("ALL TESTS PASSED" if failures == 0 else f"{failures} TEST(S) FAILED"))
     return failures

@@ -8,6 +8,7 @@ import urllib.parse
 import os
 import time
 from fastapi import APIRouter, Request, HTTPException, Depends
+from typing import Any
 from pydantic import BaseModel
 
 from .auth import verify_csrf
@@ -129,73 +130,96 @@ async def offcloud_enabled(request: Request):
     return {"success": True, "enabled": False}
 
 
-_TERMINAL_STATUSES = {"downloaded", "error"}
+def map_offcloud_item(item: dict[str, Any]) -> dict[str, Any]:
+    req_id = item.get("requestId") or item.get("request_id") or ""
+    file_name = item.get("fileName") or item.get("file_name") or "Unnamed"
+    status = item.get("status")
+    
+    status_str = "created"
+    download_url = item.get("url") or item.get("download_url")
+    if isinstance(status, dict):
+        status_str = status.get("status") or "created"
+        if not download_url:
+            download_url = status.get("url")
+    elif isinstance(status, str):
+        status_str = status
+
+    size = item.get("size") or item.get("size_bytes") or 0
+    created_at = item.get("created_at") or item.get("created")
+    
+    if isinstance(created_at, str):
+        try:
+            created_at = int(float(created_at))
+        except ValueError:
+            from datetime import datetime
+            try:
+                clean_date = created_at.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(clean_date)
+                created_at = int(dt.timestamp())
+            except Exception:
+                try:
+                    clean_date = created_at.replace("Z", "+00:00")
+                    dt = datetime.strptime(clean_date[:19], "%Y-%m-%d %H:%M:%S")
+                    created_at = int(dt.timestamp())
+                except Exception:
+                    created_at = int(time.time())
+    elif not isinstance(created_at, (int, float)):
+        created_at = int(time.time())
+    else:
+        created_at = int(created_at)
+
+    return {
+        "request_id": req_id,
+        "file_name": file_name,
+        "status": status_str,
+        "size_bytes": int(size),
+        "created_at": created_at,
+        "download_url": download_url,
+    }
 
 
 @offcloud_router.get("/api/offcloud/list")
 @rate_limited(cost=1.0)
 async def offcloud_list(request: Request):
     rs = getattr(request.app.state, "rs", None)
-    if not rs:
-        return {"success": True, "items": [], "_warning": "Tracking unavailable (Redis not configured)"}
-
-    submissions = await rs.get_offcloud_submissions()
     try:
         svc = await _get_offcloud(request)
-    except HTTPException:
-        svc = None
+    except HTTPException as he:
+        return {"success": True, "items": [], "_warning": str(he.detail)}
 
-    if svc:
-        changed = False
-        for item in submissions:
-            # 1. Sanitize status field in case it was saved as a dict
-            curr_status = item.get("status")
-            if isinstance(curr_status, dict):
-                curr_status = curr_status.get("status") or "created"
-                item["status"] = curr_status
-                changed = True
+    deleted_ids = set()
+    if rs:
+        try:
+            deleted_ids = await rs.get_offcloud_deleted_ids()
+        except Exception as e:
+            log.warning("Failed to fetch deleted IDs from Redis: %s", e)
 
-            if item.get("status") in _TERMINAL_STATUSES:
-                continue
-            request_id = item.get("request_id")
-            if not request_id:
-                continue
-            try:
-                status_data = await svc.get_status(request_id)
-                new_status = None
-                download_url = None
-                new_name = None
-                if isinstance(status_data, dict):
-                    new_name = status_data.get("fileName")
-                    status_val = status_data.get("status")
-                    if isinstance(status_val, dict):
-                        new_status = status_val.get("status")
-                        download_url = status_val.get("url")
-                    elif isinstance(status_val, str):
-                        new_status = status_val
-                    
-                    if not download_url:
-                        download_url = status_data.get("url")
+    try:
+        raw_items = await svc.get_history()
+    except OffcloudError as e:
+        log.warning("Offcloud get_history failed: %s", e)
+        if rs:
+            submissions = await rs.get_offcloud_submissions()
+            filtered = [s for s in submissions if s.get("request_id") not in deleted_ids]
+            return {"success": True, "items": filtered, "_warning": f"Offcloud API error: {e}. Showing cached list."}
+        raise HTTPException(status_code=502, detail=str(e))
 
-                if new_name and new_name != item.get("file_name"):
-                    item["file_name"] = new_name
-                    changed = True
-                if new_status and new_status != item.get("status"):
-                    item["status"] = new_status
-                    changed = True
-                if download_url and download_url != item.get("download_url"):
-                    item["download_url"] = download_url
-                    changed = True
-            except OffcloudError as e:
-                log.debug("Offcloud status refresh failed for %s: %s", request_id, e)
+    items = []
+    for item in raw_items:
+        try:
+            mapped = map_offcloud_item(item)
+            if mapped["request_id"] not in deleted_ids:
+                items.append(mapped)
+        except Exception as ex:
+            log.warning("Failed to map Offcloud item %r: %s", item, ex)
 
-        if changed:
-            try:
-                await rs.save_offcloud_submissions(submissions)
-            except Exception as e:
-                log.warning("Failed to persist refreshed Offcloud statuses: %s", e)
+    if rs:
+        try:
+            await rs.save_offcloud_submissions(items)
+        except Exception as e:
+            log.warning("Failed to save offcloud history cache to Redis: %s", e)
 
-    return {"success": True, "items": submissions}
+    return {"success": True, "items": items}
 
 
 @offcloud_router.get("/api/offcloud/explore/{request_id}")
@@ -239,12 +263,18 @@ async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload,
     if not rs:
         raise HTTPException(status_code=503, detail="Redis unavailable")
     
-    submissions = await rs.get_offcloud_submissions()
-    initial_len = len(submissions)
-    submissions = [s for s in submissions if s.get("request_id") != payload.request_id]
-    
-    if len(submissions) != initial_len:
-        await rs.save_offcloud_submissions(submissions)
-        return {"success": True}
-    
-    raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        await rs.add_offcloud_deleted_id(payload.request_id)
+    except Exception as e:
+        log.warning("Failed to record deleted ID in Redis: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to record deletion")
+
+    try:
+        submissions = await rs.get_offcloud_submissions()
+        new_submissions = [s for s in submissions if s.get("request_id") != payload.request_id]
+        if len(new_submissions) != len(submissions):
+            await rs.save_offcloud_submissions(new_submissions)
+    except Exception as e:
+        log.warning("Failed to clean up cached submissions: %s", e)
+
+    return {"success": True}

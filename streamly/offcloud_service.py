@@ -124,3 +124,28 @@ class OffcloudService:
             raise OffcloudError(f"Unexpected Offcloud explore response shape: {data!r}")
 
         return data
+
+    async def get_history(self) -> list[dict[str, Any]]:
+        """Retrieve the user's remote cloud history/downloads."""
+        if not self.configured:
+            raise OffcloudError("Offcloud is not configured.")
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                r = await client.get(f"{OFFCLOUD_BASE_URL}/cloud/history?key={self.api_key}")
+            except httpx.HTTPError as e:
+                raise OffcloudError(f"Offcloud history request failed: {e}") from e
+
+        if r.status_code == 401:
+            raise OffcloudError("Offcloud rejected the API key.")
+        try:
+            data = r.json()
+        except Exception as e:
+            raise OffcloudError(f"Offcloud history returned non-JSON (status {r.status_code}): {e}") from e
+
+        if isinstance(data, dict) and data.get("error"):
+            raise OffcloudError(f"Offcloud error: {data['error']}")
+        if not isinstance(data, list):
+            raise OffcloudError(f"Unexpected Offcloud history response shape: {data!r}")
+
+        return data
