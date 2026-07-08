@@ -278,3 +278,29 @@ async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload,
         log.warning("Failed to clean up cached submissions: %s", e)
 
     return {"success": True}
+
+
+@offcloud_router.get("/api/offcloud/debug-history")
+async def debug_history(request: Request):
+    try:
+        svc = await _get_offcloud(request)
+    except HTTPException as he:
+        return {"error": "Not configured", "detail": he.detail}
+    
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        try:
+            r = await client.get(f"https://offcloud.com/api/cloud/history?key={svc.api_key}")
+            try:
+                json_data = r.json()
+            except Exception:
+                json_data = None
+            return {
+                "status_code": r.status_code,
+                "is_list": isinstance(json_data, list),
+                "is_dict": isinstance(json_data, dict),
+                "keys": list(json_data.keys()) if isinstance(json_data, dict) else None,
+                "length": len(json_data) if isinstance(json_data, (list, dict)) else None,
+                "raw_text": r.text[:2000]
+            }
+        except Exception as e:
+            return {"error": "Request failed", "detail": str(e)}
