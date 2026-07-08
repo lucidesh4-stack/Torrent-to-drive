@@ -283,13 +283,14 @@ async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload,
 
 @offcloud_router.get("/api/offcloud/debug-history")
 async def debug_history(request: Request):
+    import traceback
     try:
-        svc = await _get_offcloud(request)
-    except HTTPException as he:
-        return {"error": "Not configured", "detail": he.detail}
-    
-    async with httpx.AsyncClient(timeout=20.0) as client:
         try:
+            svc = await _get_offcloud(request)
+        except HTTPException as he:
+            return {"error": "Not configured", "detail": he.detail}
+        
+        async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(f"https://offcloud.com/api/cloud/history?key={svc.api_key}")
             try:
                 json_data = r.json()
@@ -303,5 +304,5 @@ async def debug_history(request: Request):
                 "length": len(json_data) if isinstance(json_data, (list, dict)) else None,
                 "raw_text": r.text[:2000]
             }
-        except Exception as e:
-            return {"error": "Request failed", "detail": str(e)}
+    except Exception as e:
+        return {"error": "Internal failure", "message": str(e), "traceback": traceback.format_exc()}
