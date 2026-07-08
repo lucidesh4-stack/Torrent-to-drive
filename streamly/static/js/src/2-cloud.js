@@ -623,30 +623,57 @@
     return data.url;
   }
 
-  window.copySelectedLink = async function() {
+  window.copySelectedLink = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
-    const selectedItems = items.filter(it => selectedKeys.has(it.key));
+
+    const selectedItems = items.filter((it) => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
 
-    updateStatus($("cloudStatus"), selectedItems.length === 1 && selectedItems[0].type === "file" ? "Preparing file link..." : "Preparing zip link...", "");
+    const files = selectedItems.filter((it) => it.type === "file");
+    const folderCount = selectedItems.length - files.length;
+
+    if (files.length === 0) {
+      return toast("No files selected. Folders don't have a direct link to copy.");
+    }
+
+    updateStatus(
+      $("cloudStatus"),
+      files.length === 1 ? "Preparing file link..." : `Preparing ${files.length} file links...`,
+      ""
+    );
+
     try {
-      let url = "";
-      if (selectedItems.length === 1 && selectedItems[0].type === "file") {
-        url = await getFileUrl(selectedItems[0]);
-      } else {
-        const payload = selectedItems.map(it => ({ type: it.type, id: it.id }));
-        const endpoint = payload.length === 1 ? "/api/zip" : "/api/zip/bulk";
-        const body = payload.length === 1 ? { type: payload[0].type, id: payload[0].id } : { items: payload };
-        const data = await postJson(endpoint, body);
-        if (!data.url) throw new Error("Link URL was not returned");
-        url = data.url;
+      // Resolve every file's direct URL. Done in parallel for speed, but the
+      // results array preserves selection order.
+      const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
+
+      const urls = [];
+      const failed = [];
+      settled.forEach((res, i) => {
+        if (res.status === "fulfilled" && res.value) urls.push(res.value);
+        else failed.push(files[i].name || "Unnamed");
+      });
+
+      if (urls.length === 0) throw new Error("Could not resolve any file links");
+
+      const text = urls.join("\n");
+
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        throw new Error("Clipboard is not available in this browser");
       }
-      if (!navigator.clipboard || !navigator.clipboard.writeText) throw new Error("Clipboard is not available in this browser");
-      await navigator.clipboard.writeText(url);
-      toast("Link copied to clipboard");
-      updateStatus($("cloudStatus"), "Link copied to clipboard.", "ok");
+      await navigator.clipboard.writeText(text);
+
+      // Build a precise status message covering partial results / skipped folders.
+      let msg = `Copied ${urls.length} link${urls.length === 1 ? "" : "s"} to clipboard`;
+      const extras = [];
+      if (folderCount > 0) extras.push(`${folderCount} folder(s) skipped`);
+      if (failed.length > 0) extras.push(`${failed.length} failed`);
+      if (extras.length) msg += ` (${extras.join(", ")})`;
+
+      toast(msg);
+      updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
     } catch (err) {
-      const message = err.message || "Could not copy link";
+      const message = err.message || "Could not copy link(s)";
       toast(message);
       updateStatus($("cloudStatus"), message, "error");
     }
@@ -682,46 +709,73 @@
     }
   }
 
-  window.downloadSelected = async function() {
+  window._downloadViaIframe = function (url) {
+    // Hidden iframe download: not popup-blocked, works cross-origin when the
+    // server sends Content-Disposition: attachment; otherwise it streams in the
+    // iframe harmlessly. Falls back to an <a download> for same-origin URLs.
+    const iframe = document.createElement("iframe");
+    iframe.style.display = "none";
+    iframe.src = url;
+    document.body.appendChild(iframe);
+    // Clean up after the download has had time to start.
+    setTimeout(() => {
+      try { document.body.removeChild(iframe); } catch (_) {}
+    }, 60000);
+  };
+
+  window.downloadSelected = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
-    const selectedItems = items.filter(it => selectedKeys.has(it.key));
+    const selectedItems = items.filter((it) => selectedKeys.has(it.key));
 
-    // Folders cannot be direct-downloaded — must be zipped
-    const folders = selectedItems.filter(it => it.type === "folder");
-    const files = selectedItems.filter(it => it.type === "file");
+    const folders = selectedItems.filter((it) => it.type === "folder");
+    const files = selectedItems.filter((it) => it.type === "file");
 
-    if (folders.length > 0 && files.length === 0) {
-      // All folders → redirect to zip
-      return zipSelected();
-    }
+    // Folders can't be direct-downloaded — route them through zip.
+    if (folders.length > 0 && files.length === 0) return zipSelected();
     if (folders.length > 0) {
       if (!confirm(`Selection has ${folders.length} folder(s). Folders will be zipped together with files. Continue?`)) return;
       return zipSelected();
     }
 
-    // All files: trigger individual downloads with delay
-    updateStatus($("cloudStatus"), `Downloading ${files.length} file(s)...`, "");
-    let done = 0;
-    for (const file of files) {
-      try {
-        const url = await getFileUrl(file);
-        // Force "save" behavior: create hidden <a download> and click it
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = file.name || "";
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        done++;
-        updateStatus($("cloudStatus"), `Downloading ${done}/${files.length}...`, "");
-        if (done < files.length) await new Promise(r => setTimeout(r, 500));
-      } catch (err) {
-        toast(`Failed: ${file.name} — ${err.message}`);
-      }
+    if (files.length === 0) return toast("No files selected");
+
+    // ---- 1. Resolve every URL FIRST (parallel), before any download fires. --
+    updateStatus($("cloudStatus"), `Preparing ${files.length} file(s)...`, "");
+    const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
+
+    const resolved = [];
+    const failed = [];
+    settled.forEach((res, i) => {
+      if (res.status === "fulfilled" && res.value) resolved.push({ url: res.value, name: files[i].name });
+      else failed.push(files[i].name || "Unnamed");
+    });
+
+    if (resolved.length === 0) {
+      const msg = "Could not resolve any download links";
+      toast(msg);
+      return updateStatus($("cloudStatus"), msg, "error");
     }
-    updateStatus($("cloudStatus"), `Started ${done} download(s).`, "ok");
+
+    // ---- 2. Fire each download with a small stagger (no await in between). ---
+    updateStatus($("cloudStatus"), `Starting ${resolved.length} download(s)...`, "");
+    resolved.forEach((item, i) => {
+      setTimeout(() => {
+        try {
+          window._downloadViaIframe(item.url);
+        } catch (err) {
+          toast(`Failed: ${item.name} — ${err.message}`);
+        }
+        // Update progress on the last one.
+        if (i === resolved.length - 1) {
+          let msg = `Started ${resolved.length} download(s)`;
+          if (failed.length) msg += ` (${failed.length} failed to resolve)`;
+          updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
+          if (resolved.length > 1) {
+            toast("If only one file downloaded, allow “multiple downloads” when your browser prompts.");
+          }
+        }
+      }, i * 350); // 350ms stagger prevents the browser coalescing them.
+    });
   }
 
   window.zipSelected = async function() {
