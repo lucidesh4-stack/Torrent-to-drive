@@ -261,7 +261,7 @@ def create_app(
         
         # Site protection check
         path = request.url.path
-        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and path != "/api/offcloud/debug-history" and path != "/api/logs" and path != "/api/offcloud/list" and not path.startswith("/static/"):
+        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
             site_password = os.getenv("SITE_PASSWORD")
             if site_password and not request.session.get("site_auth"):
                 if path.startswith("/api/") or path.startswith("/fs/"):
@@ -469,8 +469,16 @@ def create_app(
         return HTMLResponse(content=html)
 
     @app.post("/api/logs")
-    async def logs_download(request: Request):
-        if True:
+    async def logs_download(request: Request, email: str = Form(...), password: str = Form(...)):
+        cfg_email = config.seedr_email
+        cfg_password = config.seedr_password
+
+        if (
+            email and password and
+            cfg_email and cfg_password and
+            hmac.compare_digest(email, cfg_email) and
+            hmac.compare_digest(password, cfg_password)
+        ):
             if rs is None:
                 log.warning("Log download requested but Redis log persistence is unavailable")
                 return JSONResponse(status_code=503, content={"success": False, "error": {"code": "unavailable", "message": "Log persistence is not configured"}})

@@ -7,7 +7,7 @@ import logging
 import urllib.parse
 import os
 import time
-import httpx
+
 from fastapi import APIRouter, Request, HTTPException, Depends
 from typing import Any
 from pydantic import BaseModel
@@ -146,7 +146,7 @@ def map_offcloud_item(item: dict[str, Any]) -> dict[str, Any]:
         status_str = status
 
     size = item.get("size") or item.get("size_bytes") or 0
-    created_at = item.get("created_at") or item.get("created")
+    created_at = item.get("created_at") or item.get("createdOn") or item.get("created")
     
     if isinstance(created_at, str):
         try:
@@ -280,29 +280,3 @@ async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload,
 
     return {"success": True}
 
-
-@offcloud_router.get("/api/offcloud/debug-history")
-async def debug_history(request: Request):
-    import traceback
-    try:
-        try:
-            svc = await _get_offcloud(request)
-        except HTTPException as he:
-            return {"error": "Not configured", "detail": he.detail}
-        
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(f"https://offcloud.com/api/cloud/history?key={svc.api_key}")
-            try:
-                json_data = r.json()
-            except Exception:
-                json_data = None
-            return {
-                "status_code": r.status_code,
-                "is_list": isinstance(json_data, list),
-                "is_dict": isinstance(json_data, dict),
-                "keys": list(json_data.keys()) if isinstance(json_data, dict) else None,
-                "length": len(json_data) if isinstance(json_data, (list, dict)) else None,
-                "raw_text": r.text[:2000]
-            }
-    except Exception as e:
-        return {"error": "Internal failure", "message": str(e), "traceback": traceback.format_exc()}
