@@ -709,18 +709,17 @@
     }
   }
 
-  window._downloadViaIframe = function (url) {
-    // Hidden iframe download: not popup-blocked, works cross-origin when the
-    // server sends Content-Disposition: attachment; otherwise it streams in the
-    // iframe harmlessly. Falls back to an <a download> for same-origin URLs.
-    const iframe = document.createElement("iframe");
-    iframe.style.display = "none";
-    iframe.src = url;
-    document.body.appendChild(iframe);
-    // Clean up after the download has had time to start.
+  window._downloadFileDirect = function (url, name) {
+    // Standard anchor-click download: doesn't use iframes (which are blocked by CSP frame-src),
+    // and triggers the browser's native multiple-downloads prompt without opening blank tabs.
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name || "";
+    document.body.appendChild(a);
+    a.click();
     setTimeout(() => {
-      try { document.body.removeChild(iframe); } catch (_) {}
-    }, 60000);
+      try { document.body.removeChild(a); } catch (_) {}
+    }, 500);
   };
 
   window.downloadSelected = async function () {
@@ -761,7 +760,7 @@
     resolved.forEach((item, i) => {
       setTimeout(() => {
         try {
-          window._downloadViaIframe(item.url);
+          window._downloadFileDirect(item.url, item.name);
         } catch (err) {
           toast(`Failed: ${item.name} — ${err.message}`);
         }
