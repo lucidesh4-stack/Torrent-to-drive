@@ -168,14 +168,17 @@
         try { magnetName = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
       }
       saveToHistory(q, magnetName);
-      updateStatus($("searchStatus"), "Adding magnet to Seedr...", "");
+      updateStatus($("searchStatus"), "Adding magnet...", "");
       try {
-        const res = await postJson("/api/add", { magnet: q });
+        const res = await postJson("/api/add", { magnet: q, provider: window.driveProvider || "auto" });
         if (res && res.queued) {
-          updateStatus($("searchStatus"), "\u2713 Added to Queue: " + magnetName, "ok");
+          updateStatus($("searchStatus"), "✓ Added to Queue: " + magnetName, "ok");
           toast("Added to local queue: " + magnetName);
+        } else if (res && res.provider === "offcloud") {
+          updateStatus($("searchStatus"), "✓ Added to Offcloud: " + magnetName, "ok");
+          toast("Added to Offcloud: " + magnetName);
         } else {
-          updateStatus($("searchStatus"), "\u2713 Added: " + magnetName, "ok");
+          updateStatus($("searchStatus"), "✓ Added: " + magnetName, "ok");
           toast("Added to Seedr: " + magnetName);
         }
         if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
@@ -287,9 +290,11 @@
       setTimeout(async () => {
         saveToHistory(result.magnet, result.name, result.size);
         try {
-          const res = await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0 });
+          const res = await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0, provider: window.driveProvider || "auto" });
           if (res && res.queued) {
             toast("Added to queue: " + (result.name || "torrent"));
+          } else if (res && res.provider === "offcloud") {
+            toast("Added to Offcloud: " + (result.name || "torrent"));
           } else {
             toast("Added to Seedr: " + (result.name || "torrent"));
           }

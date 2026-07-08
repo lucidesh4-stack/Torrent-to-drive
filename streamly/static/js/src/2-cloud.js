@@ -22,6 +22,34 @@
     loadFolder(id);
   };
 
+  window.cloudRefresh = async function() {
+    if (window.driveProvider === "offcloud") {
+      if (window.offcloudCurrentFolder) {
+        let folderName = "Folder";
+        const subtitle = $("driveProviderSubtitle");
+        if (subtitle && subtitle.textContent.startsWith("Folder: ")) {
+          folderName = subtitle.textContent.replace("Folder: ", "");
+        }
+        updateStatus($("cloudStatus"), "Refreshing archive...", "");
+        try {
+          const res = await fetch(`/api/offcloud/explore/${window.offcloudCurrentFolder}`, { credentials: "same-origin" });
+          const data = await res.json();
+          if (!data.success) throw new Error(data.detail || "Failed to explore folder");
+          renderOffcloudFolder(window.offcloudCurrentFolder, folderName, data.files || []);
+        } catch (e) {
+          toast("Error: " + e.message);
+        } finally {
+          updateStatus($("cloudStatus"), "", "");
+        }
+      } else {
+        await loadOffcloudList();
+        await loadOffcloudListMobile();
+      }
+    } else {
+      await loadFolder(currentFolder || 0);
+    }
+  };
+
   window.updateSelection = function() {
     refreshSelectedShim();
     const count = selectedKeys.size;

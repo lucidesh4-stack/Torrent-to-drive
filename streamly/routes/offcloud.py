@@ -164,7 +164,9 @@ async def offcloud_list(request: Request):
                 status_data = await svc.get_status(request_id)
                 new_status = None
                 download_url = None
+                new_name = None
                 if isinstance(status_data, dict):
+                    new_name = status_data.get("fileName")
                     status_val = status_data.get("status")
                     if isinstance(status_val, dict):
                         new_status = status_val.get("status")
@@ -175,6 +177,9 @@ async def offcloud_list(request: Request):
                     if not download_url:
                         download_url = status_data.get("url")
 
+                if new_name and new_name != item.get("file_name"):
+                    item["file_name"] = new_name
+                    changed = True
                 if new_status and new_status != item.get("status"):
                     item["status"] = new_status
                     changed = True
