@@ -1,1 +1,0 @@
-  // History Management (Redis Backend)

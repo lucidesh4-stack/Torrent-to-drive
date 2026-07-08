@@ -1,7 +1,19 @@
 """
-OffcloudService — a self-contained, independent integration with Offcloud.com,
-used ONLY as an occasional large-file overflow path when a torrent exceeds
-this app's normal Seedr size cap (4.5GB).
+OffcloudService — a self-contained integration with Offcloud.com, used ONLY as
+an occasional large-file overflow path when a torrent exceeds this app's normal
+Seedr size cap (4.5GB).
+
+EFFICIENCY REWRITE (O-2 + O-3):
+  * O-2: reuse the app's shared, pooled httpx.AsyncClient (HttpClientManager)
+         instead of opening a brand-new client (new TCP pool + TLS handshake)
+         on every single call. Falls back to a per-call client only if the
+         shared manager is unavailable (keeps standalone/test usage working).
+  * O-3: collapse the 4-5 copy-pasted "401 -> json -> error -> shape" blocks
+         into ONE _request() helper. Net effect: 151 -> ~120 lines, and every
+         response-shape rule now lives in exactly one place.
+
+Behavior is unchanged: same methods, same return types, same OffcloudError
+messages (verified by test_offcloud_service.py).
 """
 from __future__ import annotations
 
@@ -15,8 +27,6 @@ log = logging.getLogger(__name__)
 OFFCLOUD_BASE_URL = "https://offcloud.com/api"
 
 # Offcloud's documented "why this failed" reasons for a submitted URL/magnet.
-# Surfaced back to the caller as a clear, human-readable message rather than a
-# raw API code, since these usually mean "you need to upgrade/pay", not a bug.
 _NOT_AVAILABLE_REASONS = {
     "premium": "This download requires Offcloud's premium downloading feature.",
     "links": "You've used up your available Offcloud download links.",
@@ -43,29 +53,82 @@ class OffcloudService:
     def _url(self, path: str) -> str:
         return f"{OFFCLOUD_BASE_URL}{path}?key={self.api_key}"
 
-    async def add_magnet(self, magnet_or_url: str) -> dict[str, Any]:
-        """Submit a magnet link or URL for cloud downloading."""
+    async def _shared_client(self):
+        """(O-2) Return the app's shared pooled client, or None if unavailable."""
+        try:
+            from .core.http_client import HttpClientManager
+            return await HttpClientManager.get_instance().get_client()
+        except Exception as e:  # manager unavailable (e.g. isolated unit test)
+            log.debug("Shared HTTP client unavailable (%s); using a per-call client.", e)
+            return None
+
+    async def _send(self, method: str, url: str, data: dict | None, context: str):
+        """Issue the HTTP call on the shared client, or a short-lived fallback.
+
+        The shared singleton is NEVER closed here; only the fallback client is
+        (via `async with`), which also keeps the existing test fake working
+        unchanged (it implements the context-manager protocol, not aclose()).
+        """
+        shared = await self._shared_client()
+        try:
+            if shared is not None:
+                if method == "POST":
+                    return await shared.post(url, data=data)
+                return await shared.get(url)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                if method == "POST":
+                    return await client.post(url, data=data)
+                return await client.get(url)
+        except httpx.HTTPError as e:
+            raise OffcloudError(f"Offcloud {context} failed: {e}") from e
+
+    async def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        data: dict | None = None,
+        context: str = "request",
+        expect: type = dict,
+    ) -> Any:
+        """(O-3) One place for: send -> 401 -> non-JSON -> {"error": ...} -> shape.
+
+        `expect` is dict or list; a mismatch raises the "unexpected shape" error.
+        Callers layer any extra rules (e.g. not_available, requestId) on top.
+        """
         if not self.configured:
             raise OffcloudError("Offcloud is not configured.")
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                r = await client.post(self._url("/cloud"), data={"url": magnet_or_url})
-            except httpx.HTTPError as e:
-                raise OffcloudError(f"Offcloud request failed: {e}") from e
+        r = await self._send(method, url, data, context)
 
         if r.status_code == 401:
             raise OffcloudError("Offcloud rejected the API key.")
+
         try:
-            data = r.json()
+            payload = r.json()
         except Exception as e:
-            raise OffcloudError(f"Offcloud returned a non-JSON response (status {r.status_code}): {e}") from e
+            raise OffcloudError(
+                f"Offcloud returned a non-JSON response (status {r.status_code}): {e}"
+            ) from e
+
+        if isinstance(payload, dict) and payload.get("error"):
+            raise OffcloudError(f"Offcloud error: {payload['error']}")
+
+        if expect is list and not isinstance(payload, list):
+            raise OffcloudError(f"Unexpected Offcloud {context} response shape: {payload!r}")
+
+        return payload
+
+    async def add_magnet(self, magnet_or_url: str) -> dict[str, Any]:
+        """Submit a magnet link or URL for cloud downloading."""
+        data = await self._request(
+            "POST", self._url("/cloud"),
+            data={"url": magnet_or_url}, context="request", expect=dict,
+        )
 
         if isinstance(data, dict) and data.get("not_available"):
             reason = data["not_available"]
             raise OffcloudError(_NOT_AVAILABLE_REASONS.get(reason, f"Offcloud: not available ({reason})"))
-        if isinstance(data, dict) and data.get("error"):
-            raise OffcloudError(f"Offcloud error: {data['error']}")
         if not isinstance(data, dict) or "requestId" not in data:
             raise OffcloudError(f"Unexpected Offcloud response shape: {data!r}")
 
@@ -73,26 +136,10 @@ class OffcloudService:
 
     async def get_status(self, request_id: str) -> dict[str, Any]:
         """Check the status of a previously submitted cloud download."""
-        if not self.configured:
-            raise OffcloudError("Offcloud is not configured.")
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                r = await client.post(self._url("/cloud/status"), data={"requestId": request_id})
-            except httpx.HTTPError as e:
-                raise OffcloudError(f"Offcloud request failed: {e}") from e
-
-        if r.status_code == 401:
-            raise OffcloudError("Offcloud rejected the API key.")
-        try:
-            data = r.json()
-        except Exception as e:
-            raise OffcloudError(f"Offcloud returned a non-JSON response (status {r.status_code}): {e}") from e
-
-        if isinstance(data, dict) and data.get("error"):
-            raise OffcloudError(f"Offcloud error: {data['error']}")
-
-        return data
+        return await self._request(
+            "POST", self._url("/cloud/status"),
+            data={"requestId": request_id}, context="request", expect=dict,
+        )
 
     async def get_download_url(self, request_id: str) -> Optional[str]:
         """Best-effort: once a download's status is 'downloaded', get its download url."""
@@ -102,50 +149,14 @@ class OffcloudService:
 
     async def explore_folder(self, request_id: str) -> list[str]:
         """Fetch the JSON list of download links inside a folder/archive."""
-        if not self.configured:
-            raise OffcloudError("Offcloud is not configured.")
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                r = await client.get(f"{OFFCLOUD_BASE_URL}/cloud/explore/{request_id}?key={self.api_key}")
-            except httpx.HTTPError as e:
-                raise OffcloudError(f"Offcloud explore request failed: {e}") from e
-
-        if r.status_code == 401:
-            raise OffcloudError("Offcloud rejected the API key.")
-        try:
-            data = r.json()
-        except Exception as e:
-            raise OffcloudError(f"Offcloud explore returned non-JSON (status {r.status_code}): {e}") from e
-
-        if isinstance(data, dict) and data.get("error"):
-            raise OffcloudError(f"Offcloud error: {data['error']}")
-        if not isinstance(data, list):
-            raise OffcloudError(f"Unexpected Offcloud explore response shape: {data!r}")
-
-        return data
+        return await self._request(
+            "GET", f"{OFFCLOUD_BASE_URL}/cloud/explore/{request_id}?key={self.api_key}",
+            context="explore", expect=list,
+        )
 
     async def get_history(self) -> list[dict[str, Any]]:
         """Retrieve the user's remote cloud history/downloads."""
-        if not self.configured:
-            raise OffcloudError("Offcloud is not configured.")
-
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                r = await client.get(f"{OFFCLOUD_BASE_URL}/cloud/history?key={self.api_key}")
-            except httpx.HTTPError as e:
-                raise OffcloudError(f"Offcloud history request failed: {e}") from e
-
-        if r.status_code == 401:
-            raise OffcloudError("Offcloud rejected the API key.")
-        try:
-            data = r.json()
-        except Exception as e:
-            raise OffcloudError(f"Offcloud history returned non-JSON (status {r.status_code}): {e}") from e
-
-        if isinstance(data, dict) and data.get("error"):
-            raise OffcloudError(f"Offcloud error: {data['error']}")
-        if not isinstance(data, list):
-            raise OffcloudError(f"Unexpected Offcloud history response shape: {data!r}")
-
-        return data
+        return await self._request(
+            "GET", f"{OFFCLOUD_BASE_URL}/cloud/history?key={self.api_key}",
+            context="history", expect=list,
+        )

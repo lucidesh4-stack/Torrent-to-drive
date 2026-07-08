@@ -1089,36 +1089,42 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
             log.warning("Provider error on send-file lookup: %s", e)
             raise HTTPException(status_code=502, detail="Failed to retrieve file details from provider")
 
-        # Resolve filename and size
-        try:
-            items = await cloud.list_items(client, 0)
-            # Find the file in folders / files list to get exact name & size
-            file_obj = None
-            for f in items.get("files", []):
-                if f.get("id") == f_id:
-                    file_obj = f
-                    break
-            if not file_obj:
-                # Look inside subfolders
-                for folder in items.get("folders", []):
-                    sub_items = await cloud.list_items(client, folder["id"])
-                    for f in sub_items.get("files", []):
-                        if f.get("id") == f_id:
-                            file_obj = f
-                            break
-                    if file_obj:
+        # Resolve filename and size.
+        # (O-1) Trust the name/size the client already had from the folder listing
+        # it picked this file from, avoiding an N+1 walk of every Seedr subfolder
+        # (one list_items() HTTP call per folder) on every single upload. Only fall
+        # back to the (bounded) listing walk when the client didn't supply them.
+        if payload.file_name and payload.file_size:
+            filename = payload.file_name
+            size = int(payload.file_size)
+        else:
+            try:
+                items = await cloud.list_items(client, 0)
+                file_obj = None
+                for f in items.get("files", []):
+                    if f.get("id") == f_id:
+                        file_obj = f
                         break
-            
-            if file_obj:
-                filename = file_obj["name"]
-                size = file_obj["size"]
-            else:
+                if not file_obj:
+                    for folder in items.get("folders", []):
+                        sub_items = await cloud.list_items(client, folder["id"])
+                        for f in sub_items.get("files", []):
+                            if f.get("id") == f_id:
+                                file_obj = f
+                                break
+                        if file_obj:
+                            break
+
+                if file_obj:
+                    filename = file_obj["name"]
+                    size = file_obj["size"]
+                else:
+                    filename = file_info.split("/")[-1].split("?")[0] or "file"
+                    size = 0
+            except Exception as e:
+                log.warning("Failed to resolve exact filename/size via folder listing; size checks will be skipped: %s", e)
                 filename = file_info.split("/")[-1].split("?")[0] or "file"
                 size = 0
-        except Exception as e:
-            log.warning("Failed to resolve exact filename/size for file_id via folder listing; size checks will be skipped: %s", e)
-            filename = file_info.split("/")[-1].split("?")[0] or "file"
-            size = 0
 
     max_bytes = _TG_HARD_MAX
     if size > max_bytes:
