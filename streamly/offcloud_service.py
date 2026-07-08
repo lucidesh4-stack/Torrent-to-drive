@@ -53,32 +53,28 @@ class OffcloudService:
     def _url(self, path: str) -> str:
         return f"{OFFCLOUD_BASE_URL}{path}?key={self.api_key}"
 
-    async def _shared_client(self):
-        """(O-2) Return the app's shared pooled client, or None if unavailable."""
-        try:
-            from .core.http_client import HttpClientManager
-            return await HttpClientManager.get_instance().get_client()
-        except Exception as e:  # manager unavailable (e.g. isolated unit test)
-            log.debug("Shared HTTP client unavailable (%s); using a per-call client.", e)
-            return None
+    async def _get_client(self) -> httpx.AsyncClient:
+        client = getattr(self, "_client", None)
+        if client is None or getattr(client, "is_closed", False):
+            import asyncio
+            if not hasattr(self, "_lock") or self._lock is None:
+                self._lock = asyncio.Lock()
+            async with self._lock:
+                client = getattr(self, "_client", None)
+                if client is None or getattr(client, "is_closed", False):
+                    self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
 
     async def _send(self, method: str, url: str, data: dict | None, context: str):
-        """Issue the HTTP call on the shared client, or a short-lived fallback.
+        """Issue the HTTP call on the pooled client.
 
-        The shared singleton is NEVER closed here; only the fallback client is
-        (via `async with`), which also keeps the existing test fake working
-        unchanged (it implements the context-manager protocol, not aclose()).
+        Uses HTTP/1.1 (default) to avoid HTTP/2 protocol hangs with Offcloud's CDN.
         """
-        shared = await self._shared_client()
         try:
-            if shared is not None:
-                if method == "POST":
-                    return await shared.post(url, data=data)
-                return await shared.get(url)
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                if method == "POST":
-                    return await client.post(url, data=data)
-                return await client.get(url)
+            client = await self._get_client()
+            if method == "POST":
+                return await client.post(url, data=data)
+            return await client.get(url)
         except httpx.HTTPError as e:
             raise OffcloudError(f"Offcloud {context} failed: {e}") from e
 
