@@ -634,6 +634,49 @@
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
 
+    if (window.driveProvider === "offcloud") {
+      const urls = [];
+      const failed = [];
+      updateStatus($("cloudStatus"), "Preparing links...", "");
+      for (const item of selectedItems) {
+        if (item.download_url) {
+          urls.push(item.download_url);
+        } else if (item.type === "file") {
+          try {
+            const url = await getFileUrl(item);
+            urls.push(url);
+          } catch (e) {
+            failed.push(item.name);
+          }
+        } else {
+          failed.push(item.name);
+        }
+      }
+
+      if (urls.length === 0) {
+        const msg = "Could not resolve any links for Offcloud item(s)";
+        toast(msg);
+        return updateStatus($("cloudStatus"), msg, "error");
+      }
+
+      try {
+        const text = urls.join("\n");
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          throw new Error("Clipboard is not available in this browser");
+        }
+        await navigator.clipboard.writeText(text);
+        let msg = `Copied ${urls.length} link${urls.length === 1 ? "" : "s"} to clipboard`;
+        if (failed.length > 0) msg += ` (${failed.length} failed)`;
+        toast(msg);
+        updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
+      } catch (err) {
+        const message = err.message || "Could not copy link(s)";
+        toast(message);
+        updateStatus($("cloudStatus"), message, "error");
+      }
+      return;
+    }
+
     const files = selectedItems.filter((it) => it.type === "file");
     const folderCount = selectedItems.length - files.length;
 
@@ -730,6 +773,52 @@
   window.downloadSelected = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
+
+    if (window.driveProvider === "offcloud") {
+      const resolved = [];
+      const failed = [];
+      updateStatus($("cloudStatus"), `Preparing ${selectedItems.length} item(s)...`, "");
+      for (const item of selectedItems) {
+        if (item.download_url) {
+          resolved.push({ url: item.download_url, name: item.name });
+        } else if (item.type === "file") {
+          try {
+            const url = await getFileUrl(item);
+            resolved.push({ url, name: item.name });
+          } catch (e) {
+            failed.push(item.name);
+          }
+        } else {
+          failed.push(item.name);
+        }
+      }
+
+      if (resolved.length === 0) {
+        const msg = "Could not resolve any download links";
+        toast(msg);
+        return updateStatus($("cloudStatus"), msg, "error");
+      }
+
+      updateStatus($("cloudStatus"), `Starting ${resolved.length} download(s)...`, "");
+      resolved.forEach((res, i) => {
+        setTimeout(() => {
+          try {
+            window._downloadFileDirect(res.url, res.name);
+          } catch (err) {
+            toast(`Failed: ${res.name} — ${err.message}`);
+          }
+          if (i === resolved.length - 1) {
+            let msg = `Started ${resolved.length} download(s)`;
+            if (failed.length) msg += ` (${failed.length} failed)`;
+            updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
+            if (resolved.length > 1) {
+              toast("If only one file downloaded, allow “multiple downloads” when your browser prompts.");
+            }
+          }
+        }, i * 350);
+      });
+      return;
+    }
 
     const folders = selectedItems.filter((it) => it.type === "folder");
     const files = selectedItems.filter((it) => it.type === "file");

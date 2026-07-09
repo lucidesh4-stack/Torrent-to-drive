@@ -145,7 +145,7 @@ def map_offcloud_item(item: dict[str, Any]) -> dict[str, Any]:
     elif isinstance(status, str):
         status_str = status
 
-    size = item.get("size") or item.get("size_bytes") or 0
+    size = item.get("size") or item.get("fileSize") or item.get("file_size") or item.get("size_bytes") or 0
     created_at = item.get("created_at") or item.get("createdOn") or item.get("created")
     
     if isinstance(created_at, str):
