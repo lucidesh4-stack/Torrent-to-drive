@@ -512,7 +512,7 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     # NOTE: the right number depends on Telegram's rate-limit tier for the account/session
     # in use, which isn't observable from static analysis -- it must be found empirically,
     # per-account, exactly as described above.
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "3"))
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
     connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
     connections = min(connections, parts_count)
 
