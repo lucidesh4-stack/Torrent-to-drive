@@ -606,7 +606,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         }
         
         download_url = file_url
-        log.info("Downloading directly from Seedr (no proxy): %s", download_url)
+        log.info("Preparing download for Seedr file: %s", download_url)
 
         if size:
             # Size was already resolved once, at click-time, from the same Seedr
