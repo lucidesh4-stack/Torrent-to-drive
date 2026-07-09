@@ -105,6 +105,10 @@
     const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
+    // Offcloud has no delete API -> disable/grey the Delete button in Offcloud mode
+    // (same treatment as the Up button at root). Enabled normally for Seedr.
+    const deleteBtn = $("deleteBtn");
+    if (deleteBtn) deleteBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
 
     // ----- Mobile selection sync -----
     document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
@@ -118,6 +122,8 @@
     }
     const tgBtn = $("cmBulkTelegram");
     if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;
+    const cmDelBtn = $("cmBulkDelete");
+    if (cmDelBtn) cmDelBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
     // Mobile select-all checkbox state
     const cmAll = $("cmSelectAll");
     if (cmAll) {
@@ -798,26 +804,10 @@
   window.deleteSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     
-    const isOffcloud = window.driveProvider === "offcloud";
-    if (isOffcloud) {
-      const selectedItems = items.filter(it => selectedKeys.has(it.key));
-      const msg = selectedItems.length === 1
-        ? `Delete Offcloud download: ${selected ? selected.name : "this item"}?`
-        : `Delete ${selectedItems.length} Offcloud downloads?`;
-      if (!confirm(msg)) return;
-      
-      updateStatus($("cloudStatus"), `Deleting ${selectedItems.length} item(s)...`, "");
-      try {
-        for (const item of selectedItems) {
-          await postJson("/api/offcloud/delete", { request_id: item.id });
-        }
-        toast(`Deleted ${selectedItems.length} item(s)`);
-        await loadOffcloudList();
-        await loadOffcloudListMobile();
-      } catch (err) {
-        updateStatus($("cloudStatus"), err.message || "Delete failed", "error");
-      }
-      return;
+    // Offcloud has no delete API; the delete button is disabled in Offcloud mode
+    // (see updateSelection). Guard here too in case it's ever invoked directly.
+    if (window.driveProvider === "offcloud") {
+      return toast("Delete isn't supported for Offcloud downloads.");
     }
 
     const payload = items

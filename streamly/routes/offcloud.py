@@ -188,29 +188,20 @@ async def offcloud_list(request: Request):
     except HTTPException as he:
         return {"success": True, "items": [], "_warning": str(he.detail)}
 
-    deleted_ids = set()
-    if rs:
-        try:
-            deleted_ids = await rs.get_offcloud_deleted_ids()
-        except Exception as e:
-            log.warning("Failed to fetch deleted IDs from Redis: %s", e)
-
     try:
         raw_items = await svc.get_history()
     except OffcloudError as e:
         log.warning("Offcloud get_history failed: %s", e)
         if rs:
             submissions = await rs.get_offcloud_submissions()
-            filtered = [s for s in submissions if s.get("request_id") not in deleted_ids]
-            return {"success": True, "items": filtered, "_warning": f"Offcloud API error: {e}. Showing cached list."}
+            return {"success": True, "items": submissions, "_warning": f"Offcloud API error: {e}. Showing cached list."}
         raise HTTPException(status_code=502, detail=str(e))
 
     items = []
     for item in raw_items:
         try:
             mapped = map_offcloud_item(item)
-            if mapped["request_id"] not in deleted_ids:
-                items.append(mapped)
+            items.append(mapped)
         except Exception as ex:
             log.warning("Failed to map Offcloud item %r: %s", item, ex)
 
@@ -252,31 +243,4 @@ async def offcloud_explore(request: Request, request_id: str):
 
     return {"success": True, "files": files}
 
-
-class DeleteOffcloudPayload(BaseModel):
-    request_id: str
-
-
-@offcloud_router.post("/api/offcloud/delete")
-@rate_limited(cost=2.0)
-async def delete_offcloud_item(request: Request, payload: DeleteOffcloudPayload, _csrf = Depends(verify_csrf)):
-    rs = getattr(request.app.state, "rs", None)
-    if not rs:
-        raise HTTPException(status_code=503, detail="Redis unavailable")
-    
-    try:
-        await rs.add_offcloud_deleted_id(payload.request_id)
-    except Exception as e:
-        log.warning("Failed to record deleted ID in Redis: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to record deletion")
-
-    try:
-        submissions = await rs.get_offcloud_submissions()
-        new_submissions = [s for s in submissions if s.get("request_id") != payload.request_id]
-        if len(new_submissions) != len(submissions):
-            await rs.save_offcloud_submissions(new_submissions)
-    except Exception as e:
-        log.warning("Failed to clean up cached submissions: %s", e)
-
-    return {"success": True}
 

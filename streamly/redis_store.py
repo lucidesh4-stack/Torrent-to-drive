@@ -134,18 +134,6 @@ class RedisStore:
         """Save the tracked Offcloud submissions list. Capped by the caller to bound growth."""
         return await self.set("streamly:offcloud:submissions", _json.dumps(items))
 
-    async def get_offcloud_deleted_ids(self) -> set[str]:
-        """Get the set of deleted Offcloud request IDs."""
-        res = await self._execute("SMEMBERS", "streamly:offcloud:deleted_ids")
-        if isinstance(res, list):
-            return set(str(x) for x in res)
-        return set()
-
-    async def add_offcloud_deleted_id(self, request_id: str) -> bool:
-        """Add a request ID to the set of deleted Offcloud request IDs."""
-        res = await self._execute("SADD", "streamly:offcloud:deleted_ids", request_id)
-        return bool(isinstance(res, int) and res > 0)
-
     async def push_log(self, line: str, max_lines: int = _LOGS_MAX_LINES) -> None:
         """Append a single formatted log line to a capped Redis list."""
         await self._execute("LPUSH", _LOGS_KEY, line)
