@@ -254,6 +254,11 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
     # Write to history
     from .queue import add_to_history_backend
     await add_to_history_backend(rs, magnet, name, size_bytes)
+    if rs:
+        try:
+            await rs._execute("HSET", "streamly:magnet_mapping", name.lower(), magnet)
+        except Exception as hm_err:
+            log.warning("Failed to store magnet mapping in Redis: %s", hm_err)
     
     provider = (payload.provider or "auto").strip().lower()
     if provider not in ("auto", "seedr", "offcloud"):

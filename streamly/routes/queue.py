@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .auth import verify_csrf
 from ..security import rate_limited
-from ..cloud_service import format_size, _safe_int
+from ..cloud_service import format_size, _safe_int, _safe_float
 
 log = logging.getLogger(__name__)
 queue_router = APIRouter()
@@ -45,7 +45,7 @@ async def add_to_history_backend(rs, magnet: str, name: str | None, size_bytes: 
                 log.warning("Corrupted history blob in Redis, resetting to empty: %s", e)
         items = [it for it in items if it.get("magnet") != magnet]
         items.insert(0, new_item)
-        items = items[:50]
+
         await rs.set("streamly:history:global_history", _json.dumps(items))
     except Exception as e:
         log.warning("Failed to save history in backend: %s", e)
@@ -180,6 +180,75 @@ async def seedr_queue_daemon_loop(app):
                         active_changed = True
                     except Exception as err:
                         log.error("Failed to delete stopped/failed transfer: %s", err)
+                else:
+                    t_progress = _safe_float(t.get("progress", 0.0))
+                    t_speed = _safe_float(t.get("download_rate", 0.0))
+                    is_loading = t_status.startswith("loading") or "seeder" in t_status or "collecting" in t_status or "stuck" in t_status
+                    is_stuck = is_loading and (t_progress < 1.0) and (t_speed == 0.0)
+                    
+                    if is_stuck:
+                        stuck_key = f"streamly:stuck_torrent:{t_id}"
+                        try:
+                            first_seen_str = await rs.get(stuck_key)
+                            import time
+                            now = time.time()
+                            if not first_seen_str:
+                                await rs.set(stuck_key, str(now), ex=1800)
+                            else:
+                                try:
+                                    first_seen = float(first_seen_str)
+                                except ValueError:
+                                    first_seen = now
+                                if now - first_seen >= 300:
+                                    log.warning("Torrent '%s' is stuck loading for 5+ mins. Re-queuing to the end of the queue...", t_name)
+                                    magnet = None
+                                    try:
+                                        magnet_bytes = await rs._execute("HGET", "streamly:magnet_mapping", t_name.lower())
+                                        if magnet_bytes:
+                                            magnet = magnet_bytes.decode("utf-8") if isinstance(magnet_bytes, bytes) else magnet_bytes
+                                    except Exception as me:
+                                        log.debug("Failed to HGET magnet mapping: %s", me)
+                                    
+                                    if not magnet:
+                                        try:
+                                            history = await rs.get_history("global_history")
+                                            for hist_item in history:
+                                                h_title = hist_item.get("title", "")
+                                                if h_title and (h_title.lower() == t_name.lower() or t_name.lower() in h_title.lower() or h_title.lower() in t_name.lower()):
+                                                    magnet = hist_item.get("magnet")
+                                                    if magnet:
+                                                        break
+                                        except Exception as he:
+                                            log.debug("Failed to find magnet in history: %s", he)
+                                            
+                                    if magnet:
+                                        await rs._execute("DEL", stuck_key)
+                                        try:
+                                            await cloud.delete_transfer(client, t_id)
+                                            active_changed = True
+                                        except Exception as err:
+                                            log.error("Failed to delete stuck transfer: %s", err)
+                                        
+                                        queued_item = {
+                                            "task_id": f"stk-{t_id}",
+                                            "magnet": magnet,
+                                            "name": t_name,
+                                            "size": t_size,
+                                            "time": int(time.time()),
+                                            "retries": 0
+                                        }
+                                        try:
+                                            await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+                                            log.info("Re-queued stuck torrent '%s' to the back of the queue successfully.", t_name)
+                                        except Exception as qe:
+                                            log.error("Failed to re-queue stuck torrent: %s", qe)
+                        except Exception as stuck_err:
+                            log.error("Error processing stuck check for transfer %s: %s", t_id, stuck_err)
+                    else:
+                        try:
+                            await rs._execute("DEL", f"streamly:stuck_torrent:{t_id}")
+                        except Exception:
+                            pass
                         
             if active_changed:
                 storage = await cloud.list_items(client, 0)
@@ -232,6 +301,10 @@ async def seedr_queue_daemon_loop(app):
             
             await rs._execute("SET", "streamly:seedr_adding_lock", "1", "EX", "10")
             try:
+                try:
+                    await rs._execute("HSET", "streamly:magnet_mapping", item_name.lower(), item.get("magnet"))
+                except Exception as hm_err:
+                    log.warning("Failed to store magnet mapping in daemon: %s", hm_err)
                 await cloud.add_magnet(client, item.get("magnet"))
             except Exception as e:
                 log.error("Failed to add magnet popped from queue: %s", e)
