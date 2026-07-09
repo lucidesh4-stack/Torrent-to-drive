@@ -549,7 +549,3 @@ def create_app(
         await HttpClientManager.get_instance().close()
 
     return app
-
-
-# Native app instance definition for uvicorn compatibility without --factory flag
-app = create_app()
