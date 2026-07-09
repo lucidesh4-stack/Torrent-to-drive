@@ -289,3 +289,13 @@ async def offcloud_explore(request: Request, request_id: str):
     return {"success": True, "files": files}
 
 
+@offcloud_router.get("/api/offcloud/debug")
+async def offcloud_debug(request: Request):
+    try:
+        svc = await _get_offcloud(request)
+        raw_items = await svc.get_history()
+        return {"raw_items": raw_items}
+    except Exception as e:
+        return {"error": str(e)}
+
+
