@@ -33,3 +33,7 @@ streamly_session
 # AI Context and logs
 ai/
 render logs.txt
+
+# Scratch and Audit files
+scratch/
+AUDIT.md

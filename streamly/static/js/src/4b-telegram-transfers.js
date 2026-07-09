@@ -98,7 +98,7 @@
             <strong style="display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
             <span class="muted" style="font-size: 12px;">Status: <span style="color: var(--accent); font-weight: 600;">${fstatus}</span></span>
           </div>
-          <button class="tg-cancel-btn danger ghost" data-task-id="${ftask}" style="padding: 6px 12px; font-size: 12px;">Cancel</button>
+          <button class="tg-cancel-btn danger ghost" data-task-id="${ftask}" title="Cancel transfer" aria-label="Cancel transfer" style="flex-shrink: 0; padding: 4px 9px; font-size: 15px; line-height: 1;">&times;</button>
         </div>
         <div style="width: 100%; height: 6px; background: var(--panel-1); border-radius: 3px; overflow: hidden; border: 1px solid var(--line);">
           <div style="width: ${progress}%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
@@ -132,9 +132,11 @@
         actionTd.style.cssText = "width: 90px; font-size: 13px; padding: 10px; text-align: center;";
         
         const cancelBtn = document.createElement("button");
-        cancelBtn.className = "danger ghost";
-        cancelBtn.style.cssText = "padding: 4px 8px; font-size: 11px;";
-        cancelBtn.textContent = "Cancel";
+        cancelBtn.className = "tg-cancel-btn danger ghost";
+        cancelBtn.style.cssText = "padding: 3px 8px; font-size: 15px; line-height: 1;";
+        cancelBtn.innerHTML = "&times;";
+        cancelBtn.title = "Cancel transfer";
+        cancelBtn.setAttribute("aria-label", "Cancel transfer");
         cancelBtn.dataset.taskId = item.task_id;
         
         actionTd.appendChild(cancelBtn);
@@ -160,14 +162,56 @@
       }
     }
 
-    // Wire up cancel events
+    // Wire up cancel events. Use currentTarget (the button), not target, so a
+    // click on the "×" glyph inside the button still resolves the task id.
     document.querySelectorAll(".tg-cancel-btn, #tgQueueBody button").forEach((btn) => {
       btn.onclick = (e) => {
-        const tid = e.target.dataset.taskId;
+        const tid = e.currentTarget.dataset.taskId;
         if (tid) cancelTelegramTransfer(tid);
       };
     });
+
+    // Show/hide + wire the "Cancel All" button (only meaningful when the queue
+    // has items). Cancels every queued task; the active transfer is left running.
+    const cancelAllBtn = $("tgCancelAllBtn");
+    if (cancelAllBtn) {
+      if (queueCount > 0) {
+        cancelAllBtn.classList.remove("hidden");
+        cancelAllBtn.onclick = () => cancelAllQueued(data);
+      } else {
+        cancelAllBtn.classList.add("hidden");
+      }
+    }
   }
+
+  window.cancelAllQueued = async function(data) {
+    const queue = (data && data.queue) || [];
+    const ids = queue.map((it) => it.task_id).filter(Boolean);
+    if (ids.length === 0) return;
+    if (!confirm(`Cancel all ${ids.length} queued transfer(s)? The active transfer will keep running.`)) return;
+
+    const btn = $("tgCancelAllBtn");
+    if (btn) { btn.disabled = true; btn.textContent = "Cancelling…"; }
+
+    let ok = 0, fail = 0;
+    // Sequential to avoid hammering the API / rate limiter with a burst.
+    for (const tid of ids) {
+      if (window._cancelInFlight.has(tid)) continue;
+      window._cancelInFlight.add(tid);
+      try {
+        const res = await postJson("/api/telegram/cancel", { task_id: tid });
+        if (res && res.success) ok++; else fail++;
+      } catch (e) {
+        fail++;
+      } finally {
+        window._cancelInFlight.delete(tid);
+      }
+    }
+
+    toast(fail === 0 ? `Cancelled ${ok} queued transfer(s).` : `Cancelled ${ok}, ${fail} failed.`);
+    if (btn) { btn.disabled = false; btn.textContent = "Cancel All"; }
+    if (typeof refreshQueueStatus === "function") refreshQueueStatus();
+  };
 
   window.refreshQueueStatus = async function() {
     try {

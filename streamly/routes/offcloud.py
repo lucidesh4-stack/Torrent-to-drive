@@ -1,7 +1,7 @@
 """
 Offcloud routes -- large-file overflow path.
 """
-from __future__ import annotations
+# removed future annotations
 
 import logging
 import urllib.parse

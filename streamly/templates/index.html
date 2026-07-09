@@ -288,9 +288,9 @@
 
   <!-- Telegram Transfers Overlay -->
   <section id="telegramTransfersOverlay" class="overlay hidden">
-    <div class="player-box" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5);">
-      <div class="sheet-grabber"></div>
-      <div class="panel-head" style="border-radius: 14px 14px 0 0; padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
+    <div class="player-box" style="max-width: 600px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5);">
+      <div class="sheet-grabber" style="flex-shrink: 0;"></div>
+      <div class="panel-head" style="flex-shrink: 0; border-radius: 14px 14px 0 0; padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h2 style="margin: 0; font-size: 1.25rem;">Telegram Exports</h2>
           <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">Export Queue & Limit Status</div>
@@ -298,9 +298,9 @@
         <button id="closeTelegramTransfersBtn" class="ghost" type="button" aria-label="Close transfers" style="font-size: 20px; padding: 0; line-height: 1;">×</button>
       </div>
       
-      <div style="padding: 20px; overflow-y: auto; flex: 1; display: grid; gap: 20px;">
+      <div style="padding: 20px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 20px;">
         <!-- Limit / Target Card -->
-        <div class="panel" style="padding: 16px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);">
+        <div class="panel" style="flex-shrink: 0; padding: 16px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);">
           <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px;">
             <span>Monthly Server Limit</span>
             <span id="tgTransfersLimitText">0.00 GB / 99.0 GB</span>
@@ -315,23 +315,26 @@
         </div>
         
         <!-- Active Transfer Section -->
-        <div>
+        <div style="flex-shrink: 0;">
           <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;" class="muted">Active Export</h4>
           <div id="tgActiveTransferCard" class="panel" style="padding: 16px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); display: grid; gap: 12px;">
             <div class="empty" style="padding: 8px; margin: 0;">No active transfers running.</div>
           </div>
         </div>
         
-        <!-- Queued Transfers Section -->
-        <div>
-          <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;" class="muted">Queue List</h4>
-          <div style="overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm);">
+        <!-- Queued Transfers Section (the only scrollable region) -->
+        <div style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;">
+          <div style="flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; margin: 0 0 10px 0;">
+            <h4 style="margin: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;" class="muted">Queue List</h4>
+            <button id="tgCancelAllBtn" class="danger ghost hidden" type="button" style="padding: 4px 10px; font-size: 11px;">Cancel All</button>
+          </div>
+          <div style="flex: 1 1 auto; min-height: 180px; overflow-y: auto; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm);">
             <table class="table" style="width: 100%; margin: 0; table-layout: fixed;">
               <thead>
                 <tr>
-                  <th style="font-size: 12px; padding: 10px;">Name</th>
-                  <th style="width: 100px; font-size: 12px; padding: 10px; text-align: right;">Size</th>
-                  <th style="width: 90px; font-size: 12px; padding: 10px; text-align: center;">Action</th>
+                  <th style="position: sticky; top: 0; z-index: 1; font-size: 12px; padding: 10px;">Name</th>
+                  <th style="position: sticky; top: 0; z-index: 1; width: 100px; font-size: 12px; padding: 10px; text-align: right;">Size</th>
+                  <th style="position: sticky; top: 0; z-index: 1; width: 90px; font-size: 12px; padding: 10px; text-align: center;">Action</th>
                 </tr>
               </thead>
               <tbody id="tgQueueBody">
