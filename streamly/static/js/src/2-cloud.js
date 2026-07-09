@@ -880,7 +880,13 @@
             file_size: item.size,
             download_url: dlUrl
           };
-          payload = { file_id: item.id, provider: "seedr", file_name: item.name, file_size: item.size };
+        } else {
+          payload = { file_id: item.id, provider: "seedr" };
+          const _sz = Number(item.size);
+          if (item.name && Number.isFinite(_sz) && _sz > 0) {
+            payload.file_name = item.name;
+            payload.file_size = Math.floor(_sz);
+          }
         }
         
         const data = await postJson("/api/telegram/send", payload);

@@ -10,7 +10,7 @@ import httpx
 import secrets
 import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Any
 from telethon import TelegramClient, functions, types
 from telethon.network import MTProtoSender
@@ -1044,8 +1044,26 @@ class SendFilePayload(BaseModel):
     chat_id: str = ""
     provider: str = "seedr"
     file_name: str = ""
+    # Tolerant on purpose: clients may send null / "" / a float for size. Coerce
+    # to a safe non-negative int here rather than 422-ing the whole request; the
+    # value is only ever used as a hint (real size is re-checked server-side).
     file_size: int = 0
     download_url: str = ""
+
+    @field_validator("file_size", mode="before")
+    @classmethod
+    def _coerce_file_size(cls, v):
+        if v is None or v == "":
+            return 0
+        try:
+            return max(0, int(float(v)))
+        except (TypeError, ValueError):
+            return 0
+
+    @field_validator("file_name", "download_url", "chat_id", "provider", mode="before")
+    @classmethod
+    def _coerce_str(cls, v):
+        return "" if v is None else str(v)
 
 
 async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_delay=0.1):
