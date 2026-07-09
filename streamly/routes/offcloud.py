@@ -145,7 +145,52 @@ def map_offcloud_item(item: dict[str, Any]) -> dict[str, Any]:
     elif isinstance(status, str):
         status_str = status
 
-    size = item.get("size") or item.get("fileSize") or item.get("file_size") or item.get("size_bytes") or 0
+    # Robust size parsing from nested status dict, outer dict, and handle unit strings
+    raw_size = None
+    if isinstance(status, dict):
+        raw_size = (
+            status.get("size")
+            or status.get("fileSize")
+            or status.get("file_size")
+            or status.get("fileSizeInBytes")
+            or status.get("file_size_bytes")
+        )
+    if not raw_size:
+        raw_size = (
+            item.get("size")
+            or item.get("fileSize")
+            or item.get("file_size")
+            or item.get("size_bytes")
+            or item.get("fileSizeInBytes")
+        )
+
+    size_val = 0
+    if raw_size is not None:
+        try:
+            if isinstance(raw_size, (int, float)):
+                size_val = int(raw_size)
+            else:
+                import re
+                s_str = str(raw_size).strip().lower()
+                # Parse float values or values with units (e.g., "1.2 GB" or "950 MB")
+                match = re.match(r"^([\d\.]+)\s*([a-z]*)$", s_str)
+                if match:
+                    val = float(match.group(1))
+                    unit = match.group(2)
+                    if "g" in unit:
+                        size_val = int(val * 1024 * 1024 * 1024)
+                    elif "m" in unit:
+                        size_val = int(val * 1024 * 1024)
+                    elif "k" in unit:
+                        size_val = int(val * 1024)
+                    else:
+                        size_val = int(val)
+                else:
+                    size_val = int(float(s_str))
+        except Exception:
+            size_val = 0
+
+    size_bytes = size_val
     created_at = item.get("created_at") or item.get("createdOn") or item.get("created")
     
     if isinstance(created_at, str):
@@ -173,7 +218,7 @@ def map_offcloud_item(item: dict[str, Any]) -> dict[str, Any]:
         "request_id": req_id,
         "file_name": file_name,
         "status": status_str,
-        "size_bytes": int(size),
+        "size_bytes": size_bytes,
         "created_at": created_at,
         "download_url": download_url,
     }
