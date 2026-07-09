@@ -124,7 +124,19 @@
     }, DBLTAP_MS);
   });
 
-  $("refreshBtn").addEventListener("click", () => { if (typeof window.cloudRefresh === "function") window.cloudRefresh(); else loadFolder(currentFolder); });
+  $("refreshBtn").addEventListener("click", () => {
+    if (typeof window.cloudRefresh === "function") {
+      window.cloudRefresh();
+    } else {
+      if (window.driveProvider === "offcloud") {
+        if (typeof window.loadOffcloudList === "function") {
+          window.loadOffcloudList();
+        }
+      } else {
+        loadFolder(currentFolder);
+      }
+    }
+  });
   $("upBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
@@ -306,7 +318,21 @@
 
   // ----- Mobile cloud wiring -----
   if ($("cmUpBtn")) $("cmUpBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
-  if ($("cmRefreshBtn")) $("cmRefreshBtn").addEventListener("click", () => { if (typeof window.cloudRefresh === "function") window.cloudRefresh(); else loadFolder(currentFolder); });
+  if ($("cmRefreshBtn")) {
+    $("cmRefreshBtn").addEventListener("click", () => {
+      if (typeof window.cloudRefresh === "function") {
+        window.cloudRefresh();
+      } else {
+        if (window.driveProvider === "offcloud") {
+          if (typeof window.loadOffcloudListMobile === "function") {
+            window.loadOffcloudListMobile();
+          }
+        } else {
+          loadFolder(currentFolder);
+        }
+      }
+    });
+  }
   if ($("cmSelectAll")) $("cmSelectAll").addEventListener("change", (e) => {
     if (e.target.checked) { for (const it of items) selectedKeys.add(it.key); }
     else { selectedKeys.clear(); }

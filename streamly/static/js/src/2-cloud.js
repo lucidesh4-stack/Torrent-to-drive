@@ -263,6 +263,7 @@
   window.syncCloudAutoRefresh = function() {
     clearTimeout(cloudAutoRefreshTimer);
     cloudAutoRefreshTimer = null;
+    if (window.driveProvider === "offcloud") return;
     const cloudVisible = $("cloudView") && !$("cloudView").classList.contains("hidden");
     if (isAuthenticated && cloudVisible && (transfers.length > 0 || seedrQueue.length > 0)) {
       cloudAutoRefreshTimer = setTimeout(() => loadFolder(currentFolder || 0, { silent: true }), CLOUD_TRANSFER_REFRESH_MS);

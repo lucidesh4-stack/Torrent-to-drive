@@ -181,7 +181,10 @@
           updateStatus($("searchStatus"), "✓ Added: " + magnetName, "ok");
           toast("Added to Seedr: " + magnetName);
         }
-        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+        if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) {
+          if (typeof window.cloudRefresh === "function") window.cloudRefresh();
+          else loadFolder(currentFolder || 0, { silent: true });
+        }
         else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
         $("searchQuery").value = "";
         setMagnetUiState("");
@@ -298,7 +301,10 @@
           } else {
             toast("Added to Seedr: " + (result.name || "torrent"));
           }
-          if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) loadFolder(currentFolder || 0, { silent: true });
+          if (isAuthenticated && $("cloudView") && !$("cloudView").classList.contains("hidden")) {
+            if (typeof window.cloudRefresh === "function") window.cloudRefresh();
+            else loadFolder(currentFolder || 0, { silent: true });
+          }
           else if (typeof refreshStorageSnapshot === "function") refreshStorageSnapshot(true);
           setButtonState("done");
         } catch (err) {
