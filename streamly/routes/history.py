@@ -60,7 +60,7 @@ async def add_history(request: Request, payload: AddHistoryPayload, _csrf = Depe
     items = await rs.get_history("global_history") if rs else []
     items = [it for it in items if it.get("magnet") != magnet]
     items.insert(0, new_item)
-    items = items[:50]
+
     
     if rs:
         success = await rs.save_history("global_history", items)

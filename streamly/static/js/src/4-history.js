@@ -105,11 +105,14 @@
         delBtn.onclick = async () => {
           delBtn.disabled = true;
           try {
+            tr.remove();
+            if (tbody.children.length === 0) {
+              $("historyEmpty").classList.remove("hidden");
+            }
             await postJson("/api/history/delete", { magnet: item.magnet });
-            renderHistory();
           } catch(e) {
              toast("Failed to delete from history");
-             delBtn.disabled = false;
+             renderHistory();
           }
         };
         
