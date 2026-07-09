@@ -117,8 +117,6 @@
     const bulk = $("cloudBulkBar");
     if (bulk) {
       bulk.classList.toggle("hidden", count === 0);
-      const bc = $("cmBulkCount");
-      if (bc) bc.textContent = String(count);
     }
     const tgBtn = $("cmBulkTelegram");
     if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;

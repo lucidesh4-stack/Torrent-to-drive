@@ -316,6 +316,13 @@
   if ($("cmBulkCopy")) $("cmBulkCopy").addEventListener("click", copySelectedLink);
   if ($("cmBulkTelegram")) $("cmBulkTelegram").addEventListener("click", sendSelectedToTelegram);
   if ($("cmBulkDelete")) $("cmBulkDelete").addEventListener("click", deleteSelected);
+  if ($("cmBulkClose")) {
+    $("cmBulkClose").addEventListener("click", () => {
+      selectedKeys.clear();
+      lastClickedKey = null;
+      updateSelection();
+    });
+  }
 
   if ($("pasteBtn")) {
     $("pasteBtn").addEventListener("click", () => {
