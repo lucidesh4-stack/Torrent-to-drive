@@ -294,34 +294,12 @@ async def offcloud_explore(request: Request, request_id: str):
 async def offcloud_debug(request: Request):
     try:
         import httpx
-        import re
-        svc = await _get_offcloud(request)
-        key = svc.api_key
-        
-        # Test 1: Fetch explore page HTML
-        explore_url = f"https://offcloud.com/cloud/explore/fdcJxFYTSPMBjGZvTq4DrA?key={key}"
-        async with httpx.AsyncClient() as client:
-            r_html = await client.get(explore_url)
-            # Search for "zip" or "Archive" links inside the HTML
-            links = re.findall(r'href=["\']([^"\']+)["\']', r_html.text)
-            zip_links = [l for l in links if "zip" in l.lower() or "archive" in l.lower()]
-            
-            # Test 2: Try GET https://offcloud.com/api/cloud/zip/[requestId]?key=[key]
-            api_zip_url = f"https://offcloud.com/api/cloud/zip/fdcJxFYTSPMBjGZvTq4DrA?key={key}"
-            r_api = await client.get(api_zip_url)
-            
-            # Test 3: Try GET https://offcloud.com/cloud/zip/[requestId]?key=[key]
-            cloud_zip_url = f"https://offcloud.com/cloud/zip/fdcJxFYTSPMBjGZvTq4DrA?key={key}"
-            r_cloud = await client.get(cloud_zip_url, follow_redirects=False)
-            
+        url = "https://1-cdn2-ovh-bea.energycdn.com/cdn3sto/frostyicebreath-sto/69ffd86ebbc112.07118806/595767889/1783660823/603c1a1cdfd73e987a8f77a68e682cec2cd28c15/Moving.S01.KOREAN.1080p.WEBRip.x265-KONTRAST.zip"
+        async with httpx.AsyncClient(follow_redirects=False) as client:
+            resp = await client.head(url)
             return {
-                "explore_html_status": r_html.status_code,
-                "explore_zip_links_found": zip_links[:10],
-                "api_zip_status": r_api.status_code,
-                "api_zip_json": r_api.json() if "json" in r_api.headers.get("content-type", "") else r_api.text[:200],
-                "cloud_zip_status": r_cloud.status_code,
-                "cloud_zip_headers": dict(r_cloud.headers),
-                "cloud_zip_text": r_cloud.text[:200]
+                "status_code": resp.status_code,
+                "headers": dict(resp.headers)
             }
     except Exception as e:
         return {"error": str(e)}
