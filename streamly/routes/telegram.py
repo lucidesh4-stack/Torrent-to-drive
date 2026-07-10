@@ -247,7 +247,7 @@ class ProgressTracker:
                     "sid": self.sid
                 }
                 cmds.append(["SET", f"streamly:transfer_status:{self.task_id}", _json.dumps(state), "EX", "3600"])
-                cmds.append(["EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS)])
+                cmds.append(["EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS)])  # EXPIRE", "streamly:active_transfer_global"
             if cmds:
                 await self.rs.pipeline(*cmds)
         except Exception as e:
@@ -342,7 +342,7 @@ async def _trigger_next_transfer_locked(app):
         
         task_id = next_task_id
         await rs.pipeline(
-            ["SET", "streamly:active_transfer_global", task_id, "EX", str(_ACTIVE_TTL_SECONDS)],
+            ["SET", "streamly:active_transfer_global", task_id, "EX", str(_ACTIVE_TTL_SECONDS)],  # active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS
             ["SET", f"streamly:active_transfer:{sid}", task_id, "EX", "3600"],
             ["DEL", _DISPATCH_LOCK_KEY],
         )
@@ -921,9 +921,9 @@ async def test_download_speed(request: Request):
     pinned_ip = None
     try:
         if raw_url is None or not raw_url.strip():
-            test_url, pinned_ip = validate_public_url(_DEFAULT_SPEEDTEST_URL)
+            test_url, pinned_ip = await validate_public_url(_DEFAULT_SPEEDTEST_URL)
         else:
-            test_url, pinned_ip = validate_public_url(raw_url)
+            test_url, pinned_ip = await validate_public_url(raw_url)
     except ValidationError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
 

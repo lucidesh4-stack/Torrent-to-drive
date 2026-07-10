@@ -187,9 +187,18 @@
 
     const action = document.createElement("div");
     action.className = "row-action";
-    action.appendChild(makeAddButton(row));
+    const addBtn = makeAddButton(row);
+    action.appendChild(addBtn);
 
     wrap.append(content, action);
+
+    wrap.addEventListener("click", (e) => {
+      if (e.target.closest(".add-btn")) return;
+      if (addBtn && !addBtn.disabled) {
+        addBtn.click();
+      }
+    });
+
     return wrap;
   }
 
@@ -317,9 +326,18 @@
 
     const action = document.createElement("div");
     action.className = "row-action";
-    action.appendChild(makeAddButton(row));
+    const addBtn = makeAddButton(row);
+    action.appendChild(addBtn);
 
     wrap.append(content, action);
+
+    wrap.addEventListener("click", (e) => {
+      if (e.target.closest(".add-btn")) return;
+      if (addBtn && !addBtn.disabled) {
+        addBtn.click();
+      }
+    });
+
     return wrap;
   }
 

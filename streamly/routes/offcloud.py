@@ -295,8 +295,8 @@ async def offcloud_explore(request: Request, request_id: str):
 async def offcloud_debug(request: Request):
     try:
         svc = await _get_offcloud(request)
-        raw_items = await svc.get_history()
-        return {"raw_items": raw_items}
+        status_info = await svc.get_status("fdcJxFYTSPMBjGZvTq4DrA")
+        return {"status_info": status_info}
     except Exception as e:
         return {"error": str(e)}
 

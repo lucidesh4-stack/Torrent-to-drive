@@ -379,14 +379,30 @@
       font-size: 13.5px;
       transition: all 0.1s ease-out;
       -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
     }
     .episode-row:last-child {
       border-bottom: none;
     }
     .episode-row:hover {
-      background: rgba(255, 255, 255, 0.03);
+      background: rgba(255, 255, 255, 0.05);
       transform: none;
       box-shadow: none;
+    }
+    .episode-row:hover .add-btn {
+      background: var(--line-soft);
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+    .episode-row:hover .add-btn[data-state="done"] {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.5);
+      color: var(--green);
+    }
+    .episode-row:hover .add-btn[data-state="adding"] {
+      background: var(--panel-2);
+      border-color: var(--line);
+      color: var(--blue);
     }
     .row-content {
       display: flex;
