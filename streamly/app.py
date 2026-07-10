@@ -122,7 +122,7 @@ SITE_LOGIN_HTML = """<!DOCTYPE html>
 """
 
 # Log buffering system for async architecture
-_LOG_QUEUE = deque()
+_LOG_QUEUE = deque(maxlen=100_000)
 
 
 class AsyncRedisLogHandler(logging.Handler):
@@ -253,6 +253,22 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     templates = Jinja2Templates(directory=str(HERE / "templates"))
 
+    # EFF-06: Pre-compute static asset version at startup (not per-request)
+    try:
+        _asset_ver = int(max(
+            os.path.getmtime(os.path.join(root, f))
+            for root, _dirs, files in os.walk(HERE / "static") for f in files
+        ))
+    except ValueError:
+        _asset_ver = 1
+
+    # EFF-10: Pre-compile Jinja2 site-login template once
+    _SITE_LOGIN_TEMPLATE = Template(SITE_LOGIN_HTML)
+
+    # EFF-24: Cache env vars that never change at runtime
+    _SITE_PASSWORD = os.getenv("SITE_PASSWORD")
+    _IS_HF = "SPACE_ID" in os.environ
+
     # Security Headers Middleware
     @app.middleware("http")
     async def add_security_headers(request: Request, call_next):
@@ -261,20 +277,19 @@ def create_app(
         
         # Site protection check
         path = request.url.path
-        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
-            site_password = os.getenv("SITE_PASSWORD")
+        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and path != "/offcloud-debug" and not path.startswith("/static/"):
+            site_password = _SITE_PASSWORD
             if site_password and not request.session.get("site_auth"):
                 if path.startswith("/api/") or path.startswith("/fs/"):
                     return JSONResponse(
                         status_code=401,
                         content={"success": False, "error": {"code": "site_auth_required", "message": "Site password required"}}
                     )
-                template = Template(SITE_LOGIN_HTML)
-                return HTMLResponse(content=template.render(error=None))
+                return HTMLResponse(content=_SITE_LOGIN_TEMPLATE.render(error=None))
                 
         response = await call_next(request)
         
-        is_hf = "SPACE_ID" in os.environ
+        is_hf = _IS_HF
         response.headers["X-Content-Type-Options"] = "nosniff"
         if not is_hf:
             response.headers["X-Frame-Options"] = "DENY"
@@ -343,20 +358,10 @@ def create_app(
     @app.get("/")
     async def index(request: Request):
         ensure_sid(request)
-        static_dir = HERE / "static"
-        try:
-            asset_ver = int(max(
-                os.path.getmtime(os.path.join(root, f))
-                for root, _dirs, files in os.walk(static_dir)
-                for f in files
-            ))
-        except ValueError:
-            asset_ver = 1
-            
         response = templates.TemplateResponse(
             request,
             name="index.html",
-            context={"csrf_token": get_csrf_token(request), "asset_ver": asset_ver}
+            context={"csrf_token": get_csrf_token(request), "asset_ver": _asset_ver}
         )
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         response.headers["Pragma"] = "no-cache"
@@ -365,13 +370,12 @@ def create_app(
 
     @app.get("/site-login")
     async def site_login_get():
-        template = Template(SITE_LOGIN_HTML)
-        return HTMLResponse(content=template.render(error=None))
+        return HTMLResponse(content=_SITE_LOGIN_TEMPLATE.render(error=None))
 
     @app.post("/site-login")
     @rate_limited(cost=5.0)
     async def site_login_post(request: Request, password: str = Form(...)):
-        site_password = os.getenv("SITE_PASSWORD")
+        site_password = _SITE_PASSWORD
         match = False
         if password and site_password:
             match = hmac.compare_digest(password.strip(), site_password.strip())
@@ -382,8 +386,7 @@ def create_app(
             from fastapi.responses import RedirectResponse
             return RedirectResponse(url="/", status_code=303)
             
-        template = Template(SITE_LOGIN_HTML)
-        return HTMLResponse(content=template.render(error="Incorrect site password"))
+        return HTMLResponse(content=_SITE_LOGIN_TEMPLATE.render(error="Incorrect site password"))
 
     @app.get("/healthz")
     async def healthz():
@@ -521,10 +524,12 @@ def create_app(
                 acquired = await rs._execute("SET", "streamly:startup_init_lock", "1", "EX", "15", "NX")
                 if acquired == "OK":
                     log.info("Startup lock acquired. Initializing active transfer state.")
-                    await rs._execute("DEL", "streamly:active_transfer_global")
-                    await rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
-                    await rs._execute("DEL", "streamly:transfer_dispatch_lock")
-                    await rs._execute("DEL", "streamly:seedr_active_monitor")
+                    await rs.pipeline(
+                        ["DEL", "streamly:active_transfer_global"],
+                        ["DEL", "streamly:seedr_queue_daemon_lock"],
+                        ["DEL", "streamly:transfer_dispatch_lock"],
+                        ["DEL", "streamly:seedr_active_monitor"],
+                    )
                     from .routes.telegram import trigger_next_transfer
                     trigger_next_transfer(app)
             except Exception as queue_err:

@@ -1,5 +1,6 @@
 # removed future annotations
 
+import asyncio
 import logging
 import uuid
 import time
@@ -178,19 +179,23 @@ async def delete_bulk(request: Request, payload: BulkDeletePayload, client = Dep
         raise HTTPException(status_code=400, detail="Too many items (max 100)")
     
     cloud = request.app.state.cloud
-    results = []
-    for item in items:
-        try:
-            item_type = validate_item_type(item.type)
-            item_id = validate_positive_int(item.id, name="id", maximum=config.max_file_id)
-            await cloud.delete_item(client, item_type, item_id)
-            results.append({"id": item_id, "type": item_type, "ok": True})
-        except ValidationError as exc:
-            results.append({"id": item.id, "type": item.type, "ok": False, "error": "Invalid item data"})
-        except Exception as exc:
-            log.warning("Bulk delete item failed: %s", exc)
-            results.append({"id": item.id, "type": item.type, "ok": False, "error": "Provider error"})
-    return {"success": True, "results": results}
+    _bulk_delete_sem = asyncio.Semaphore(5)
+
+    async def _delete_one(item):
+        async with _bulk_delete_sem:
+            try:
+                item_type = validate_item_type(item.type)
+                item_id = validate_positive_int(item.id, name="id", maximum=config.max_file_id)
+                await cloud.delete_item(client, item_type, item_id)
+                return {"id": item_id, "type": item_type, "ok": True}
+            except ValidationError as exc:
+                return {"id": item.id, "type": item.type, "ok": False, "error": "Invalid item data"}
+            except Exception as exc:
+                log.warning("Bulk delete item failed: %s", exc)
+                return {"id": item.id, "type": item.type, "ok": False, "error": "Provider error"}
+
+    results = await asyncio.gather(*[_delete_one(item) for item in items])
+    return {"success": True, "results": list(results)}
 
 
 @cloud_router.post("/api/zip/bulk")
@@ -334,12 +339,10 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
 
     if not should_queue:
         try:
-            storage = await cloud.list_items(client, 0)
-            used = max(0, _safe_int(storage.get("used")))
-            maximum = max(1, _safe_int(storage.get("max")))
-            transfers = storage.get("transfers", [])
-            
-            if len(transfers) > 0:
+            storage = await cloud.get_storage_info(client)
+            used = storage["used"]
+            maximum = storage["max"]
+            if storage["active_transfers"] > 0:
                 should_queue = True
             elif size_bytes > 0 and (used + size_bytes > maximum):
                 should_queue = True

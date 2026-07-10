@@ -3,6 +3,7 @@
 import json as _json
 import asyncio
 import logging
+import time
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 
@@ -27,7 +28,7 @@ class CancelQueuePayload(BaseModel):
 async def add_to_history_backend(rs, magnet: str, name: str | None, size_bytes: int):
     if not rs:
         return
-    import time
+
     size_str = format_size(size_bytes) if size_bytes else ""
     new_item = {
         "magnet": magnet,
@@ -190,7 +191,7 @@ async def seedr_queue_daemon_loop(app):
                         stuck_key = f"streamly:stuck_torrent:{t_id}"
                         try:
                             first_seen_str = await rs.get(stuck_key)
-                            import time
+
                             now = time.time()
                             if not first_seen_str:
                                 await rs.set(stuck_key, str(now), ex=1800)

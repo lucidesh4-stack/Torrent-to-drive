@@ -5,6 +5,10 @@ import secrets as _secrets
 from typing import Tuple, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Pre-computed constant: 4.5 GB in bytes, used as an absolute cap on torrent
+# size for Seedr operations (queue admission, active-transfer checks, etc.).
+SEEDR_SIZE_CAP = int(4.5 * 1024 * 1024 * 1024)  # 4,831,838,208 bytes
+
 
 class AppConfig(BaseSettings):
     """Application configuration.

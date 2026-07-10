@@ -61,6 +61,18 @@ _RES_RE = re.compile(r"\b(2160p|1080p|720p|480p)\b", re.IGNORECASE)
 _CODEC_RE = re.compile(r"\b(x265|x264|h\.?265|h\.?264|hevc|av1)\b", re.IGNORECASE)
 _SOURCE_RE = re.compile(r"\b(web-?dl|web|bluray|bdrip|brrip|hdtv|dvdrip)\b", re.IGNORECASE)
 
+# Pre-compiled patterns for _normalize_encoder / _norm_tokens / _clean_query_tokens / _extract_encoder
+_STRIP_NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]")
+_NORM_TOKEN_RE = re.compile(r"[^a-z0-9]+")
+_SE_TAG_RE = re.compile(r"^S\d{1,2}(E\d{1,3})?$")
+_EP_TAG_RE = re.compile(r"^E\d{1,3}$")
+_YEAR_RE = re.compile(r"^(19|20)\d{2}$")
+_FILE_EXT_RE = re.compile(r"\.(mkv|mp4|avi|srt|ts)\s*$", re.IGNORECASE)
+_BRACKET_GROUP_RE = re.compile(r"[\[\(]([A-Za-z0-9 ._-]{2,15})[\]\)]\s*$")
+_TOKEN_SPLIT_RE = re.compile(r"[\s._\-\u2013\u2014\[\]\(\)]+")
+_DASH_GROUP_RE = re.compile(r"-([A-Za-z0-9]{2,15})\s*$")
+_WWW_PREFIX_RE = re.compile(r"^www\.[^ ]+\s*-\s*")
+
 _SITE_TAGS = {
     "EZTV", "EZTVRE", "EZTVX", "TGX", "RARBG", "YTS", "YIFY", "ETTV",
     "MKV", "MP4", "AVI", "TO", "RE", "AG", "COM", "ETHD",
@@ -88,7 +100,7 @@ _METADATA_EXCLUSIONS = {
 
 
 def _normalize_encoder(s: str) -> str:
-    return re.sub(r"[^A-Za-z0-9]", "", s or "").upper()
+    return _STRIP_NON_ALNUM_RE.sub("", s or "").upper()
 
 
 def _extract_quality(title: str) -> str:
@@ -112,21 +124,21 @@ def _extract_encoder(title: str) -> str:
     if not title:
         return ""
 
-    base = re.sub(r"\.(mkv|mp4|avi|srt|ts)\s*$", "", title, flags=re.IGNORECASE).strip(" .-_")
+    base = _FILE_EXT_RE.sub("", title).strip(" .-_")
 
-    bracket_match = re.search(r"[\[\(]([A-Za-z0-9 ._-]{2,15})[\]\)]\s*$", base)
+    bracket_match = _BRACKET_GROUP_RE.search(base)
     if bracket_match:
         cand = bracket_match.group(1).strip()
         norm = _normalize_encoder(cand)
         if norm and norm not in _METADATA_EXCLUSIONS and not norm.isdigit():
             return cand
 
-    tokens = [t for t in re.split(r"[\s._\-–—\[\]\(\)]+", base) if t]
+    tokens = [t for t in _TOKEN_SPLIT_RE.split(base) if t]
 
     last_marker_idx = -1
     for i, t in enumerate(tokens):
         t_norm = _normalize_encoder(t)
-        if re.match(r"^S\d{1,2}(E\d{1,3})?$", t_norm) or re.match(r"^E\d{1,3}$", t_norm) or t_norm in ("SEASON", "EPISODE", "COMPLETE"):
+        if _SE_TAG_RE.match(t_norm) or _EP_TAG_RE.match(t_norm) or t_norm in ("SEASON", "EPISODE", "COMPLETE"):
             last_marker_idx = i
 
     for t in reversed(tokens):
@@ -134,7 +146,7 @@ def _extract_encoder(title: str) -> str:
         if norm in _KNOWN_ENCODERS:
             return t
 
-    dash_match = re.search(r"-([A-Za-z0-9]{2,15})\s*$", base)
+    dash_match = _DASH_GROUP_RE.search(base)
     if dash_match:
         cand = dash_match.group(1)
         norm = _normalize_encoder(cand)
@@ -148,7 +160,7 @@ def _extract_encoder(title: str) -> str:
         norm = _normalize_encoder(t)
         if not norm or norm in _METADATA_EXCLUSIONS or norm.isdigit():
             continue
-        if re.match(r"^S\d{1,2}(E\d{1,3})?$", norm) or re.match(r"^E\d{1,3}$", norm):
+        if _SE_TAG_RE.match(norm) or _EP_TAG_RE.match(norm):
             continue
         return t
 
@@ -156,7 +168,7 @@ def _extract_encoder(title: str) -> str:
 
 
 def _norm_tokens(s: str) -> list[str]:
-    return [t for t in re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).split() if t]
+    return [t for t in _NORM_TOKEN_RE.sub(" ", (s or "").lower()).split() if t]
 
 
 def series_key(series: str) -> str:
@@ -189,11 +201,11 @@ def _clean_query_tokens(query: str) -> list[str]:
     for t in _norm_tokens(query):
         if t in _QUERY_META:
             continue
-        if re.fullmatch(r"s\d{1,2}(e\d{1,3})?", t):
+        if _SE_TAG_RE.fullmatch(t.upper()):
             continue
-        if re.fullmatch(r"e\d{1,3}", t):
+        if _EP_TAG_RE.fullmatch(t.upper()):
             continue
-        if re.fullmatch(r"(19|20)\d{2}", t):
+        if _YEAR_RE.fullmatch(t):
             continue
         out.append(t)
     if len(out) > 1 and out[-1] in {"us", "uk", "ca", "au", "nz"}:
@@ -232,7 +244,7 @@ def parse_release(title: str) -> dict[str, Any]:
         pm = _PACK_RE.search(title)
         if pm:
             series = title[: pm.start()].strip(" .-_")
-    series = re.sub(r"^www\.[^ ]+\s*-\s*", "", series).strip(" .-_") or "Unknown"
+    series = _WWW_PREFIX_RE.sub("", series).strip(" .-_") or "Unknown"
 
     parsed = (episode is not None or is_pack)
     return {
@@ -346,7 +358,9 @@ def group_series_results(rows: list[dict[str, Any]]) -> dict[str, Any]:
             enriched["se"] = ""
         enriched["series"] = info["series"]
 
-        qbucket = _quality_bucket(str(row.get("name", "")))
+        # Use parsed quality to derive bucket (avoids redundant regex on title)
+        _q_parts = info["quality"].split()
+        qbucket = _q_parts[0] if _q_parts and _q_parts[0] in ("2160p", "1080p", "720p") else "Other"
         season = info["season"] if info["season"] is not None else 0
         episode = info["episode"]
 

@@ -28,15 +28,22 @@ class RedisStore:
         self.token = token
         self.timeout = timeout
         self._headers = {"Authorization": f"Bearer {token}"}
+        self._fallback_client: httpx.AsyncClient | None = None
 
-    async def _execute(self, *command: str) -> Optional[Any]:
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        """Get a shared HTTP client, falling back to a cached singleton."""
         from .core.http_client import HttpClientManager
         try:
-            client = await HttpClientManager.get_instance().get_client()
+            return await HttpClientManager.get_instance().get_client()
         except Exception:
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.set_ciphers('DEFAULT@SECLEVEL=1')
-            client = httpx.AsyncClient(verify=ssl_ctx, timeout=self.timeout)
+            if self._fallback_client is None:
+                ssl_ctx = ssl.create_default_context()
+                ssl_ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+                self._fallback_client = httpx.AsyncClient(verify=ssl_ctx, timeout=self.timeout)
+            return self._fallback_client
+
+    async def _execute(self, *command: str) -> Optional[Any]:
+        client = await self._get_http_client()
 
         max_attempts = 2
         for attempt in range(1, max_attempts + 1):
@@ -52,6 +59,45 @@ class RedisStore:
                 else:
                     log.warning("Upstash request failed final (attempt %d/%d) for command %s: %s", attempt, max_attempts, cmd_name, e)
                     return None
+
+    async def pipeline(self, *commands: list[str]) -> list[Any]:
+        """Batch multiple Redis commands into a single Upstash REST pipeline call.
+
+        Each command should be a list of strings, e.g.:
+            await rs.pipeline(["SET", "k", "v"], ["DEL", "k2"])
+        Returns a list of results, one per command.
+        """
+        if not commands:
+            return []
+        client = await self._get_http_client()
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                r = await client.post(
+                    f"{self.url}/pipeline",
+                    headers=self._headers,
+                    json=[list(cmd) for cmd in commands],
+                    timeout=self.timeout,
+                )
+                r.raise_for_status()
+                results = r.json()
+                return [
+                    item.get("result") if isinstance(item, dict) else item
+                    for item in results
+                ]
+            except (httpx.HTTPError, httpx.NetworkError) as e:
+                if attempt < max_attempts:
+                    log.warning(
+                        "Pipeline failed (attempt %d/%d, %d cmds): %s. Retrying...",
+                        attempt, max_attempts, len(commands), e,
+                    )
+                    await asyncio.sleep(0.5)
+                else:
+                    log.warning(
+                        "Pipeline failed final (attempt %d/%d, %d cmds): %s",
+                        attempt, max_attempts, len(commands), e,
+                    )
+                    return [None] * len(commands)
 
     async def get(self, key: str) -> Optional[str]:
         result = await self._execute("GET", key)
@@ -136,16 +182,20 @@ class RedisStore:
 
     async def push_log(self, line: str, max_lines: int = _LOGS_MAX_LINES) -> None:
         """Append a single formatted log line to a capped Redis list."""
-        await self._execute("LPUSH", _LOGS_KEY, line)
-        await self._execute("LTRIM", _LOGS_KEY, "0", str(max_lines - 1))
+        await self.pipeline(
+            ["LPUSH", _LOGS_KEY, line],
+            ["LTRIM", _LOGS_KEY, "0", str(max_lines - 1)],
+        )
 
     async def push_logs(self, lines: list[str], max_lines: int = _LOGS_MAX_LINES) -> bool:
         """Append MANY log lines in ONE batched LPUSH (+ one LTRIM)."""
         if not lines:
             return True
         try:
-            await self._execute("LPUSH", _LOGS_KEY, *lines)
-            await self._execute("LTRIM", _LOGS_KEY, "0", str(max_lines - 1))
+            await self.pipeline(
+                ["LPUSH", _LOGS_KEY, *lines],
+                ["LTRIM", _LOGS_KEY, "0", str(max_lines - 1)],
+            )
             return True
         except Exception as e:
             log.warning("push_logs batch failed: %s", e)

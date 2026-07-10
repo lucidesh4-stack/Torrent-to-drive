@@ -103,20 +103,78 @@ class OptimizedDownloader:
         self.temp_dir = temp_dir or os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
         self.timeout = timeout
         self._worker_blocked = False
+        self._ssl_ctx = create_ssl_context()
+        self._download_client: httpx.AsyncClient | None = None
         self._stats = {
             'total_bytes': 0,
             'total_time': 0,
             'downloads': 0,
         }
 
+    async def _get_download_client(self, http2: bool = False) -> httpx.AsyncClient:
+        if self._download_client is None or self._download_client.is_closed:
+            self._download_client = httpx.AsyncClient(
+                verify=self._ssl_ctx, timeout=self.timeout, http2=http2
+            )
+        return self._download_client
+
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._download_client is not None and not self._download_client.is_closed:
+            await self._download_client.aclose()
+            self._download_client = None
         return False
 
     def _ensure_temp_dir(self):
         Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
+
+    async def _stream_download(
+        self,
+        url: str,
+        dest_path: Path,
+        progress_callback: Optional[Callable] = None,
+        http2: bool = False,
+        method_label: str = 'Direct',
+    ) -> Dict:
+        """Shared streaming/writing logic used by both worker and direct downloads."""
+        client = await self._get_download_client(http2=http2)
+        start_time = time.time()
+        bytes_downloaded = 0
+
+        async with client.stream("GET", url) as response:
+            if response.status_code == 403 and method_label == 'Worker':
+                self._worker_blocked = True
+                return None
+            response.raise_for_status()
+
+            # f.write() is a blocking syscall. With --workers 1 (a single process,
+            # single event loop), calling it directly here would stall every OTHER
+            # concurrent request (search, queue polling, etc.) for however long the
+            # disk write takes, on EVERY 512KB chunk of EVERY download. Offloading
+            # each write to a thread via asyncio.to_thread keeps the event loop free
+            # to serve other requests while this write is in flight.
+            with open(dest_path, 'wb') as f:
+                async for chunk in response.aiter_bytes(chunk_size=512*1024):
+                    await asyncio.to_thread(f.write, chunk)
+                    bytes_downloaded += len(chunk)
+
+                    if progress_callback:
+                        elapsed = time.time() - start_time
+                        speed = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
+                        progress_callback(bytes_downloaded, speed)
+
+        elapsed = time.time() - start_time
+        speed_mbps = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
+
+        return {
+            'path': str(dest_path),
+            'size': bytes_downloaded,
+            'speed_mbps': speed_mbps,
+            'time_s': elapsed,
+            'method': method_label,
+        }
 
     async def _download_via_worker(
         self,
@@ -126,44 +184,10 @@ class OptimizedDownloader:
     ) -> Optional[Dict]:
         encoded_url = urllib.parse.quote(url, safe='')
         worker_endpoint = f"{self.worker_url}?url={encoded_url}"
-        
-        start_time = time.time()
-        bytes_downloaded = 0
-        ssl_ctx = create_ssl_context()
-        
-        async with httpx.AsyncClient(verify=ssl_ctx, timeout=self.timeout) as client:
-            async with client.stream("GET", worker_endpoint) as response:
-                if response.status_code == 403:
-                    self._worker_blocked = True
-                    return None
-                response.raise_for_status()
-                
-                # f.write() is a blocking syscall. With --workers 1 (a single process,
-                # single event loop), calling it directly here would stall every OTHER
-                # concurrent request (search, queue polling, etc.) for however long the
-                # disk write takes, on EVERY 512KB chunk of EVERY download. Offloading
-                # each write to a thread via asyncio.to_thread keeps the event loop free
-                # to serve other requests while this write is in flight.
-                with open(dest_path, 'wb') as f:
-                    async for chunk in response.aiter_bytes(chunk_size=512*1024):
-                        await asyncio.to_thread(f.write, chunk)
-                        bytes_downloaded += len(chunk)
-                        
-                        if progress_callback:
-                            elapsed = time.time() - start_time
-                            speed = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
-                            progress_callback(bytes_downloaded, speed)
-        
-        elapsed = time.time() - start_time
-        speed_mbps = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
-        
-        return {
-            'path': str(dest_path),
-            'size': bytes_downloaded,
-            'speed_mbps': speed_mbps,
-            'time_s': elapsed,
-            'method': 'Worker',
-        }
+        return await self._stream_download(
+            worker_endpoint, dest_path, progress_callback,
+            http2=False, method_label='Worker',
+        )
 
     async def _download_via_direct(
         self,
@@ -171,34 +195,10 @@ class OptimizedDownloader:
         dest_path: Path,
         progress_callback: Optional[Callable] = None,
     ) -> Dict:
-        start_time = time.time()
-        bytes_downloaded = 0
-        ssl_ctx = create_ssl_context()
-        
-        async with httpx.AsyncClient(verify=ssl_ctx, timeout=self.timeout, http2=True) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                # See _download_via_worker for why this write is offloaded to a thread.
-                with open(dest_path, 'wb') as f:
-                    async for chunk in response.aiter_bytes(chunk_size=512*1024):
-                        await asyncio.to_thread(f.write, chunk)
-                        bytes_downloaded += len(chunk)
-                        
-                        if progress_callback:
-                            elapsed = time.time() - start_time
-                            speed = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
-                            progress_callback(bytes_downloaded, speed)
-        
-        elapsed = time.time() - start_time
-        speed_mbps = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
-        
-        return {
-            'path': str(dest_path),
-            'size': bytes_downloaded,
-            'speed_mbps': speed_mbps,
-            'time_s': elapsed,
-            'method': 'Direct',
-        }
+        return await self._stream_download(
+            url, dest_path, progress_callback,
+            http2=True, method_label='Direct',
+        )
 
     async def download(
         self,

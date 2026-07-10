@@ -43,7 +43,9 @@ async def _get_offcloud(request: Request) -> OffcloudService:
     if rs:
         key = await rs.get_offcloud_key()
         if key:
-            return OffcloudService(key)
+            svc = OffcloudService(key)
+            request.app.state.offcloud = svc  # Cache for subsequent requests
+            return svc
 
     raise HTTPException(
         status_code=503,
@@ -289,7 +291,7 @@ async def offcloud_explore(request: Request, request_id: str):
     return {"success": True, "files": files}
 
 
-@offcloud_router.get("/api/offcloud/debug")
+@offcloud_router.get("/offcloud-debug")
 async def offcloud_debug(request: Request):
     try:
         svc = await _get_offcloud(request)

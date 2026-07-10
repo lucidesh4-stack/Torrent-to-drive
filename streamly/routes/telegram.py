@@ -41,7 +41,6 @@ _PROGRESS_PERSIST_SECONDS = 20
 _BANDWIDTH_FLUSH_SECONDS = 60
 
 _LIVE_PROGRESS: dict[str, dict] = {}
-_LIVE_PROGRESS_LOCK = asyncio.Lock()
 
 _DISPATCH_LOCK_KEY = "streamly:transfer_dispatch_lock"
 _DISPATCH_LOCK_TTL = 15
@@ -51,31 +50,31 @@ _TG_PART_SIZE = 512 * 1024
 _TG_HARD_MAX = _TG_MAX_PARTS * _TG_PART_SIZE
 _DEFAULT_SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10485760"
 
-
-async def _live_set(task_id: str, data: dict) -> None:
-    async with _LIVE_PROGRESS_LOCK:
-        _LIVE_PROGRESS[task_id] = data
+# EFF-17: Track which bandwidth keys already have TTL set
+_BW_KEYS_WITH_TTL: set[str] = set()
 
 
-async def _live_get(task_id: str):
-    async with _LIVE_PROGRESS_LOCK:
-        v = _LIVE_PROGRESS.get(task_id)
-        return dict(v) if v is not None else None
+# EFF-16: These are sync — no lock needed in single-threaded asyncio for dict ops
+def _live_set(task_id: str, data: dict) -> None:
+    _LIVE_PROGRESS[task_id] = data
 
 
-async def _live_get_active():
-    async with _LIVE_PROGRESS_LOCK:
-        for tid, v in _LIVE_PROGRESS.items():
-            if v.get("status") in ("UPLOADING", "QUEUED"):
-                out = dict(v)
-                out.setdefault("task_id", tid)
-                return out
+def _live_get(task_id: str) -> dict | None:
+    v = _LIVE_PROGRESS.get(task_id)
+    return dict(v) if v is not None else None
+
+
+def _live_get_active() -> dict | None:
+    for tid, v in _LIVE_PROGRESS.items():
+        if v.get("status") in ("UPLOADING", "QUEUED"):
+            out = dict(v)
+            out.setdefault("task_id", tid)
+            return out
     return None
 
 
-async def _live_clear(task_id: str) -> None:
-    async with _LIVE_PROGRESS_LOCK:
-        _LIVE_PROGRESS.pop(task_id, None)
+def _live_clear(task_id: str) -> None:
+    _LIVE_PROGRESS.pop(task_id, None)
 
 
 async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None, queue_items=None, bw_bytes=None):
@@ -119,11 +118,12 @@ async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None,
     else:
         queue_task_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1")
         if queue_task_ids:
-            for tid in queue_task_ids:
+            # EFF-08: Batch all task_args lookups into a single MGET
+            tids = [tid.decode("utf-8") if isinstance(tid, bytes) else tid for tid in queue_task_ids]
+            keys = [f"streamly:task_args:{tid}" for tid in tids]
+            results = await rs._execute("MGET", *keys)
+            for raw_args in (results or []):
                 try:
-                    if isinstance(tid, bytes):
-                        tid = tid.decode("utf-8")
-                    raw_args = await rs.get(f"streamly:task_args:{tid}")
                     if raw_args:
                         if isinstance(raw_args, bytes):
                             raw_args = raw_args.decode("utf-8")
@@ -183,8 +183,8 @@ class ProgressTracker:
         speed_mb = round(self.last_speed_mb or 0.0, 2)
         status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
 
-        # Update live progress in memory
-        self._spawn(_live_set(self.task_id, {
+        # EFF-15: Update live progress directly (sync — no task spawn needed)
+        _live_set(self.task_id, {
             "progress": pct,
             "status": status,
             "filename": self.filename,
@@ -193,7 +193,7 @@ class ProgressTracker:
             "speed_mb": speed_mb,
             "error": None,
             "sid": self.sid,
-        }))
+        })
 
         finished = pct >= 100.0
         do_status = finished or (now - self.last_persist_time) >= _PROGRESS_PERSIST_SECONDS
@@ -226,10 +226,15 @@ class ProgressTracker:
 
     async def update_redis_async(self, status, pct, speed_mb, sent_bytes, total_bytes, bw_diff, write_status, write_bw):
         try:
+            cmds = []
             if write_bw and bw_diff > 0:
                 ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
-                await self.rs._execute("INCRBY", f"streamly:monthly_bandwidth:{ym}", str(bw_diff))
-                await self.rs._execute("EXPIRE", f"streamly:monthly_bandwidth:{ym}", str(60 * 24 * 60 * 60))
+                ym_key = f"streamly:monthly_bandwidth:{ym}"
+                cmds.append(["INCRBY", ym_key, str(bw_diff)])
+                # EFF-17: Only set EXPIRE on first use per key
+                if ym_key not in _BW_KEYS_WITH_TTL:
+                    cmds.append(["EXPIRE", ym_key, str(60 * 24 * 60 * 60)])
+                    _BW_KEYS_WITH_TTL.add(ym_key)
             if write_status:
                 state = {
                     "progress": pct,
@@ -241,8 +246,10 @@ class ProgressTracker:
                     "error": None,
                     "sid": self.sid
                 }
-                await self.rs._execute("SET", f"streamly:transfer_status:{self.task_id}", _json.dumps(state), "EX", "3600")
-                await self.rs._execute("EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS))
+                cmds.append(["SET", f"streamly:transfer_status:{self.task_id}", _json.dumps(state), "EX", "3600"])
+                cmds.append(["EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS)])
+            if cmds:
+                await self.rs.pipeline(*cmds)
         except Exception as e:
             log.warning("Failed to persist progress in Redis: %s", e)
 
@@ -334,9 +341,11 @@ async def _trigger_next_transfer_locked(app):
         sid = args.get("sid")
         
         task_id = next_task_id
-        await rs.set("streamly:active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS)
-        await rs.set(f"streamly:active_transfer:{sid}", task_id, ex=3600)
-        await rs._execute("DEL", _DISPATCH_LOCK_KEY)
+        await rs.pipeline(
+            ["SET", "streamly:active_transfer_global", task_id, "EX", str(_ACTIVE_TTL_SECONDS)],
+            ["SET", f"streamly:active_transfer:{sid}", task_id, "EX", "3600"],
+            ["DEL", _DISPATCH_LOCK_KEY],
+        )
         
         # Start async task
         task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid))
@@ -778,6 +787,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     else:
                         raise e
                 
+        # EFF-32: Deduplicated final state persistence
         _completed_state = {
             "progress": 100.0,
             "status": "COMPLETED",
@@ -787,7 +797,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "error": None,
             "sid": sid
         }
-        await _live_set(task_id, _completed_state)
+        _live_set(task_id, _completed_state)
         await rs._execute(
             "SET",
             f"streamly:transfer_status:{task_id}",
@@ -806,7 +816,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "total_bytes": exact_size,
             "sid": sid
         }
-        await _live_set(task_id, _failed_state)
+        _live_set(task_id, _failed_state)
         await rs._execute(
             "SET",
             f"streamly:transfer_status:{task_id}",
@@ -826,7 +836,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "total_bytes": exact_size,
             "sid": sid
         }
-        await _live_set(task_id, _failed_state)
+        _live_set(task_id, _failed_state)
         await rs._execute(
             "SET",
             f"streamly:transfer_status:{task_id}",
@@ -847,9 +857,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 log.warning("Failed to clean up temp file %s: %s", temp_path, ce)
         if client:
             await safe_disconnect(client)
-        await _live_clear(task_id)
-        await rs._execute("DEL", "streamly:active_transfer_global")
-        await rs._execute("DEL", f"streamly:task_args:{task_id}")
+        _live_clear(task_id)
+        await rs.pipeline(
+            ["DEL", "streamly:active_transfer_global"],
+            ["DEL", f"streamly:task_args:{task_id}"],
+        )
         trigger_next_transfer(app)
 
 
@@ -1025,11 +1037,13 @@ async def verify_code(request: Request, payload: CodePayload, _csrf = Depends(ve
         session_str_final = client.session.save()
         await rs.set("streamly:telegram_session", session_str_final)
         
-        # Cleanup temp auth state
-        await rs._execute("DEL", f"streamly:tg_auth_session:{sid}")
-        await rs._execute("DEL", f"streamly:tg_auth_phone:{sid}")
-        await rs._execute("DEL", f"streamly:tg_auth_hash:{sid}")
-        await rs._execute("DEL", f"streamly:tg_auth_cache:{sid}")
+        # Cleanup temp auth state — EFF-01: batched into single pipeline
+        await rs.pipeline(
+            ["DEL", f"streamly:tg_auth_session:{sid}"],
+            ["DEL", f"streamly:tg_auth_phone:{sid}"],
+            ["DEL", f"streamly:tg_auth_hash:{sid}"],
+            ["DEL", f"streamly:tg_auth_cache:{sid}"],
+        )
         
         return {"success": True, "message": "Logged in successfully"}
     except Exception as e:
@@ -1284,24 +1298,24 @@ async def get_telegram_queue(request: Request):
     # Read queue items
     queue_items = []
     queue_task_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []
-    for qid in queue_task_ids:
-        if isinstance(qid, bytes):
-            qid = qid.decode("utf-8")
-        raw_args = await rs.get(f"streamly:task_args:{qid}")
-        if raw_args:
-            try:
-                if isinstance(raw_args, bytes):
-                    raw_args = raw_args.decode("utf-8")
-                args = _json.loads(raw_args)
-                queue_items.append({
-                    "task_id": qid,
-                    "filename": args.get("filename"),
-                    "total_bytes": int(args.get("size", 0))
-                })
-            except Exception as e:
-                # Same as above: a corrupted queued-item entry just silently drops
-                # out of the visible queue instead of erroring loudly.
-                log.warning("Corrupted task_args for queued task %s (dropped from queue view): %s", qid, e)
+    # EFF-08: Batch all task_args lookups into a single MGET
+    if queue_task_ids:
+        tids = [qid.decode("utf-8") if isinstance(qid, bytes) else qid for qid in queue_task_ids]
+        keys = [f"streamly:task_args:{tid}" for tid in tids]
+        results = await rs._execute("MGET", *keys)
+        for qid, raw_args in zip(tids, results or []):
+            if raw_args:
+                try:
+                    if isinstance(raw_args, bytes):
+                        raw_args = raw_args.decode("utf-8")
+                    args = _json.loads(raw_args)
+                    queue_items.append({
+                        "task_id": qid,
+                        "filename": args.get("filename"),
+                        "total_bytes": int(args.get("size", 0))
+                    })
+                except Exception as e:
+                    log.warning("Corrupted task_args for queued task %s (dropped from queue view): %s", qid, e)
 
     projected_bytes = await get_projected_bandwidth(
         rs, ym, current_file_size=0, active_item=active_item, queue_items=queue_items, bw_bytes=bw_bytes

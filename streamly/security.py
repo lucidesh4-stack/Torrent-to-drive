@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from collections import OrderedDict
 from dataclasses import dataclass
 import re
 import asyncio
@@ -20,7 +20,7 @@ class ValidationError(ValueError):
 
 EMAIL_RE = re.compile(r"^[^@\s]{1,254}@[^@\s]{1,253}\.[^@\s]{2,63}$")
 BTIH_RE = re.compile(r"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})", re.IGNORECASE)
-_GLOBAL_DNS_LOCK = asyncio.Lock()
+
 
 
 _CGNAT_RANGE = ipaddress.ip_network("100.64.0.0/10")  # RFC 6598 Carrier-Grade NAT
@@ -50,7 +50,7 @@ def _ip_is_public(ip_str: str) -> bool:
     )
 
 
-def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http", "https")) -> tuple[str, str]:
+async def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http", "https")) -> tuple[str, str]:
     """Validate a user-supplied URL for safe server-side fetching (anti-SSRF)."""
     if not isinstance(value, str) or not value.strip():
         raise ValidationError("url is required")
@@ -66,8 +66,9 @@ def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http
         raise ValidationError("url host is missing")
 
     try:
-        infos = socket.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80),
-                                   proto=socket.IPPROTO_TCP)
+        loop = asyncio.get_event_loop()
+        infos = await loop.getaddrinfo(host, parts.port or (443 if parts.scheme == "https" else 80),
+                                        proto=socket.IPPROTO_TCP)
     except socket.gaierror:
         raise ValidationError("url host could not be resolved") from None
 
@@ -81,36 +82,15 @@ def validate_public_url(value: Any, *, allowed_schemes: tuple[str, ...] = ("http
     return url, sorted(resolved)[0]
 
 
-@contextmanager
-def temporary_dns_resolution(host_to_pin: str, ip_to_pin: str):
-    """Context manager to patch socket.getaddrinfo for a host."""
-    old_getaddrinfo = socket.getaddrinfo
-
-    def patched_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        if host == host_to_pin:
-            return old_getaddrinfo(ip_to_pin, port, family or socket.AF_INET, type, proto, flags)
-        return old_getaddrinfo(host, port, family, type, proto, flags)
-
-    socket.getaddrinfo = patched_getaddrinfo
-    try:
-        yield
-    finally:
-        socket.getaddrinfo = old_getaddrinfo
-
-
 async def async_pinned_get(url: str, pinned_ip: str, client: httpx.AsyncClient, **kwargs):
-    """Async GET request that connects to `pinned_ip` instead of resolving the host.
-
-    Anti-DNS-rebinding. Ensures we use httpcore and do not block the asyncio loop.
-    """
+    """DNS-pinned GET without monkey-patching or global locks."""
     parts = urlsplit(url)
     host = parts.hostname or ""
     kwargs.setdefault("follow_redirects", False)
-
-    async with _GLOBAL_DNS_LOCK:
-        with temporary_dns_resolution(host, pinned_ip):
-            # We must make the request via client within the patched DNS scope
-            return await client.get(url, **kwargs)
+    headers = dict(kwargs.pop("headers", {}))
+    headers["Host"] = host
+    pinned_url = url.replace(f"//{host}", f"//{pinned_ip}", 1)
+    return await client.get(pinned_url, headers=headers, **kwargs)
 
 
 def validate_email(value: str) -> str:
@@ -189,7 +169,7 @@ class TokenBucketRateLimiter:
         self.capacity = float(capacity)
         self.refill_per_second = float(refill_per_second)
         self._lock = asyncio.Lock()
-        self._buckets: dict[str, Bucket] = {}
+        self._buckets: OrderedDict[str, Bucket] = OrderedDict()
         self.max_keys = max_keys
 
     async def allow(self, key: str, cost: float = 1.0) -> bool:
@@ -198,9 +178,11 @@ class TokenBucketRateLimiter:
             bucket = self._buckets.get(key)
             if bucket is None:
                 if len(self._buckets) >= self.max_keys:
-                    await self._evict_locked(now)
+                    self._evict_locked()
                 bucket = Bucket(tokens=self.capacity, updated_at=now)
                 self._buckets[key] = bucket
+            else:
+                self._buckets.move_to_end(key)
             elapsed = max(0.0, now - bucket.updated_at)
             bucket.tokens = min(self.capacity, bucket.tokens + elapsed * self.refill_per_second)
             bucket.updated_at = now
@@ -209,15 +191,10 @@ class TokenBucketRateLimiter:
                 return True
             return False
 
-    async def _evict_locked(self, now: float) -> None:
-        idle = [k for k, b in self._buckets.items()
-                if min(self.capacity, b.tokens + max(0.0, now - b.updated_at) * self.refill_per_second) >= self.capacity]
-        if idle:
-            for k in idle:
-                del self._buckets[k]
-            return
-        oldest = min(self._buckets, key=lambda k: self._buckets[k].updated_at)
-        del self._buckets[oldest]
+    def _evict_locked(self) -> None:
+        """O(1) eviction: pop least-recently-used entries until under max_keys."""
+        while len(self._buckets) > self.max_keys:
+            self._buckets.popitem(last=False)
 
 
 def rate_limited(cost: float = 1.0):

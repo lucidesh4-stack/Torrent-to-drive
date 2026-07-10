@@ -1,5 +1,6 @@
 # removed future annotations
 
+import asyncio
 import re
 import logging
 from fastapi import APIRouter, Request, HTTPException
@@ -14,6 +15,7 @@ from ..search_service import (
     parse_release,
     matches_query,
     _normalize_encoder,
+    _norm_tokens,
     _quality_bucket,
 )
 
@@ -80,7 +82,7 @@ async def search_route(
         return matches_query(query, info["series"], is_episode=info["episode"] is not None)
 
     def _tokens(value):
-        tokens = [t for t in re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).split() if t]
+        tokens = _norm_tokens(value)
         if len(tokens) > 1 and tokens[-1] in {"us", "uk", "ca", "au", "nz"}:
             tokens.pop()
         return tokens
@@ -164,17 +166,25 @@ async def search_route(
 
         broad_rows = await series_round_search(query)
 
-        pack_rows = list(broad_rows)
+        pack_tasks = []
         for ql in qualities_list:
-            pack_rows += await series_round_search(f"{query} {ql} x265")
-            pack_rows += await series_round_search(f"{query} {ql} hevc")
+            pack_tasks.append(series_round_search(f"{query} {ql} x265"))
+            pack_tasks.append(series_round_search(f"{query} {ql} hevc"))
+        pack_results = await asyncio.gather(*pack_tasks)
+        pack_rows = list(broad_rows)
+        for rows in pack_results:
+            pack_rows += rows
         pack_rows = _dedup_by_infohash(pack_rows)
         packs = build_packs(pack_rows)
 
-        enc_rows = list(broad_rows)
+        enc_tasks = []
         for enc_name in encoders_list:
             for ql in qualities_list:
-                enc_rows += await series_round_search(f"{query} {ql} {enc_name}")
+                enc_tasks.append(series_round_search(f"{query} {ql} {enc_name}"))
+        enc_results = await asyncio.gather(*enc_tasks)
+        enc_rows = list(broad_rows)
+        for rows in enc_results:
+            enc_rows += rows
         enc_rows = _dedup_by_infohash(enc_rows)
 
         selected_enc = {_normalize_encoder(e) for e in encoders_list}

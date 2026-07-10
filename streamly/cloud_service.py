@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import ssl
@@ -176,10 +177,11 @@ class CloudService:
                 used_val = _safe_int(space_used)
                 max_val = _safe_int(space_max) if space_max else 1
 
-                transfers = []
-                for torrent in (contents.torrents or [])[:100]:
-                    serialized = await self._serialize_transfer(async_seedr, torrent)
-                    transfers.append(serialized)
+                transfers = await asyncio.gather(
+                    *[self._serialize_transfer(async_seedr, t) for t in (contents.torrents or [])[:100]],
+                    return_exceptions=True,
+                )
+                transfers = [t for t in transfers if not isinstance(t, Exception)]
 
                 return {
                     "parent": _safe_int(contents.parent or 0),
@@ -208,6 +210,17 @@ class CloudService:
         except Exception as e:
             log.exception("Error listing items for folder %s: %s", folder_id, e)
             raise ConnectionError("Provider failed to provide storage/item data") from e
+
+    async def get_storage_info(self, client: AsyncSeedrClient) -> dict:
+        """Returns {used, max, active_transfers} without fetching full content listing."""
+        http_client = await self._get_client()
+        async with AsyncSeedr(token=client.token, httpx_client=http_client) as seedr:
+            contents = await seedr.list_contents(folder_id="0")
+            return {
+                "used": _safe_int(getattr(contents, "space_used", 0)),
+                "max": max(1, _safe_int(getattr(contents, "space_max", 1))),
+                "active_transfers": len(contents.torrents or []),
+            }
 
     async def delete_item(self, client: AsyncSeedrClient, item_type: str, item_id: int) -> None:
         http_client = await self._get_client()
