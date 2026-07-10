@@ -38,6 +38,7 @@
 
     $("cloudView").classList.toggle("hidden", name !== "cloud");
     $("searchView").classList.toggle("hidden", name !== "search");
+    document.body.classList.toggle("body-cloud-active", name === "cloud");
 
     if (name === "cloud") window.updateBottomNavHighlight(0);
     if (name === "search") window.updateBottomNavHighlight(1);
