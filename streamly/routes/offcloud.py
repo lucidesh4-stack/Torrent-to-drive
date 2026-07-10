@@ -295,9 +295,10 @@ async def offcloud_debug(request: Request):
     try:
         import httpx
         url = "https://1-cdn2-ovh-bea.energycdn.com/cdn3sto/frostyicebreath-sto/69ffd86ebbc112.07118806/595767889/1783660823/603c1a1cdfd73e987a8f77a68e682cec2cd28c15/Moving.S01.KOREAN.1080p.WEBRip.x265-KONTRAST.zip"
-        async with httpx.AsyncClient(follow_redirects=False) as client:
+        async with httpx.AsyncClient() as client:
             resp = await client.head(url)
             return {
+                "url_tested": url,
                 "status_code": resp.status_code,
                 "headers": dict(resp.headers)
             }

@@ -194,6 +194,7 @@
 
     wrap.addEventListener("click", (e) => {
       if (e.target.closest(".add-btn")) return;
+      if (window.getSelection && window.getSelection().toString()) return;
       if (addBtn && !addBtn.disabled) {
         addBtn.click();
       }
@@ -333,6 +334,7 @@
 
     wrap.addEventListener("click", (e) => {
       if (e.target.closest(".add-btn")) return;
+      if (window.getSelection && window.getSelection().toString()) return;
       if (addBtn && !addBtn.disabled) {
         addBtn.click();
       }
