@@ -1266,7 +1266,7 @@ button.icon-btn {
     margin-left: auto !important;
     margin-right: auto !important;
     margin-top: 8px !important;
-    margin-bottom: 0 !important;
+    margin-bottom: calc(80px + env(safe-area-inset-bottom)) !important;
     padding-bottom: 0 !important;
     min-height: 0;
     min-width: 0;
@@ -1316,7 +1316,7 @@ button.icon-btn {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 90px;       /* clearance for fixed bottom-nav */
+    padding-bottom: 96px;       /* plenty of clearance to scroll items above the bulk bar */
     box-sizing: border-box !important;
   }
 
