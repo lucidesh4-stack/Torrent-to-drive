@@ -1189,7 +1189,8 @@ button.icon-btn {
   overflow: auto;
 }
 
-@media (min-width: 769px) {
+/* ── Desktop: viewport-locked Cloud view (≥701px) ── */
+@media (min-width: 701px) {
   body.body-cloud-active {
     height: 100vh;
     overflow: hidden;
@@ -1226,4 +1227,66 @@ button.icon-btn {
     height: fit-content;
   }
 }
+
+/* ── Mobile: viewport-locked Cloud view (≤700px) ── */
+@media (max-width: 700px) {
+  body.body-cloud-active {
+    height: 100vh;
+    height: 100dvh;            /* dynamic viewport height (avoids iOS address bar issues) */
+    overflow: hidden;
+  }
+
+  body.body-cloud-active .app {
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  body.body-cloud-active .topbar {
+    flex-shrink: 0;
+  }
+
+  body.body-cloud-active .main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+    padding-bottom: 0 !important;
+  }
+
+  body.body-cloud-active #cloudView {
+    flex: 1;
+    min-height: 0;
+    display: flex !important;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  body.body-cloud-active .cloud-mobile {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 0;          /* bottom-nav is fixed, no need for extra padding */
+  }
+
+  body.body-cloud-active .cm-top,
+  body.body-cloud-active .cm-hint {
+    flex-shrink: 0;
+  }
+
+  body.body-cloud-active .cm-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 90px;       /* clearance for fixed bottom-nav (64px + 16px gap + margin) */
+  }
+}
+
 
