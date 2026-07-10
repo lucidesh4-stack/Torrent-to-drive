@@ -1308,7 +1308,7 @@ button.icon-btn {
   }
 
   body.body-cloud-active .cm-list {
-    flex: 1;
+    flex: 0 1 auto;
     width: 100% !important;
     max-width: 100% !important;
     min-height: 0;
