@@ -97,10 +97,13 @@
       else { allCb.checked = false; allCb.indeterminate = true; }
     }
 
-    // Open button: disabled when multi-select (open only makes sense for one)
+    // Open, Copy, Download buttons: enabled ONLY when exactly 1 item is selected
     $("openBtn").disabled = count !== 1;
     const copyBtn = $("copyLinkBtn");
-    if (copyBtn) copyBtn.disabled = count === 0;
+    if (copyBtn) copyBtn.disabled = count !== 1;
+    const dlBtn = $("downloadBtn");
+    if (dlBtn) dlBtn.disabled = count !== 1;
+
     const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && x.type === "file");
     const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
@@ -118,6 +121,10 @@
     if (bulk) {
       bulk.classList.toggle("hidden", count === 0);
     }
+    const cmDlBtn = $("cmBulkDownload");
+    if (cmDlBtn) cmDlBtn.disabled = count !== 1;
+    const cmCpBtn = $("cmBulkCopy");
+    if (cmCpBtn) cmCpBtn.disabled = count !== 1;
     const tgBtn = $("cmBulkTelegram");
     if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;
     const cmDelBtn = $("cmBulkDelete");
@@ -633,11 +640,11 @@
 
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
+    if (selectedItems.length > 1) {
+      return toast("Multi-select copy is not supported");
+    }
 
     if (window.driveProvider === "offcloud") {
-      if (selectedItems.length > 1) {
-        return toast("Multi-select copy is not supported on Offcloud");
-      }
       const item = selectedItems[0];
       let url = item.download_url;
       if (!url && item.type === "file") {
@@ -764,11 +771,11 @@
   window.downloadSelected = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
+    if (selectedItems.length > 1) {
+      return toast("Multi-select download is not supported");
+    }
 
     if (window.driveProvider === "offcloud") {
-      if (selectedItems.length > 1) {
-        return toast("Multi-select download is not supported on Offcloud");
-      }
       const item = selectedItems[0];
       let url = item.download_url;
       if (!url && item.type === "file") {
