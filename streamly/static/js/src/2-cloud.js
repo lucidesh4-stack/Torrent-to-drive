@@ -800,23 +800,19 @@
       }
 
       updateStatus($("cloudStatus"), `Starting ${resolved.length} download(s)...`, "");
-      resolved.forEach((res, i) => {
-        setTimeout(() => {
-          try {
-            window._downloadFileDirect(res.url, res.name);
-          } catch (err) {
-            toast(`Failed: ${res.name} — ${err.message}`);
-          }
-          if (i === resolved.length - 1) {
-            let msg = `Started ${resolved.length} download(s)`;
-            if (failed.length) msg += ` (${failed.length} failed)`;
-            updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
-            if (resolved.length > 1) {
-              toast("If only one file downloaded, allow “multiple downloads” when your browser prompts.");
-            }
-          }
-        }, i * 350);
-      });
+      for (const res of resolved) {
+        try {
+          window._downloadFileDirect(res.url, res.name);
+        } catch (err) {
+          toast(`Failed: ${res.name} — ${err.message}`);
+        }
+      }
+      let msg = `Started ${resolved.length} download(s)`;
+      if (failed.length) msg += ` (${failed.length} failed)`;
+      updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
+      if (resolved.length > 1) {
+        toast("If only one file downloaded, allow “multiple downloads” when your browser prompts.");
+      }
       return;
     }
 

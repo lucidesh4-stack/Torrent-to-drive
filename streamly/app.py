@@ -277,7 +277,7 @@ def create_app(
         
         # Site protection check
         path = request.url.path
-        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and path != "/offcloud-debug" and not path.startswith("/static/"):
+        if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
             site_password = _SITE_PASSWORD
             if site_password and not request.session.get("site_auth"):
                 if path.startswith("/api/") or path.startswith("/fs/"):
