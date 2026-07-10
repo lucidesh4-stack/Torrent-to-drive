@@ -295,8 +295,8 @@ async def offcloud_explore(request: Request, request_id: str):
 async def offcloud_debug(request: Request):
     try:
         svc = await _get_offcloud(request)
-        status_info = await svc.get_status("fdcJxFYTSPMBjGZvTq4DrA")
-        return {"status_info": status_info}
+        explore_info = await svc.explore_folder("fdcJxFYTSPMBjGZvTq4DrA")
+        return {"explore_info": explore_info}
     except Exception as e:
         return {"error": str(e)}
 
