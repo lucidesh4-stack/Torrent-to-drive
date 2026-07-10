@@ -294,9 +294,15 @@ async def offcloud_explore(request: Request, request_id: str):
 @offcloud_router.get("/offcloud-debug")
 async def offcloud_debug(request: Request):
     try:
-        svc = await _get_offcloud(request)
-        explore_info = await svc.explore_folder("fdcJxFYTSPMBjGZvTq4DrA")
-        return {"explore_info": explore_info}
+        import httpx
+        url = "https://offcloud.com/zip/fdcJxFYTSPMBjGZvTq4DrA"
+        async with httpx.AsyncClient(follow_redirects=False) as client:
+            resp = await client.get(url)
+            return {
+                "status_code": resp.status_code,
+                "headers": dict(resp.headers),
+                "text": resp.text[:500]
+            }
     except Exception as e:
         return {"error": str(e)}
 
