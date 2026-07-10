@@ -1230,15 +1230,14 @@ button.icon-btn {
 
 /* ── Mobile: viewport-locked Cloud view (≤700px) ── */
 @media (max-width: 700px) {
-  body.body-cloud-active {
-    height: 100vh;
-    height: 100dvh;            /* dynamic viewport height (avoids iOS address bar issues) */
-    overflow: hidden;
-  }
-
+  /* position:fixed on .app is the only reliable way to kill
+     viewport scroll on mobile Safari / Chrome address-bar resize */
   body.body-cloud-active .app {
-    height: 100vh;
-    height: 100dvh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -1254,7 +1253,8 @@ button.icon-btn {
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    margin-bottom: 0;
+    margin-top: 8px !important;
+    margin-bottom: 0 !important;
     padding-bottom: 0 !important;
   }
 
@@ -1272,7 +1272,7 @@ button.icon-btn {
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    padding-bottom: 0;          /* bottom-nav is fixed, no need for extra padding */
+    padding-bottom: 0;
   }
 
   body.body-cloud-active .cm-top,
@@ -1285,8 +1285,16 @@ button.icon-btn {
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 90px;       /* clearance for fixed bottom-nav (64px + 16px gap + margin) */
+    padding-bottom: 90px;       /* clearance for fixed bottom-nav */
+  }
+
+  /* Empty-state message: center it within the cloud-mobile area
+     instead of letting it overflow below the bottom-nav */
+  body.body-cloud-active #cloudMobileEmpty:not(.hidden) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin: 0;
   }
 }
-
-
