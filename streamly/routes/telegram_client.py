@@ -119,17 +119,6 @@ class TelegramClientManager:
         for c in list(self._active_clients):
             await self.safe_disconnect(c)
 
-    def stats_dict(self):
-        return {
-            "created": self.stats.created,
-            "connected": self.stats.connected,
-            "disconnected": self.stats.disconnected,
-            "errors": self.stats.errors,
-            "active": len(self._active_clients),
-            "flood_sleep_threshold": FLOOD_SLEEP_THRESHOLD,
-        }
-
-
 manager = TelegramClientManager()
 
 def get_telegram_client(session_str: str, app=None):

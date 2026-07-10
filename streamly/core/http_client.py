@@ -4,7 +4,6 @@ import asyncio
 import time
 import os
 import logging
-import urllib.parse
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
@@ -239,24 +238,7 @@ class OptimizedDownloader:
         self._stats['total_time'] += result['time_s']
         self._stats['downloads'] += 1
 
-    def get_stats(self) -> Dict:
-        total_time = self._stats['total_time']
-        if self._stats['downloads'] > 0 and total_time > 0:
-            avg_speed = (self._stats['total_bytes'] / 1024 / 1024 / total_time) * 8
-        else:
-            avg_speed = 0
-        
-        return {
-            'total_bytes': self._stats['total_bytes'],
-            'total_time_s': total_time,
-            'downloads': self._stats['downloads'],
-            'avg_speed_mbps': avg_speed,
-            'worker_blocked': self._worker_blocked,
-        }
 
-    @property
-    def temp_directory(self) -> str:
-        return self.temp_dir
 
 # Backwards compatibility alias
 SeedrDownloader = OptimizedDownloader

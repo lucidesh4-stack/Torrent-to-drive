@@ -53,10 +53,6 @@ class TTLStore(Generic[T]):
             entry.expires_at = now + self.ttl_seconds
             return entry.value
 
-    def delete(self, key: str) -> None:
-        with self._lock:
-            self._items.pop(key, None)
-
     def _prune_locked(self, now: float) -> None:
         for key, entry in list(self._items.items()):
             if entry.expires_at <= now:

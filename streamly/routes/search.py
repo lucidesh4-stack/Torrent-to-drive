@@ -1,7 +1,6 @@
 # removed future annotations
 
 import asyncio
-import re
 import logging
 from fastapi import APIRouter, Request, HTTPException
 from typing import Optional
