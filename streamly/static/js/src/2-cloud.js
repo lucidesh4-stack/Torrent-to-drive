@@ -121,6 +121,10 @@
     if (bulk) {
       bulk.classList.toggle("hidden", count === 0);
     }
+    const mobileCloud = $("cloudMobile");
+    if (mobileCloud) {
+      mobileCloud.classList.toggle("cm-bulk-active", count > 0);
+    }
     const cmDlBtn = $("cmBulkDownload");
     if (cmDlBtn) cmDlBtn.disabled = count !== 1;
     const cmCpBtn = $("cmBulkCopy");

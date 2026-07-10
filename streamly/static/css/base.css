@@ -1316,8 +1316,17 @@ button.icon-btn {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: 96px;       /* plenty of clearance to scroll items above the bulk bar */
+    padding-bottom: 24px;
     box-sizing: border-box !important;
+    transition: margin-bottom 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* When the bulk actions toolbar is active, shrink the list container
+     so it ends exactly above the toolbar start, with a clean border */
+  body.body-cloud-active .cloud-mobile.cm-bulk-active .cm-list,
+  body.body-cloud-active .cloud-mobile:has(#cloudBulkBar:not(.hidden)) .cm-list {
+    margin-bottom: 80px !important;
+    padding-bottom: 16px !important;
   }
 
   /* When the list is empty, hide it completely */
