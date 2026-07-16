@@ -562,6 +562,7 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
+    exact_size = size
     cancel_flag = [False]
     
     async def poll_cancel_request():
@@ -605,8 +606,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "EX",
             "3600"
         )
-        
-        exact_size = size
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
             "Accept": "*/*",
@@ -1247,7 +1246,7 @@ async def telegram_task_status(request: Request, task_id: str):
             log.warning("Could not parse task_args for %s during ownership check: %s", task_id, e)
 
     # Check in memory first
-    state = await _live_get(task_id)
+    state = _live_get(task_id)
     if state:
         return state
         
@@ -1275,7 +1274,7 @@ async def get_telegram_queue(request: Request):
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
     limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "99.0"))
     
-    active_item = await _live_get_active()
+    active_item = _live_get_active()
     
     if not active_item:
         active_task_id = await rs.get("streamly:active_transfer_global")

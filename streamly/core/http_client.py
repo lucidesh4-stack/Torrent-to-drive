@@ -1,10 +1,10 @@
 import ssl
+import urllib.parse
 import httpx
 import asyncio
 import time
 import os
 import logging
-import urllib.parse
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
