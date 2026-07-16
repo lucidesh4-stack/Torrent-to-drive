@@ -581,6 +581,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     
     client = None
     temp_path = None
+    exact_size = size
     try:
         client = tg_manager.get_upload_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
         await client.connect()
