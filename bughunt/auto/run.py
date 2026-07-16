@@ -46,7 +46,7 @@ def build_app_client(base: Path):
     try:
         os.environ.setdefault("SPACE_ID", "x")
         os.environ.setdefault("SITE_PASSWORD", "autotest-secret")
-        os.environ.setdefault("APP_ENV", "production")
+        os.environ.setdefault("APP_ENV", "test")
         # No Upstash creds -> app boots with rs=None (graceful). That's fine for our checks.
         sys.path.insert(0, str(base))
         from streamly.app import create_app  # type: ignore
