@@ -33,12 +33,7 @@ class OffcloudStatusPayload(BaseModel):
 
 
 async def _get_offcloud(request: Request) -> OffcloudService:
-    # 1. Check if configured in state (env)
-    svc = getattr(request.app.state, "offcloud", None)
-    if svc and svc.configured:
-        return svc
-
-    # 2. Check if saved in Redis
+    # 1. Check if saved in Redis first (user override)
     rs = getattr(request.app.state, "rs", None)
     if rs:
         key = await rs.get_offcloud_key()
@@ -46,6 +41,11 @@ async def _get_offcloud(request: Request) -> OffcloudService:
             svc = OffcloudService(key)
             request.app.state.offcloud = svc  # Cache for subsequent requests
             return svc
+
+    # 2. Check if configured in state (env fallback)
+    svc = getattr(request.app.state, "offcloud", None)
+    if svc and svc.configured:
+        return svc
 
     raise HTTPException(
         status_code=503,
@@ -56,8 +56,15 @@ async def _get_offcloud(request: Request) -> OffcloudService:
 @offcloud_router.post("/api/offcloud/config")
 async def offcloud_config(request: Request, payload: OffcloudConfigPayload, _csrf = Depends(verify_csrf)):
     key = payload.api_key.strip()
+    rs = getattr(request.app.state, "rs", None)
+    if not rs:
+        raise HTTPException(status_code=500, detail="Redis storage not available")
+
+    # If the key is empty, it is a disconnect / clear request
     if not key:
-        raise HTTPException(status_code=400, detail="API key cannot be empty")
+        await rs.delete("streamly:offcloud:api_key")
+        request.app.state.offcloud = OffcloudService("")  # Reset memory cache
+        return {"success": True}
 
     # Validate key before saving
     test_svc = OffcloudService(key)
@@ -69,11 +76,8 @@ async def offcloud_config(request: Request, payload: OffcloudConfigPayload, _csr
     except Exception:
         pass
 
-    rs = getattr(request.app.state, "rs", None)
-    if not rs:
-        raise HTTPException(status_code=500, detail="Redis storage not available")
-
     await rs.save_offcloud_key(key)
+    request.app.state.offcloud = test_svc  # Update memory cache immediately
     return {"success": True}
 
 
