@@ -1168,7 +1168,7 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
         raw_bw = await rs.get(f"streamly:monthly_bandwidth:{ym}")
         bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
         
-        limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "99.0"))
+        limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "9999.0"))
         limit_bytes = int(limit_gb * 1024 * 1024 * 1024)
         
         projected = await get_projected_bandwidth(rs, ym, current_file_size=size, bw_bytes=bw_bytes)
@@ -1272,7 +1272,7 @@ async def get_telegram_queue(request: Request):
     ym = datetime.datetime.now(datetime.UTC).strftime("%Y-%m")
     raw_bw = await rs.get(f"streamly:monthly_bandwidth:{ym}")
     bw_bytes = int(raw_bw) if raw_bw and raw_bw.isdigit() else 0
-    limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "99.0"))
+    limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "9999.0"))
     
     active_item = _live_get_active()
     

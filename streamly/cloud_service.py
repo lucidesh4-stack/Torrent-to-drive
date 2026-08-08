@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 from seedrcc import AsyncSeedr
 from seedrcc.token import Token
+from seedrcc.models import Torrent
 from seedrcc.exceptions import NetworkError, ServerError, AuthenticationError, APIError
 
 from .config import AppConfig
