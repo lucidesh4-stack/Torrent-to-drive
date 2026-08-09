@@ -292,6 +292,8 @@ async def offcloud_explore(request: Request, request_id: str):
             "type": "file"
         })
 
+    import re
+    files.sort(key=lambda x: [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', x["name"])])
     return {"success": True, "files": files}
 
 

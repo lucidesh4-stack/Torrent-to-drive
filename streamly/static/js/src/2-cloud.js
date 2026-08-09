@@ -1171,6 +1171,11 @@
         };
       });
 
+      window.items.sort((a, b) => {
+        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+      });
+
       if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
       selectedKeys.clear();
       lastClickedKey = null;
@@ -1340,6 +1345,8 @@
         last_update: Math.floor(Date.now() / 1000)
       };
     });
+
+    window.items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 
     const body = $("cloudBody");
     const empty = $("cloudEmpty");
