@@ -97,14 +97,14 @@
       else { allCb.checked = false; allCb.indeterminate = true; }
     }
 
-    // Open, Copy, Download buttons: enabled ONLY when exactly 1 item is selected
+    // Open: enabled ONLY when exactly 1 item is selected
     $("openBtn").disabled = count !== 1;
     const copyBtn = $("copyLinkBtn");
-    if (copyBtn) copyBtn.disabled = count !== 1;
+    if (copyBtn) copyBtn.disabled = count === 0;
     const dlBtn = $("downloadBtn");
-    if (dlBtn) dlBtn.disabled = count !== 1;
+    if (dlBtn) dlBtn.disabled = count === 0;
 
-    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && x.type === "file");
+    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.download_url));
     const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
@@ -126,9 +126,9 @@
       mobileCloud.classList.toggle("cm-bulk-active", count > 0);
     }
     const cmDlBtn = $("cmBulkDownload");
-    if (cmDlBtn) cmDlBtn.disabled = count !== 1;
+    if (cmDlBtn) cmDlBtn.disabled = count === 0;
     const cmCpBtn = $("cmBulkCopy");
-    if (cmCpBtn) cmCpBtn.disabled = count !== 1;
+    if (cmCpBtn) cmCpBtn.disabled = count === 0;
     const tgBtn = $("cmBulkTelegram");
     if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;
     const cmDelBtn = $("cmBulkDelete");
@@ -639,47 +639,37 @@
     return data.url;
   }
 
+  window._copyToClipboard = async function(text) {
+    if (!text) return false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  };
+
   window.copySelectedLink = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
 
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
-    if (selectedItems.length > 1) {
-      return toast("Multi-select copy is not supported");
-    }
 
-    if (window.driveProvider === "offcloud") {
-      const item = selectedItems[0];
-      let url = item.download_url;
-      if (!url && item.type === "file") {
-        try {
-          updateStatus($("cloudStatus"), "Preparing link...", "");
-          url = await getFileUrl(item);
-        } catch (e) {
-          return updateStatus($("cloudStatus"), "Could not resolve link.", "error");
-        }
-      }
-      if (!url) {
-        const msg = "Could not resolve download link for this item";
-        toast(msg);
-        return updateStatus($("cloudStatus"), msg, "error");
-      }
-      try {
-        if (!navigator.clipboard || !navigator.clipboard.writeText) {
-          throw new Error("Clipboard is not available in this browser");
-        }
-        await navigator.clipboard.writeText(url);
-        toast("Copied link to clipboard");
-        updateStatus($("cloudStatus"), "Copied link to clipboard.", "ok");
-      } catch (err) {
-        const message = err.message || "Could not copy link";
-        toast(message);
-        updateStatus($("cloudStatus"), message, "error");
-      }
-      return;
-    }
-
-    const files = selectedItems.filter((it) => it.type === "file");
+    const files = selectedItems.filter((it) => it.type === "file" || it.download_url);
     const folderCount = selectedItems.length - files.length;
 
     if (files.length === 0) {
@@ -693,8 +683,6 @@
     );
 
     try {
-      // Resolve every file's direct URL. Done in parallel for speed, but the
-      // results array preserves selection order.
       const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
 
       const urls = [];
@@ -707,13 +695,9 @@
       if (urls.length === 0) throw new Error("Could not resolve any file links");
 
       const text = urls.join("\n");
+      const copied = await window._copyToClipboard(text);
+      if (!copied) throw new Error("Could not copy link(s) to clipboard");
 
-      if (!navigator.clipboard || !navigator.clipboard.writeText) {
-        throw new Error("Clipboard is not available in this browser");
-      }
-      await navigator.clipboard.writeText(text);
-
-      // Build a precise status message covering partial results / skipped folders.
       let msg = `Copied ${urls.length} link${urls.length === 1 ? "" : "s"} to clipboard`;
       const extras = [];
       if (folderCount > 0) extras.push(`${folderCount} folder(s) skipped`);
@@ -775,33 +759,10 @@
   window.downloadSelected = async function () {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
-    if (selectedItems.length > 1) {
-      return toast("Multi-select download is not supported");
-    }
-
-    if (window.driveProvider === "offcloud") {
-      const item = selectedItems[0];
-      let url = item.download_url;
-      if (!url && item.type === "file") {
-        try {
-          updateStatus($("cloudStatus"), "Preparing download...", "");
-          url = await getFileUrl(item);
-        } catch (e) {
-          return updateStatus($("cloudStatus"), "Could not resolve download URL.", "error");
-        }
-      }
-      if (!url) {
-        const msg = "Could not resolve download URL for this item";
-        toast(msg);
-        return updateStatus($("cloudStatus"), msg, "error");
-      }
-      updateStatus($("cloudStatus"), "Starting download...", "ok");
-      window._downloadFileDirect(url, item.name);
-      return;
-    }
+    if (selectedItems.length === 0) return toast("Select item(s) first");
 
     const folders = selectedItems.filter((it) => it.type === "folder");
-    const files = selectedItems.filter((it) => it.type === "file");
+    const files = selectedItems.filter((it) => it.type === "file" || it.download_url);
 
     // Folders can't be direct-downloaded — route them through zip.
     if (folders.length > 0 && files.length === 0) return zipSelected();
@@ -812,7 +773,7 @@
 
     if (files.length === 0) return toast("No files selected");
 
-    // ---- 1. Resolve every URL FIRST (parallel), before any download fires. --
+    // ---- 1. Resolve every URL FIRST (parallel), before any download fires. ----
     updateStatus($("cloudStatus"), `Preparing ${files.length} file(s)...`, "");
     const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
 
@@ -829,7 +790,7 @@
       return updateStatus($("cloudStatus"), msg, "error");
     }
 
-    // ---- 2. Fire each download with a small stagger (no await in between). ---
+    // ---- 2. Fire each download with a small stagger (no await in between). ----
     updateStatus($("cloudStatus"), `Starting ${resolved.length} download(s)...`, "");
     resolved.forEach((item, i) => {
       setTimeout(() => {
@@ -849,7 +810,7 @@
         }
       }, i * 350); // 350ms stagger prevents the browser coalescing them.
     });
-  }
+  };
 
   window.zipSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
