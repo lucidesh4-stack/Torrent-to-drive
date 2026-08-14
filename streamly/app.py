@@ -177,8 +177,8 @@ def create_app(
     client_store: TTLStore[Any] | None = None,
 ) -> FastAPI:
     config = config or AppConfig.from_env()
-    app = FastAPI(title="CloudFlow", docs_url=None, redoc_url=None)
-    
+    app = FastAPI(title="CloudFlow", docs_url=None, redoc_url=None, openapi_url=None)
+
     # Store settings in state
     app.state.config = config
     app.state.background_tasks = set()
@@ -274,9 +274,14 @@ def create_app(
     async def add_security_headers(request: Request, call_next):
         # Generate dynamic request id
         request.state.request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
-        
-        # Site protection check
         path = request.url.path
+        
+        # Block automated bot/scanner probe paths (.env, .git, secrets, path traversal)
+        lower_path = path.lower()
+        if any(bad in lower_path for bad in ("/.env", "/.git", "secrets.toml", "..", "/file%3d")):
+            return JSONResponse(status_code=404, content={"success": False, "error": {"code": "not_found", "message": "Not Found"}})
+
+        # Site protection check
         if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
             site_password = _SITE_PASSWORD
             if site_password and not request.session.get("site_auth"):
