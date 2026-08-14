@@ -188,14 +188,42 @@
   #cloudView.cloud-layout { display: block; grid-template-columns: none; }
   .cloud-mobile { display: block; position: relative; padding-bottom: 120px; }
 
-  /* top toolbar: select-all + Up (left), Refresh (right) */
+  /* top toolbar: select-all + Up (left), Refresh (right), integrated status */
   .cm-top {
-    display: flex; align-items: center; justify-content: flex-start;
-    gap: 12px; padding: 12px; margin-bottom: 12px;
+    display: flex; flex-direction: column;
+    gap: 0; padding: 10px 12px; margin-bottom: 10px;
     background: var(--panel-2);
     border: 1px solid var(--line);
     border-radius: var(--radius-md);
+    box-sizing: border-box;
   }
+  .cm-top-row {
+    display: flex; align-items: center; justify-content: flex-start;
+    gap: 10px; width: 100%;
+  }
+  .cm-status {
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    color: #93c5fd;
+    font-size: 12px;
+    font-weight: 500;
+    word-break: break-word;
+    transition: all 0.15s ease;
+  }
+  .cm-status.error {
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.25);
+    color: #fca5a5;
+  }
+  .cm-status.ok {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.25);
+    color: #6ee7b7;
+  }
+  .cm-status.hidden { display: none !important; }
   .cm-top-left { display: flex; align-items: center; gap: 10px; }
   .cm-selall { width: 20px; height: 20px; accent-color: var(--blue); flex: none; }
   .cm-tbtn {

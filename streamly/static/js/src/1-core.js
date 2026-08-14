@@ -25,8 +25,18 @@
   window.$ = (id) => document.getElementById(id);
 
   window.updateStatus = function(el, message, kind) {
+    if (!el) return;
     el.textContent = message || "";
     el.className = "status" + (kind ? " " + kind : "");
+    if (el.id === "cloudStatus") {
+      const cmEl = window.$("cmStatus");
+      if (cmEl) {
+        cmEl.textContent = message || "";
+        cmEl.className = "cm-status" + (kind ? " " + kind : "");
+        if (message) cmEl.classList.remove("hidden");
+        else cmEl.classList.add("hidden");
+      }
+    }
   };
 
   window.toast = function(message) {
