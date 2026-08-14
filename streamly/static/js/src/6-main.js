@@ -143,6 +143,9 @@
   if ($("pasteMagnetBtn")) $("pasteMagnetBtn").addEventListener("click", () => {
     if (typeof window.addMagnetFromClipboard === "function") window.addMagnetFromClipboard();
   });
+  if ($("cmMagnetBtn")) $("cmMagnetBtn").addEventListener("click", () => {
+    if (typeof window.addMagnetFromClipboard === "function") window.addMagnetFromClipboard();
+  });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);
