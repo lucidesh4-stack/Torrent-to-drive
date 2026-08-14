@@ -310,7 +310,7 @@ def create_app(
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "script-src 'self'; "
-            "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com; "
+            "frame-src 'self' https: blob: https://www.youtube.com https://www.youtube-nocookie.com; "
             f"base-uri 'none'; object-src 'none'; {csp_ancestors}"
         )
         

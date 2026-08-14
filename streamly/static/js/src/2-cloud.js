@@ -744,16 +744,30 @@
   }
 
   window._downloadFileDirect = function (url, name) {
-    // Standard anchor-click download: doesn't use iframes (which are blocked by CSP frame-src),
-    // and triggers the browser's native multiple-downloads prompt without opening blank tabs.
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name || "";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      try { document.body.removeChild(a); } catch (_) {}
-    }, 500);
+    if (!url) return;
+    try {
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "none";
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try { document.body.removeChild(iframe); } catch (_) {}
+      }, 60000);
+    } catch (_) {
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.download = name || "";
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try { document.body.removeChild(a); } catch (_) {}
+      }, 5000);
+    }
   };
 
   window.downloadSelected = async function () {
