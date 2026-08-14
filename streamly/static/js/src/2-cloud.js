@@ -1466,15 +1466,10 @@
 
     updateStatus($("cloudStatus"), "Adding magnet to cloud...", "");
     try {
-      const res = await parseResponse(await fetch("/api/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          magnet: clipText,
-          provider: window.driveProvider || "auto"
-        })
-      }));
+      const res = await postJson("/api/add", {
+        magnet: clipText,
+        provider: window.driveProvider || "auto"
+      });
 
       let msg = "Added: " + magnetName;
       if (res && res.queued) {
