@@ -140,6 +140,9 @@
     }
   });
   $("upBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
+  if ($("pasteMagnetBtn")) $("pasteMagnetBtn").addEventListener("click", () => {
+    if (typeof window.addMagnetFromClipboard === "function") window.addMagnetFromClipboard();
+  });
   $("openBtn").addEventListener("click", () => openItem());
   $("downloadBtn").addEventListener("click", downloadSelected);
   if ($("copyLinkBtn")) $("copyLinkBtn").addEventListener("click", copySelectedLink);

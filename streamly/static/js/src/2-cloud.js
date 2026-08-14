@@ -1410,5 +1410,78 @@
         list.appendChild(row);
       });
     }
-  }
+  };
+
+  window.addMagnetFromClipboard = async function() {
+    let clipText = "";
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        clipText = await navigator.clipboard.readText();
+      }
+    } catch (_) {}
+
+    clipText = (clipText || "").trim();
+    
+    const isMagnet = clipText.toLowerCase().startsWith("magnet:?") || clipText.toLowerCase().includes("xt=urn:btih:");
+
+    if (!isMagnet) {
+      const userPrompt = prompt(
+        clipText 
+          ? "Clipboard does not contain a valid magnet link. Paste magnet link manually:" 
+          : "Paste magnet link to add to cloud:", 
+        clipText && clipText.length < 300 && clipText.length > 5 ? clipText : ""
+      );
+      if (!userPrompt) return;
+      clipText = userPrompt.trim();
+    }
+
+    if (!clipText.toLowerCase().startsWith("magnet:?") && !clipText.toLowerCase().includes("xt=urn:btih:")) {
+      toast("Invalid magnet link format");
+      return updateStatus($("cloudStatus"), "Invalid magnet link format", "error");
+    }
+
+    let magnetName = "Unknown Magnet";
+    const dnMatch = clipText.match(/[?&]dn=([^&]+)/i);
+    if (dnMatch) {
+      try { magnetName = decodeURIComponent(dnMatch[1].replace(/\+/g, " ")); } catch (_) {}
+    }
+
+    if (typeof window.saveToHistory === "function") {
+      window.saveToHistory(clipText, magnetName);
+    }
+
+    updateStatus($("cloudStatus"), "Adding magnet to cloud...", "");
+    try {
+      const res = await parseResponse(await fetch("/api/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          magnet: clipText,
+          provider: window.driveProvider || "auto"
+        })
+      }));
+
+      let msg = "Added: " + magnetName;
+      if (res && res.queued) {
+        msg = "Added to queue: " + magnetName;
+      } else if (res && res.provider === "offcloud") {
+        msg = "Added to Offcloud: " + magnetName;
+      } else {
+        msg = "Added to Seedr: " + magnetName;
+      }
+      
+      toast(msg);
+      updateStatus($("cloudStatus"), "✓ " + msg, "ok");
+
+      if (typeof window.cloudRefresh === "function") {
+        window.cloudRefresh();
+      }
+    } catch (err) {
+      const errMsg = err.message || "Failed to add magnet link";
+      toast(errMsg);
+      updateStatus($("cloudStatus"), errMsg, "error");
+    }
+  };
+
 
