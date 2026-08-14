@@ -1308,7 +1308,7 @@ button.icon-btn {
 
   body.body-cloud-active .cm-list {
     height: auto !important;
-    max-height: calc(100vh - 210px) !important;
+    max-height: calc(100vh - 245px) !important;
     width: 100% !important;
     max-width: 100% !important;
     min-height: 0;
@@ -1316,6 +1316,7 @@ button.icon-btn {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    padding-bottom: 16px !important;
     box-sizing: border-box !important;
     transition: max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
@@ -1324,7 +1325,8 @@ button.icon-btn {
      so long lists stop cleanly right above the floating bulk actions bar */
   body.body-cloud-active .cloud-mobile.cm-bulk-active .cm-list,
   body.body-cloud-active .cloud-mobile:has(#cloudBulkBar:not(.hidden)) .cm-list {
-    max-height: calc(100vh - 280px) !important;
+    max-height: calc(100vh - 315px) !important;
+    padding-bottom: 16px !important;
   }
 
   /* When the list is empty, hide it completely */
