@@ -44,9 +44,13 @@
     if (name === "cloud") window.updateBottomNavHighlight(0);
     if (name === "search") window.updateBottomNavHighlight(1);
 
-    // Auto-load root folder when switching to cloud view; stop transfer polling off-cloud.
+    // Auto-load active provider list when switching to cloud view; stop transfer polling off-cloud.
     if (name === "cloud" && isAuthenticated) {
-      await loadFolder(currentFolder || 0);
+      if (typeof window.reloadCloudView === "function") {
+        await window.reloadCloudView();
+      } else {
+        await loadFolder(currentFolder || 0);
+      }
     } else if (typeof syncCloudAutoRefresh === "function") {
       syncCloudAutoRefresh();
     }
@@ -62,7 +66,11 @@
       const data = await postJson("/api/login", { email: $("email").value, password: $("password").value });
       $("password").value = "";
       showApp(data.username || "Logged in");
-      await loadFolder(0);
+      if (typeof window.reloadCloudView === "function") {
+        await window.reloadCloudView();
+      } else {
+        await loadFolder(0);
+      }
     } catch (err) {
       updateStatus($("loginStatus"), err.message || "Login failed", "error");
     } finally {
@@ -74,7 +82,11 @@
     const isCloud = !$("cloudView").classList.contains("hidden");
     if (isCloud) {
       currentFolder = 0;
-      loadFolder(0);
+      if (typeof window.reloadCloudView === "function") {
+        window.reloadCloudView();
+      } else {
+        loadFolder(0);
+      }
     } else {
       setTab("cloud");
     }

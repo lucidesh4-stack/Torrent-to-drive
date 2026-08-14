@@ -552,8 +552,8 @@
       const folderRes = await fetch(`/fs/folder/${encodeURIComponent(folderId)}/items`, { credentials: "same-origin", cache: "no-store" });
       const data = await parseResponse(folderRes);
       
-      // If the user has navigated to another folder in the meantime, ignore this stale response
-      if (lastRequestedFolderId !== folderId) return;
+      // If the user has navigated to another folder or switched provider in the meantime, ignore this stale response
+      if (lastRequestedFolderId !== folderId || window.driveProvider !== "seedr") return;
       
       currentFolder = folderId;
       parentFolder = Number(data.parent) || 0;
@@ -1125,14 +1125,24 @@
     return data.items || [];
   }
 
+  window.reloadCloudView = function(opts = {}) {
+    if (window.driveProvider === "offcloud") {
+      loadOffcloudList();
+      loadOffcloudListMobile();
+    } else {
+      loadFolder(currentFolder || 0, opts);
+    }
+  };
+
   window.loadOffcloudList = async function() {
     const body = $("cloudBody");
     const empty = $("cloudEmpty");
     if (!body) return;
-    body.textContent = "";
     updateStatus($("cloudStatus"), "Loading Offcloud list...", "");
     try {
       const listItems = await fetchOffcloudListItems();
+      if (window.driveProvider !== "offcloud") return;
+      body.textContent = "";
 
       // Normalize Offcloud items to match Seedr item schema
       window.items = listItems.map(item => {
@@ -1210,6 +1220,7 @@
       }
       updateStatus($("cloudStatus"), "", "");
     } catch (err) {
+      if (window.driveProvider !== "offcloud") return;
       updateStatus($("cloudStatus"), err.message || "Failed to load Offcloud list", "error");
     }
   }
@@ -1217,11 +1228,12 @@
   window.loadOffcloudListMobile = async function() {
     const list = $("cloudMobileList");
     if (!list) return;
-    list.textContent = "";
     const cnt = $("cmCount");
     const empty = $("cloudMobileEmpty");
     try {
       const listItems = await fetchOffcloudListItems();
+      if (window.driveProvider !== "offcloud") return;
+      list.textContent = "";
 
       // Normalize Offcloud items to match Seedr item schema
       window.items = listItems.map(item => {
