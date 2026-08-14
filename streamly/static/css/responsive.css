@@ -255,7 +255,7 @@
   }
   .cm-list {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: var(--radius-md); overflow-y: auto; flex: 1 1 auto;
+    border-radius: var(--radius-md); overflow-y: auto; flex: 0 1 auto;
   }
   .cm-row {
     display: flex; align-items: center; gap: 12px;
