@@ -121,6 +121,10 @@
     if (bulk) {
       bulk.classList.toggle("hidden", count === 0);
     }
+    const cmCount = $("cmBulkCount");
+    if (cmCount) {
+      cmCount.textContent = count;
+    }
     const mobileCloud = $("cloudMobile");
     if (mobileCloud) {
       mobileCloud.classList.toggle("cm-bulk-active", count > 0);
