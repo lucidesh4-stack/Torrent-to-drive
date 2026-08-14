@@ -186,7 +186,15 @@
   #cloudView .panel,
   #cloudView .side-card { display: none !important; }
   #cloudView.cloud-layout { display: block; grid-template-columns: none; }
-  .cloud-mobile { display: flex; flex-direction: column; position: relative; padding-bottom: 0; min-height: 0; flex: 1; }
+  .cloud-mobile {
+    display: flex; flex-direction: column; position: relative;
+    padding-bottom: 84px !important; min-height: 0; flex: 1; box-sizing: border-box;
+    transition: padding-bottom 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .cloud-mobile.cm-bulk-active,
+  .cloud-mobile:has(#cloudBulkBar:not(.hidden)) {
+    padding-bottom: 144px !important;
+  }
 
   /* top toolbar: select-all + Up (left), Refresh (right), integrated status */
   .cm-top {
@@ -255,7 +263,7 @@
   }
   .cm-list {
     background: var(--panel); border: 1px solid var(--line);
-    border-radius: var(--radius-md); overflow-y: auto; flex: 0 1 auto;
+    border-radius: var(--radius-md); overflow-y: auto; flex: 0 1 auto; max-height: 100%;
   }
   .cm-row {
     display: flex; align-items: center; gap: 12px;
