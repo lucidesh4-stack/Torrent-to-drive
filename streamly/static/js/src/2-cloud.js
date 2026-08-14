@@ -805,10 +805,10 @@
           if (failed.length) msg += ` (${failed.length} failed to resolve)`;
           updateStatus($("cloudStatus"), msg + ".", failed.length ? "error" : "ok");
           if (resolved.length > 1) {
-            toast("If only one file downloaded, allow “multiple downloads” when your browser prompts.");
+            toast("If Chrome blocked extra files, tap the popup icon in your URL bar -> Allow multiple downloads.");
           }
         }
-      }, i * 350); // 350ms stagger prevents the browser coalescing them.
+      }, i * 850); // 850ms stagger prevents browser anti-spam blocking
     });
   };
 
