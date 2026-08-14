@@ -1308,7 +1308,7 @@ button.icon-btn {
 
   body.body-cloud-active .cm-list {
     height: auto !important;
-    max-height: calc(100vh - 261px) !important;
+    max-height: calc(100vh - 273px) !important;
     width: 100% !important;
     max-width: 100% !important;
     min-height: 0;
@@ -1325,7 +1325,7 @@ button.icon-btn {
      so long lists stop cleanly right above the floating bulk actions bar */
   body.body-cloud-active .cloud-mobile.cm-bulk-active .cm-list,
   body.body-cloud-active .cloud-mobile:has(#cloudBulkBar:not(.hidden)) .cm-list {
-    max-height: calc(100vh - 331px) !important;
+    max-height: calc(100vh - 343px) !important;
     padding-bottom: 0 !important;
   }
 
