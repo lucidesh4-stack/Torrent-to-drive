@@ -724,21 +724,13 @@
     try {
       const url = await getFileUrl(item);
       const ext = String(item.name || "").split(".").pop().toLowerCase();
-      if (["mp4", "webm", "mov", "m4v", "mkv", "avi"].includes(ext)) {
-        $("videoTitle").textContent = item.name || "Video";
-        const video = $("videoPlayer");
-        video.src = url;
-        
-        // Setup Native Player Button
-        const nativeBtn = $("nativePlayerBtn");
-        nativeBtn.onclick = () => {
-          video.pause();
-          // Open in StreamlyPlayer via deep link (Android + Windows)
-          const deepLink = `streamlyplayer://play?url=${encodeURIComponent(url)}`;
-          window.location.href = deepLink;
-        };
-        $("videoOverlay").classList.remove("hidden");
-        video.play().catch(() => {});
+      if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts"].includes(ext)) {
+        if (typeof window.openVideoPlayerModal === "function") {
+          window.openVideoPlayerModal("seedr", item.id, item.name || "Video Stream", formatBytes(item.size || 0));
+          return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
       } else {
         window.open(url, "_blank", "noopener,noreferrer");
       }
@@ -1101,19 +1093,13 @@
 
   window.playOrDownloadOffcloudFile = async function(file) {
     const ext = String(file.name || "").split(".").pop().toLowerCase();
-    if (["mp4", "webm", "mov", "m4v", "mkv", "avi"].includes(ext)) {
-      $("videoTitle").textContent = file.name || "Video";
-      const video = $("videoPlayer");
-      video.src = file.download_url;
-      
-      const nativeBtn = $("nativePlayerBtn");
-      nativeBtn.onclick = () => {
-        video.pause();
-        const deepLink = `streamlyplayer://play?url=${encodeURIComponent(file.download_url)}`;
-        window.location.href = deepLink;
-      };
-      $("videoOverlay").classList.remove("hidden");
-      video.play().catch(() => {});
+    if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts"].includes(ext)) {
+      if (typeof window.openVideoPlayerModal === "function") {
+        const itemKey = file.download_url || file.request_id;
+        window.openVideoPlayerModal("offcloud", itemKey, file.name || "Offcloud Video", file.size_str || "");
+        return;
+      }
+      window.open(file.download_url, "_blank", "noopener,noreferrer");
     } else {
       window.open(file.download_url, "_blank", "noopener,noreferrer");
     }
