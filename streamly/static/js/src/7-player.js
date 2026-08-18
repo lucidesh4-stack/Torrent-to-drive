@@ -1,9 +1,29 @@
 /**
  * Seamless Direct Stream Video Player Modal Component for Streamly (7-player.js)
- * High-performance direct streaming with robust capture-phase keyboard shortcuts.
+ * High-performance direct streaming with robust capture-phase keyboard shortcuts and auto focus-blur.
  */
 (function() {
   let activeVideoEl = null;
+
+  function clearElementFocus() {
+    if (document.activeElement && typeof document.activeElement.blur === "function" && document.activeElement !== document.body) {
+      document.activeElement.blur();
+    }
+  }
+
+  function toggleFullscreen(modal, videoEl) {
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement);
+    if (!isFS) {
+      const target = videoEl || modal;
+      if (target.requestFullscreen) target.requestFullscreen().catch(() => {});
+      else if (target.webkitRequestFullscreen) target.webkitRequestFullscreen().catch(() => {});
+      else if (modal.requestFullscreen) modal.requestFullscreen().catch(() => {});
+    } else {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen().catch(() => {});
+    }
+    clearElementFocus();
+  }
 
   async function resolveDirectUrl(provider, itemId) {
     const p = (provider || "").toLowerCase();
@@ -68,7 +88,7 @@
 
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
-    videoEl.focus();
+    clearElementFocus();
     videoEl.play().catch(() => {});
   };
 
@@ -83,9 +103,10 @@
     if (modal) modal.classList.add("hidden");
     document.body.style.overflow = "";
     activeVideoEl = null;
+    clearElementFocus();
   };
 
-  // Event Listeners for close button and backdrop
+  // Event Listeners for close button, backdrop, and auto focus-blur
   document.addEventListener("DOMContentLoaded", function() {
     const modal = $("videoPlayerModal");
     const closeBtn = $("vpmCloseBtn");
@@ -96,12 +117,23 @@
       });
     }
     if (modal) {
+      modal.addEventListener("pointerdown", function() {
+        setTimeout(clearElementFocus, 100);
+      });
       modal.addEventListener("click", function(e) {
         if (e.target === modal) {
           closeVideoPlayerModal();
         }
+        setTimeout(clearElementFocus, 100);
       });
     }
+    
+    document.addEventListener("fullscreenchange", function() {
+      setTimeout(clearElementFocus, 100);
+    });
+    document.addEventListener("webkitfullscreenchange", function() {
+      setTimeout(clearElementFocus, 100);
+    });
   });
 
   // Capture-phase Keyboard Shortcuts Listener for Video Player
@@ -125,6 +157,7 @@
     if (isPlayerKey) {
       e.preventDefault();
       e.stopPropagation();
+      clearElementFocus();
 
       switch (key) {
         case " ":
@@ -141,11 +174,7 @@
           activeVideoEl.currentTime = Math.min(activeVideoEl.duration || 0, activeVideoEl.currentTime + 5);
           break;
         case "f":
-          if (!document.fullscreenElement) {
-            modal.requestFullscreen().catch(() => {});
-          } else {
-            document.exitFullscreen().catch(() => {});
-          }
+          toggleFullscreen(modal, activeVideoEl);
           break;
         case "m":
           activeVideoEl.muted = !activeVideoEl.muted;
