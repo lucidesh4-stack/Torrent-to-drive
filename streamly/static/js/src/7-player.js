@@ -1,6 +1,6 @@
 /**
  * Seamless Direct Stream Video Player Modal Component for Streamly (7-player.js)
- * High-performance, zero-CPU direct streaming with VLC launcher and full keyboard shortcuts.
+ * High-performance direct streaming with robust capture-phase keyboard shortcuts.
  */
 (function() {
   let activeVideoEl = null;
@@ -47,8 +47,6 @@
     const titleEl = $("vpmTitle");
     const metaEl = $("vpmMeta");
     const videoEl = $("vpmVideo");
-    const vlcBtn = $("vpmVlcBtn");
-    const copyBtn = $("vpmCopyBtn");
     
     const directUrl = await resolveDirectUrl(provider, itemId);
 
@@ -68,25 +66,9 @@
     videoEl.src = directUrl;
     activeVideoEl = videoEl;
 
-    // Setup action buttons
-    if (vlcBtn) {
-      vlcBtn.onclick = () => {
-        window.location.href = `vlc://${directUrl}`;
-      };
-    }
-    if (copyBtn) {
-      copyBtn.onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(directUrl);
-          if (typeof toast === "function") toast("Direct stream link copied to clipboard!");
-        } catch (e) {
-          prompt("Direct Stream Link:", directUrl);
-        }
-      };
-    }
-
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";
+    videoEl.focus();
     videoEl.play().catch(() => {});
   };
 
@@ -122,48 +104,53 @@
     }
   });
 
-  // Keyboard Shortcuts Listener for Video Player
-  document.addEventListener("keydown", function(e) {
+  // Capture-phase Keyboard Shortcuts Listener for Video Player
+  // Uses true capture phase to intercept keys reliably regardless of clicked player element
+  window.addEventListener("keydown", function(e) {
     const modal = $("videoPlayerModal");
     if (!modal || modal.classList.contains("hidden")) return;
 
     if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       closeVideoPlayerModal();
       return;
     }
 
     if (!activeVideoEl) return;
 
-    switch (e.key) {
-      case " ":
-      case "k":
-        e.preventDefault();
-        if (activeVideoEl.paused) activeVideoEl.play();
-        else activeVideoEl.pause();
-        break;
-      case "ArrowLeft":
-      case "j":
-        e.preventDefault();
-        activeVideoEl.currentTime = Math.max(0, activeVideoEl.currentTime - 5);
-        break;
-      case "ArrowRight":
-      case "l":
-        e.preventDefault();
-        activeVideoEl.currentTime = Math.min(activeVideoEl.duration || 0, activeVideoEl.currentTime + 5);
-        break;
-      case "f":
-        e.preventDefault();
-        if (!document.fullscreenElement) {
-          modal.requestFullscreen().catch(() => {});
-        } else {
-          document.exitFullscreen().catch(() => {});
-        }
-        break;
-      case "m":
-        e.preventDefault();
-        activeVideoEl.muted = !activeVideoEl.muted;
-        break;
+    const key = e.key.toLowerCase();
+    const isPlayerKey = [" ", "k", "arrowleft", "j", "arrowright", "l", "f", "m"].includes(key);
+
+    if (isPlayerKey) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      switch (key) {
+        case " ":
+        case "k":
+          if (activeVideoEl.paused) activeVideoEl.play();
+          else activeVideoEl.pause();
+          break;
+        case "arrowleft":
+        case "j":
+          activeVideoEl.currentTime = Math.max(0, activeVideoEl.currentTime - 5);
+          break;
+        case "arrowright":
+        case "l":
+          activeVideoEl.currentTime = Math.min(activeVideoEl.duration || 0, activeVideoEl.currentTime + 5);
+          break;
+        case "f":
+          if (!document.fullscreenElement) {
+            modal.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
+          }
+          break;
+        case "m":
+          activeVideoEl.muted = !activeVideoEl.muted;
+          break;
+      }
     }
-  });
+  }, true);
 })();
