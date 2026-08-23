@@ -58,6 +58,11 @@ class TelegramClientManager:
             StringSession(session_str),
             api_id, api_hash,
             connection=ConnectionTcpIntermediate,
+            device_model="Telegram Desktop",
+            system_version="Windows 11 x64",
+            app_version="5.2.0",
+            lang_code="en",
+            system_lang_code="en-US",
             flood_sleep_threshold=FLOOD_SLEEP_THRESHOLD,
         )
         self.stats.created += 1
