@@ -775,6 +775,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 uploaded = await client.upload_file(
                     temp_path,
                     file_name=filename,
+                    part_size_kb=512,
                     progress_callback=upload_progress
                 )
                 upload_elapsed = time.time() - upload_start
