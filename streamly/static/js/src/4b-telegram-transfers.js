@@ -214,25 +214,31 @@
   };
 
   window.refreshQueueStatus = async function() {
+    // If SSE EventSource is active, disable HTTP GET polling loop to save bandwidth and server resources
+    if (window._tgEventSource && window._tgEventSource.readyState === EventSource.OPEN) {
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+      return;
+    }
+
     try {
       const response = await fetch("/api/telegram/queue", { credentials: "same-origin" });
       if (response.ok) {
         const data = await response.json();
         renderQueue(data);
         
-        // Keep polling if overlay is open OR if there's an active/queued transfer
+        // Keep polling ONLY if SSE is not active AND (overlay is open OR active transfer/queue exists)
         const hasWork = data.active || (data.queue && data.queue.length > 0);
-        if (isOverlayOpen || hasWork) {
+        if ((isOverlayOpen || hasWork) && (!window._tgEventSource || window._tgEventSource.readyState !== EventSource.OPEN)) {
           if (pollTimer) clearTimeout(pollTimer);
-          const interval = hasWork ? 10000 : 30000; // Poll every 10s if active, 30s if idle
+          const interval = hasWork ? 10000 : 30000;
           pollTimer = setTimeout(refreshQueueStatus, interval);
         }
       }
     } catch (e) {
       console.error("Error refreshing Telegram queue status:", e);
-      if (isOverlayOpen) {
+      if (isOverlayOpen && (!window._tgEventSource || window._tgEventSource.readyState !== EventSource.OPEN)) {
         if (pollTimer) clearTimeout(pollTimer);
-        pollTimer = setTimeout(refreshQueueStatus, 15000); // Poll every 15s on error if overlay open
+        pollTimer = setTimeout(refreshQueueStatus, 15000);
       }
     }
   }
