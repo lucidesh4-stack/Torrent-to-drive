@@ -771,8 +771,13 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     tracker(current, total)
                     await asyncio.sleep(0.065)
 
-                bot_token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TG_BOT_TOKEN")
-                if bot_token and (isinstance(resolved_chat, (int, str)) or hasattr(resolved_chat, "id")):
+                bot_token = (
+                    os.environ.get("TELEGRAM_BOT_TOKEN") or 
+                    os.environ.get("TG_BOT_TOKEN") or 
+                    os.environ.get("BOT_TOKEN") or
+                    getattr(app.state.config, "telegram_bot_token", "")
+                )
+                if bot_token and resolved_chat is not None:
                     chat_id_str = str(getattr(resolved_chat, "id", resolved_chat))
                     log.info("Starting high-speed C++ TDLib local Bot API upload for chat %s", chat_id_str)
                     upload_start = time.time()
