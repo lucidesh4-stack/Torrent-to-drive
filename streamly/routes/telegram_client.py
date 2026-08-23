@@ -1,5 +1,5 @@
 """
-TelegramClientManager + Managed Upload Helpers (A1 Phase 2 complete)
+TelegramClientManager + Managed Upload Helpers & Connection Pooling
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -31,6 +31,7 @@ class TelegramClientStats:
 class TelegramClientManager:
     def __init__(self):
         self._active_clients: set[TelegramClient] = set()
+        self._shared_clients: Dict[str, TelegramClient] = {}
         self.stats = TelegramClientStats()
         self._on_connect: Optional[Callable] = None
         self._on_disconnect: Optional[Callable] = None
@@ -75,13 +76,17 @@ class TelegramClientManager:
                     else:
                         self._on_connect(client)
                 except Exception as e:
-                    # A failing hook shouldn't break the connection itself, but is
-                    # still worth a trace since it means the hook silently did nothing.
                     log.debug("on_connect hook raised: %s", e)
 
-    async def safe_disconnect(self, client: TelegramClient):
+    async def safe_disconnect(self, client: TelegramClient, force: bool = False):
         if client is None:
             return
+        # Skip disconnecting persistent shared clients unless force=True
+        if not force:
+            for s_str, s_client in list(self._shared_clients.items()):
+                if s_client is client:
+                    return
+
         try:
             if client.is_connected():
                 await client.disconnect()
@@ -99,16 +104,35 @@ class TelegramClientManager:
             log.warning("safe_disconnect error: %s", e)
         finally:
             self._active_clients.discard(client)
+            for s_str, s_client in list(self._shared_clients.items()):
+                if s_client is client:
+                    self._shared_clients.pop(s_str, None)
             self.stats.active = max(0, self.stats.active - 1)
+
+    async def get_persistent_client(self, session_str: str, *, api_id=None, api_hash=None, app=None) -> TelegramClient:
+        """Retrieve or initialize a persistent, long-lived Telethon client connection for the session."""
+        if session_str in self._shared_clients:
+            client = self._shared_clients[session_str]
+            if client.is_connected():
+                return client
+            else:
+                try:
+                    await self.safe_connect(client)
+                    if client.is_connected():
+                        return client
+                except Exception as e:
+                    log.warning("Reconnecting shared client failed: %s", e)
+                    self._shared_clients.pop(session_str, None)
+
+        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
+        await self.safe_connect(client)
+        self._shared_clients[session_str] = client
+        return client
 
     @asynccontextmanager
     async def get_client(self, session_str: str, *, api_id=None, api_hash=None, app=None):
-        client = self.create_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
-        try:
-            await self.safe_connect(client)
-            yield client
-        finally:
-            await self.safe_disconnect(client)
+        client = await self.get_persistent_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
+        yield client
 
     def get_upload_client(self, session_str: str, *, api_id=None, api_hash=None, app=None) -> TelegramClient:
         client = self.create_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
@@ -117,15 +141,16 @@ class TelegramClientManager:
 
     async def cleanup_all(self):
         for c in list(self._active_clients):
-            await self.safe_disconnect(c)
+            await self.safe_disconnect(c, force=True)
+        self._shared_clients.clear()
 
 manager = TelegramClientManager()
 
 def get_telegram_client(session_str: str, app=None):
     return manager.create_client(session_str, app=app)
 
-async def safe_disconnect(client):
-    await manager.safe_disconnect(client)
+async def safe_disconnect(client, force: bool = False):
+    await manager.safe_disconnect(client, force=force)
 
 # Default hooks
 async def _log_connect(c): log.debug("TG client connected")

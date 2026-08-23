@@ -598,8 +598,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     temp_path = None
     exact_size = size
     try:
-        client = tg_manager.get_upload_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
-        await client.connect()
+        client = await tg_manager.get_persistent_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
         
         try:
             resolved_chat = await validate_telegram_target(client, chat_id)
