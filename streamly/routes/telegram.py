@@ -505,6 +505,13 @@ class ParallelUploader:
             sender.prepare_file(file_id, part_count, big)
 
     async def upload(self, part_index: int, part: bytes) -> None:
+        # Enforce 15ms dispatch stagger across 4 worker sockets to achieve 6+ MB/s speed
+        now = time.time()
+        elapsed = now - self._last_send_time
+        if elapsed < 0.015:
+            await asyncio.sleep(0.015 - elapsed)
+        self._last_send_time = time.time()
+
         idle_sender = None
         for sender in self.senders:
             if sender.previous is None or sender.previous.done():
@@ -541,8 +548,8 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "1"))
-    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 1
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
+    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
     connections = min(connections, parts_count)
 
     if uploader is None:
@@ -730,8 +737,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 
                 uploader = ParallelUploader(client)
                 parts_count = (exact_size + (512 * 1024) - 1) // (512 * 1024)
-                large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "1"))
-                conn_count = large_file_connections if exact_size > 10 * 1024 * 1024 else 1
+                large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
+                conn_count = large_file_connections if exact_size > 10 * 1024 * 1024 else 2
                 conn_count = min(conn_count, parts_count)
                 
                 log.info("Pre-connecting %d parallel MTProtoSender worker connections during download", conn_count)
@@ -760,24 +767,25 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 if actual_downloaded_size != exact_size:
                     raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
 
-                # Phase 2: High-speed Telegram upload from disk via Telethon native uploader
+                # Phase 2: High-speed 4-stream parallel upload from disk
                 tracker.phase = "upload"
                 tracker.last_pct = 50.0
                 tracker.last_write_bytes = 0
 
-                async def upload_progress(current, total):
+                def upload_progress(current, total):
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
-                    await asyncio.sleep(0.040)
 
-                log.info("Starting high-speed Telegram upload from disk via Telethon native uploader")
+                log.info("Starting high-speed 4-stream parallel Telegram upload from disk")
                 upload_start = time.time()
-                uploaded = await client.upload_file(
+                uploaded = await parallel_upload_local_file(
+                    client,
                     temp_path,
-                    file_name=filename,
-                    part_size_kb=512,
-                    progress_callback=upload_progress
+                    exact_size,
+                    filename,
+                    upload_progress,
+                    uploader=uploader
                 )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
@@ -791,6 +799,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 # parts=actual_parts
 
                 await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
+                await uploader.close()
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
