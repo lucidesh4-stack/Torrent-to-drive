@@ -87,17 +87,6 @@
       const active = data.active;
       const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
       const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
-      let etaStr = "";
-      if (active.eta_seconds !== undefined && active.eta_seconds > 0) {
-        const sec = active.eta_seconds;
-        if (sec < 60) {
-          etaStr = `ETA: ${sec}s`;
-        } else {
-          const m = Math.floor(sec / 60);
-          const s = sec % 60;
-          etaStr = `ETA: ${m}m ${s}s`;
-        }
-      }
       // Escape all server-supplied values before interpolating into innerHTML.
       const fname = escapeHtml(active.filename || "file");
       const fstatus = escapeHtml(active.status || "UPLOADING");
@@ -116,10 +105,7 @@
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 11px;" class="muted">
           <span>Progress: ${progress}% (${formatBytes(active.sent_bytes || 0)} / ${formatBytes(active.total_bytes || 0)})</span>
-          <div>
-            ${etaStr ? `<span style="color: var(--text-dim); margin-right: 8px; font-weight: 500;">${etaStr}</span>` : ""}
-            <strong style="color: var(--accent);">${speed}</strong>
-          </div>
+          <strong style="color: var(--accent);">${speed}</strong>
         </div>
       `;
     } else {
