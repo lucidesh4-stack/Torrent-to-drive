@@ -755,10 +755,14 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 if actual_downloaded_size != exact_size:
                     raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
 
-                # Phase 2: Native C-accelerated Telegram upload via official Desktop client session
                 tracker.phase = "upload"
                 tracker.last_pct = 50.0
                 tracker.last_write_bytes = 0
+
+                def upload_progress_sync(current, total):
+                    if cancel_flag[0]:
+                        raise ValueError("Cancelled by user")
+                    tracker(current, total)
 
                 async def upload_progress(current, total):
                     if cancel_flag[0]:
@@ -772,7 +776,34 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     os.environ.get("BOT_TOKEN") or
                     getattr(app.state.config, "telegram_bot_token", "")
                 )
-                
+
+                if bot_token and resolved_chat is not None:
+                    chat_id_val = None
+                    if hasattr(resolved_chat, "channel_id"):
+                        chat_id_val = f"-100{resolved_chat.channel_id}"
+                    elif hasattr(resolved_chat, "id"):
+                        cid = str(resolved_chat.id)
+                        chat_id_val = f"-100{cid}" if not cid.startswith("-") and len(cid) >= 10 else cid
+                    elif isinstance(resolved_chat, (int, str)):
+                        chat_id_val = str(resolved_chat)
+
+                    if chat_id_val:
+                        log.info("Starting Local C++ TDLib daemon upload for chat %s", chat_id_val)
+                        upload_start = time.time()
+                        try:
+                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync)
+                            upload_elapsed = time.time() - upload_start
+                            upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
+                            log.info(
+                                "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                                exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
+                            )
+                            log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
+                            break
+                        except Exception as bot_err:
+                            err_msg = str(bot_err) or type(bot_err).__name__
+                            log.warning("Local C++ TDLib daemon encountered issue: %s; falling back to Bot MTProto session", err_msg)
+
                 upload_client = client
                 target_destination = resolved_chat
 
