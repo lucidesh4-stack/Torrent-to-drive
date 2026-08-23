@@ -300,7 +300,8 @@ async def _trigger_next_transfer_locked(app):
             return
             
         active = await rs.get("streamly:active_transfer_global")
-        if active:
+        has_memory_active = hasattr(app.state, "active_tasks") and any(not t.done() for t in app.state.active_tasks.values())
+        if active or has_memory_active:
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
             return
             
@@ -580,6 +581,19 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             
     cancel_poller = asyncio.create_task(poll_cancel_request())
     
+    async def heartbeat():
+        while not cancel_flag[0]:
+            try:
+                await rs.pipeline(
+                    ["SET", "streamly:active_transfer_global", task_id, "EX", "600"],
+                    ["SET", f"streamly:active_transfer:{sid}", task_id, "EX", "3600"]
+                )
+            except Exception as h_err:
+                log.debug("Active transfer heartbeat failed for task %s: %s", task_id, h_err)
+            await asyncio.sleep(10.0)
+
+    heartbeat_poller = asyncio.create_task(heartbeat())
+    
     client = None
     temp_path = None
     exact_size = size
@@ -845,11 +859,13 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             "3600"
         )
     finally:
+        cancel_flag[0] = True
+        if "heartbeat_poller" in locals() and not heartbeat_poller.done():
+            heartbeat_poller.cancel()
+        if "cancel_poller" in locals() and not cancel_poller.done():
+            cancel_poller.cancel()
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks.pop(task_id, None)
-        cancel_flag[0] = True
-        if not cancel_poller.done():
-            cancel_poller.cancel()
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
@@ -858,10 +874,15 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         if client:
             await safe_disconnect(client)
         _live_clear(task_id)
-        await rs.pipeline(
-            ["DEL", "streamly:active_transfer_global"],
-            ["DEL", f"streamly:task_args:{task_id}"],
-        )
+        try:
+            await rs.pipeline(
+                ["DEL", "streamly:active_transfer_global"],
+                ["DEL", f"streamly:active_transfer:{sid}"],
+                ["DEL", f"streamly:cancel_request:{task_id}"],
+                ["DEL", f"streamly:task_args:{task_id}"]
+            )
+        except Exception as cl_err:
+            log.warning("Redis cleanup failed for task %s: %s", task_id, cl_err)
         trigger_next_transfer(app)
 
 
@@ -1348,15 +1369,17 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
     task_id = payload.task_id.strip()
     # Bypass user-ownership sid check to prevent 403 Forbidden errors when session cookies change.
     
-    # 1. Check if it's currently active
+    # 1. Check if it's currently active (in memory or Redis)
+    is_memory_active = hasattr(request.app.state, "active_tasks") and task_id in request.app.state.active_tasks and not request.app.state.active_tasks[task_id].done()
     active = await rs.get("streamly:active_transfer_global")
-    if active and (isinstance(active, bytes) and active.decode("utf-8") == task_id or active == task_id):
-        if hasattr(request.app.state, "active_tasks") and task_id in request.app.state.active_tasks:
+    is_redis_active = active and (isinstance(active, bytes) and active.decode("utf-8") == task_id or active == task_id)
+    
+    if is_memory_active or is_redis_active:
+        if is_memory_active:
             task = request.app.state.active_tasks[task_id]
             task.cancel()
             log.info("Cancelled running task %s directly via task.cancel()", task_id)
-        else:
-            await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=10)
+        await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=30)
         return {"success": True, "message": "Cancellation request sent to active task."}
         
     # 2. Check if it's in the queue
