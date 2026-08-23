@@ -409,13 +409,7 @@ class UploadSender:
                     file_part=part_index,
                     bytes=data
                 )
-            async with self.uploader._send_lock:
-                now = time.time()
-                elapsed = now - self.uploader._last_send_time
-                if elapsed < 0.065:
-                    await asyncio.sleep(0.065 - elapsed)
-                self.uploader._last_send_time = time.time()
-                await self.client._call(self.sender, request)
+            await self.client._call(self.sender, request)
             self.uploader.update_progress(len(data))
         except Exception as e:
             self.exception = e
@@ -510,14 +504,6 @@ class ParallelUploader:
             sender.prepare_file(file_id, part_count, big)
 
     async def upload(self, part_index: int, part: bytes) -> None:
-        # Enforce 20 requests/sec pacing (50ms interval = 20 * 512KB = 10.24 MB/s)
-        now = time.time()
-        elapsed = now - self._last_send_time
-        min_interval = 0.050  # 50ms interval between requests
-        if elapsed < min_interval:
-            await asyncio.sleep(min_interval - elapsed)
-        self._last_send_time = time.time()
-
         idle_sender = None
         for sender in self.senders:
             if sender.previous is None or sender.previous.done():
