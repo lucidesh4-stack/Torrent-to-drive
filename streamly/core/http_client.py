@@ -102,7 +102,7 @@ class OptimizedDownloader:
         self.worker_url = worker_url.rstrip("/") + "/"
         self.temp_dir = temp_dir or os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
         self.timeout = timeout
-        self._worker_blocked = False
+        self._worker_blocked = os.environ.get("ENABLE_WORKER_PROXY", "false").lower() != "true"
         self._ssl_ctx = create_ssl_context()
         self._download_client: httpx.AsyncClient | None = None
         self._stats = {

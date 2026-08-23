@@ -536,7 +536,7 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "5"))
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
     connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
     connections = min(connections, parts_count)
 
