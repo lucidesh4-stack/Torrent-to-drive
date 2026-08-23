@@ -409,7 +409,13 @@ class UploadSender:
                     file_part=part_index,
                     bytes=data
                 )
-            await self.client._call(self.sender, request)
+            async with self.uploader._send_lock:
+                now = time.time()
+                elapsed = now - self.uploader._last_send_time
+                if elapsed < 0.065:
+                    await asyncio.sleep(0.065 - elapsed)
+                self.uploader._last_send_time = time.time()
+                await self.client._call(self.sender, request)
             self.uploader.update_progress(len(data))
         except Exception as e:
             self.exception = e
@@ -445,6 +451,7 @@ class ParallelUploader:
         self.file_size = 0
         self.uploaded_bytes = 0
         self._last_send_time = 0.0
+        self._send_lock = asyncio.Lock()
 
     def update_progress(self, sent):
         self.uploaded_bytes += sent
