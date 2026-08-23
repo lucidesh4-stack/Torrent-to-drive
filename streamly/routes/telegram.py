@@ -411,6 +411,7 @@ class UploadSender:
                 )
             await self.client._call(self.sender, request)
             self.uploader.update_progress(len(data))
+            await asyncio.sleep(0.045)
         except Exception as e:
             self.exception = e
             raise e
