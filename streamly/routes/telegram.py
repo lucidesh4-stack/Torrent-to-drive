@@ -801,7 +801,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                             log.info("Upload and send completed successfully via Bot API on attempt %d", attempt)
                             break
                         except Exception as bot_err:
-                            log.warning("Local Bot API upload encountered issue: %s; falling back to Telethon client session", bot_err)
+                            err_msg = str(bot_err) or type(bot_err).__name__
+                            log.warning("Local Bot API upload encountered issue: %s; falling back to Telethon client session", err_msg)
 
                 log.info("Starting native C-accelerated Telegram upload from disk via Telethon client session")
                 upload_start = time.time()

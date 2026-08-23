@@ -122,7 +122,8 @@ async def upload_via_local_bot_api(
     log.info("Starting high-speed Bot API upload for file %s (%.2f MB)", filename, file_size / (1024 * 1024))
     start_time = time.time()
 
-    async with httpx.AsyncClient(timeout=1200.0, follow_redirects=True) as client:
+    timeout_config = httpx.Timeout(1200.0, connect=60.0, read=1200.0, write=1200.0)
+    async with httpx.AsyncClient(timeout=timeout_config, follow_redirects=True) as client:
         # Try local C++ TDLib server daemon if active on port 8081
         if await ensure_local_bot_api_daemon():
             payload = {
