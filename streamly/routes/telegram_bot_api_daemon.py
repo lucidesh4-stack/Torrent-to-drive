@@ -23,6 +23,39 @@ def get_local_bot_api_url() -> str:
     return LOCAL_BOT_API_URL.rstrip("/")
 
 
+async def _download_telegram_bot_api_binary() -> Optional[str]:
+    """Downloads pre-compiled Linux x86_64 telegram-bot-api binary into /tmp/bin/telegram-bot-api."""
+    if sys.platform == "win32":
+        return None
+    target_dir = "/tmp/bin"
+    target_bin = "/tmp/bin/telegram-bot-api"
+    if os.path.exists(target_bin) and os.access(target_bin, os.X_OK):
+        return target_bin
+
+    os.makedirs(target_dir, exist_ok=True)
+    urls = [
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.10/telegram-bot-api-linux-amd64",
+        "https://github.com/tdlib/telegram-bot-api/releases/latest/download/telegram-bot-api-linux-amd64"
+    ]
+    log.info("Downloading pre-compiled C++ telegram-bot-api TDLib binary for Linux x86_64...")
+    try:
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            for download_url in urls:
+                try:
+                    resp = await client.get(download_url)
+                    if resp.status_code == 200 and len(resp.content) > 1_000_000:
+                        with open(target_bin, "wb") as f:
+                            f.write(resp.content)
+                        os.chmod(target_bin, 0o755)
+                        log.info("Downloaded and prepared C++ telegram-bot-api binary at %s (%.2f MB)", target_bin, len(resp.content)/(1024*1024))
+                        return target_bin
+                except Exception as d_err:
+                    log.debug("Download from %s failed: %s", download_url, d_err)
+    except Exception as e:
+        log.warning("Could not auto-download telegram-bot-api binary: %s", e)
+    return None
+
+
 async def ensure_local_bot_api_daemon() -> bool:
     """Verifies or launches local telegram-bot-api server daemon with --local mode."""
     global _daemon_process
@@ -40,12 +73,15 @@ async def ensure_local_bot_api_daemon() -> bool:
     if not api_id or not api_hash:
         return False
 
-    # Check for telegram-bot-api binary in system PATH
+    # Check for telegram-bot-api binary in system PATH or /tmp/bin
     bin_path = None
-    for p in ["/usr/bin/telegram-bot-api", "/usr/local/bin/telegram-bot-api", "telegram-bot-api"]:
+    for p in ["/tmp/bin/telegram-bot-api", "/usr/bin/telegram-bot-api", "/usr/local/bin/telegram-bot-api", "telegram-bot-api"]:
         if os.path.exists(p) or (sys.platform != "win32" and subprocess.call(["which", p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0):
             bin_path = p
             break
+
+    if not bin_path:
+        bin_path = await _download_telegram_bot_api_binary()
 
     if not bin_path:
         return False
@@ -58,7 +94,7 @@ async def ensure_local_bot_api_daemon() -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(1.5)
         async with httpx.AsyncClient(timeout=2.0) as client:
             resp = await client.get(url)
             return resp.status_code in (200, 404)
