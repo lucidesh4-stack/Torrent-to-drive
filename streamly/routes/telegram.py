@@ -760,7 +760,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 if actual_downloaded_size != exact_size:
                     raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
 
-                # Phase 2: Parallel upload from disk
+                # Phase 2: High-speed Telegram upload from disk via Telethon native uploader
                 tracker.phase = "upload"
                 tracker.last_pct = 50.0
                 tracker.last_write_bytes = 0
@@ -770,15 +770,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
 
-                log.info("Starting parallel Telegram upload from disk")
+                log.info("Starting high-speed Telegram upload from disk via Telethon native uploader")
                 upload_start = time.time()
-                uploaded = await parallel_upload_local_file(
-                    client,
+                uploaded = await client.upload_file(
                     temp_path,
-                    exact_size,
-                    filename,
-                    upload_progress,
-                    uploader=uploader
+                    file_name=filename,
+                    progress_callback=upload_progress
                 )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
@@ -792,7 +789,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 # parts=actual_parts
 
                 await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
-                await uploader.close()
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
