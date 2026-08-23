@@ -444,6 +444,7 @@ class ParallelUploader:
         self.progress_callback = None
         self.file_size = 0
         self.uploaded_bytes = 0
+        self._last_send_time = 0.0
 
     def update_progress(self, sent):
         self.uploaded_bytes += sent
@@ -495,12 +496,21 @@ class ParallelUploader:
         self.file_size = file_size
         self.uploaded_bytes = 0
         self.progress_callback = progress_callback
+        self._last_send_time = 0.0
 
         await self.ensure_senders(connections)
         for sender in self.senders:
             sender.prepare_file(file_id, part_count, big)
 
     async def upload(self, part_index: int, part: bytes) -> None:
+        # Enforce 20 requests/sec pacing (50ms interval = 20 * 512KB = 10.24 MB/s)
+        now = time.time()
+        elapsed = now - self._last_send_time
+        min_interval = 0.050  # 50ms interval between requests
+        if elapsed < min_interval:
+            await asyncio.sleep(min_interval - elapsed)
+        self._last_send_time = time.time()
+
         idle_sender = None
         for sender in self.senders:
             if sender.previous is None or sender.previous.done():
