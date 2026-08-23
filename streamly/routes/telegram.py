@@ -540,8 +540,8 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
     file_id = secrets.randbits(63)
     is_big = file_size > 10 * 1024 * 1024
 
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "3"))
-    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "1"))
+    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 1
     connections = min(connections, parts_count)
 
     if uploader is None:
@@ -729,8 +729,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 
                 uploader = ParallelUploader(client)
                 parts_count = (exact_size + (512 * 1024) - 1) // (512 * 1024)
-                large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "3"))
-                conn_count = large_file_connections if exact_size > 10 * 1024 * 1024 else 2
+                large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "1"))
+                conn_count = large_file_connections if exact_size > 10 * 1024 * 1024 else 1
                 conn_count = min(conn_count, parts_count)
                 
                 log.info("Pre-connecting %d parallel MTProtoSender worker connections during download", conn_count)
