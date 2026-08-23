@@ -766,9 +766,32 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     tracker(current, total)
                     await asyncio.sleep(0.030)
 
-                log.info("Starting native C-accelerated Telegram upload from disk (512KB chunks)")
+                bot_token = (
+                    os.environ.get("TELEGRAM_BOT_TOKEN") or 
+                    os.environ.get("TG_BOT_TOKEN") or 
+                    os.environ.get("BOT_TOKEN") or
+                    getattr(app.state.config, "telegram_bot_token", "")
+                )
+                
+                upload_client = client
+                target_destination = resolved_chat
+
+                if bot_token:
+                    try:
+                        bot_client = await tg_manager.get_bot_client(bot_token, app=app)
+                        upload_client = bot_client
+                        if hasattr(resolved_chat, "channel_id"):
+                            target_destination = f"-100{resolved_chat.channel_id}"
+                        elif hasattr(resolved_chat, "id"):
+                            cid = str(resolved_chat.id)
+                            target_destination = f"-100{cid}" if not cid.startswith("-") and len(cid) >= 10 else int(cid)
+                        log.info("Authenticated Bot MTProto session for target %s", target_destination)
+                    except Exception as b_err:
+                        log.warning("Could not initialize Bot MTProto session: %s; using user session", b_err)
+
+                log.info("Starting native C-accelerated MTProto upload from disk (512KB chunks)")
                 upload_start = time.time()
-                uploaded = await client.upload_file(
+                uploaded = await upload_client.upload_file(
                     temp_path,
                     file_name=filename,
                     part_size_kb=512,
@@ -785,7 +808,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 actual_parts = uploaded_parts
                 # parts=actual_parts
 
-                await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
+                await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:

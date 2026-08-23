@@ -150,6 +150,32 @@ class TelegramClientManager:
         setattr(client, "_streamly_use", "upload")
         return client
 
+    async def get_bot_client(self, bot_token: str, *, api_id=None, api_hash=None, app=None) -> TelegramClient:
+        cache_key = f"bot_{bot_token}"
+        if cache_key in self._shared_clients:
+            client = self._shared_clients[cache_key]
+            if client.is_connected():
+                return client
+
+        c_api_id = api_id or (app.state.config.telegram_api_id if app else None)
+        c_api_hash = api_hash or (app.state.config.telegram_api_hash if app else "")
+        client = TelegramClient(
+            StringSession(""),
+            c_api_id,
+            c_api_hash,
+            connection=ConnectionTcpIntermediate,
+            device_model="Telegram Desktop",
+            system_version="Windows 11 x64",
+            app_version="5.2.0",
+            lang_code="en",
+            system_lang_code="en-US",
+            flood_sleep_threshold=FLOOD_SLEEP_THRESHOLD,
+        )
+        await client.start(bot_token=bot_token)
+        self._active_clients.add(client)
+        self._shared_clients[cache_key] = client
+        return client
+
     async def cleanup_all(self):
         for c in list(self._active_clients):
             await self.safe_disconnect(c, force=True)
