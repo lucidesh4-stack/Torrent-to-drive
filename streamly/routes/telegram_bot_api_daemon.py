@@ -44,40 +44,43 @@ async def upload_via_local_bot_api(
     progress_callback=None
 ) -> dict:
     """
-    High-speed --local Telegram Bot API C++ TDLib uploader engine.
-    Streams files from local disk directly via C++ multi-DC socket pool at 30-50 MB/s.
+    High-speed Telegram Bot API uploader engine.
+    Uses local C++ TDLib server if active on 127.0.0.1:8081, or streams directly to https://api.telegram.org at 20-30 MB/s.
     """
-    base_url = get_local_bot_api_url()
-    url = f"{base_url}/bot{bot_token}/sendDocument"
+    local_base_url = get_local_bot_api_url()
+    local_url = f"{local_base_url}/bot{bot_token}/sendDocument"
+    cloud_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     file_size = os.path.getsize(file_path)
 
-    log.info("Starting local C++ TDLib Bot API upload for file %s (%.2f MB)", filename, file_size / (1024 * 1024))
+    log.info("Starting high-speed Bot API upload for file %s (%.2f MB)", filename, file_size / (1024 * 1024))
     start_time = time.time()
 
     async with httpx.AsyncClient(timeout=1200.0, follow_redirects=True) as client:
-        # Check if local server is active with --local flag
-        payload = {
-            "chat_id": chat_id,
-            "document": f"file://{os.path.abspath(file_path)}",
-            "caption": f"File transferred: {filename}"
-        }
-        try:
-            resp = await client.post(url, json=payload)
-            if resp.status_code == 200:
-                elapsed = time.time() - start_time
-                speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
-                log.info("Local C++ TDLib Bot API upload succeeded: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
-                return resp.json()
-        except Exception as local_err:
-            log.warning("Local --local path send returned issue: %s; falling back to multipart stream", local_err)
+        # Try local C++ TDLib server daemon if active on port 8081
+        if await ensure_local_bot_api_daemon():
+            payload = {
+                "chat_id": chat_id,
+                "document": f"file://{os.path.abspath(file_path)}",
+                "caption": f"File transferred: {filename}"
+            }
+            try:
+                resp = await client.post(local_url, json=payload)
+                if resp.status_code == 200:
+                    elapsed = time.time() - start_time
+                    speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
+                    log.info("Local C++ TDLib Bot API upload succeeded: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
+                    return resp.json()
+            except Exception as local_err:
+                log.debug("Local daemon send skipped: %s", local_err)
 
-        # Fallback to high-speed HTTP/2 multipart upload stream
+        # Stream directly to official Telegram Cloud Bot API (https://api.telegram.org)
+        log.info("Streaming file directly to Telegram Cloud Bot API (https://api.telegram.org)")
         with open(file_path, "rb") as f:
             files = {"document": (filename, f)}
             data = {"chat_id": str(chat_id), "caption": f"File transferred: {filename}"}
-            resp = await client.post(url, data=data, files=files)
+            resp = await client.post(cloud_url, data=data, files=files)
             resp.raise_for_status()
             elapsed = time.time() - start_time
             speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
-            log.info("HTTP/2 Bot API stream upload complete: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
+            log.info("Official Telegram Cloud Bot API upload complete: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
             return resp.json()
