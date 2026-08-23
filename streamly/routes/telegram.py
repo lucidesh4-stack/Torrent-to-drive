@@ -778,21 +778,30 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     getattr(app.state.config, "telegram_bot_token", "")
                 )
                 if bot_token and resolved_chat is not None:
-                    chat_id_str = str(getattr(resolved_chat, "id", resolved_chat))
-                    log.info("Starting high-speed C++ TDLib local Bot API upload for chat %s", chat_id_str)
-                    upload_start = time.time()
-                    try:
-                        res = await upload_via_local_bot_api(bot_token, chat_id_str, temp_path, filename, progress_callback=upload_progress_sync)
-                        upload_elapsed = time.time() - upload_start
-                        upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
-                        log.info(
-                            "Local C++ TDLib upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
-                            exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
-                        )
-                        log.info("Upload and send completed successfully via Bot API on attempt %d", attempt)
-                        break
-                    except Exception as bot_err:
-                        log.warning("Local Bot API upload encountered issue: %s; falling back to Telethon client session", bot_err)
+                    chat_id_val = None
+                    if hasattr(resolved_chat, "channel_id"):
+                        chat_id_val = f"-100{resolved_chat.channel_id}"
+                    elif hasattr(resolved_chat, "id"):
+                        cid = str(resolved_chat.id)
+                        chat_id_val = f"-100{cid}" if not cid.startswith("-") and len(cid) >= 10 else cid
+                    elif isinstance(resolved_chat, (int, str)):
+                        chat_id_val = str(resolved_chat)
+
+                    if chat_id_val:
+                        log.info("Starting high-speed C++ TDLib local Bot API upload for chat %s", chat_id_val)
+                        upload_start = time.time()
+                        try:
+                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync)
+                            upload_elapsed = time.time() - upload_start
+                            upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
+                            log.info(
+                                "Local C++ TDLib upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                                exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
+                            )
+                            log.info("Upload and send completed successfully via Bot API on attempt %d", attempt)
+                            break
+                        except Exception as bot_err:
+                            log.warning("Local Bot API upload encountered issue: %s; falling back to Telethon client session", bot_err)
 
                 log.info("Starting native C-accelerated Telegram upload from disk via Telethon client session")
                 upload_start = time.time()
