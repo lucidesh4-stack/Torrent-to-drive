@@ -87,6 +87,17 @@
       const active = data.active;
       const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
       const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
+      let etaStr = "";
+      if (active.eta_seconds !== undefined && active.eta_seconds > 0) {
+        const sec = active.eta_seconds;
+        if (sec < 60) {
+          etaStr = `ETA: ${sec}s`;
+        } else {
+          const m = Math.floor(sec / 60);
+          const s = sec % 60;
+          etaStr = `ETA: ${m}m ${s}s`;
+        }
+      }
       // Escape all server-supplied values before interpolating into innerHTML.
       const fname = escapeHtml(active.filename || "file");
       const fstatus = escapeHtml(active.status || "UPLOADING");
@@ -105,7 +116,10 @@
         </div>
         <div style="display: flex; justify-content: space-between; font-size: 11px;" class="muted">
           <span>Progress: ${progress}% (${formatBytes(active.sent_bytes || 0)} / ${formatBytes(active.total_bytes || 0)})</span>
-          <strong style="color: var(--accent);">${speed}</strong>
+          <div>
+            ${etaStr ? `<span style="color: var(--text-dim); margin-right: 8px; font-weight: 500;">${etaStr}</span>` : ""}
+            <strong style="color: var(--accent);">${speed}</strong>
+          </div>
         </div>
       `;
     } else {
@@ -255,6 +269,34 @@
       if (pollTimer) clearTimeout(pollTimer);
       if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
     });
+  }
+
+  window.initTelegramSSE = function() {
+    if (window._tgEventSource) return;
+    try {
+      const es = new EventSource("/api/telegram/sse/progress");
+      window._tgEventSource = es;
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data) {
+            window._lastQueueData = Object.assign({}, window._lastQueueData || {}, data);
+            renderQueue(window._lastQueueData);
+          }
+        } catch (e) {
+          console.debug("SSE JSON parse error:", e);
+        }
+      };
+      es.onerror = () => {
+        // EventSource browser client automatically reconnects on disconnect
+      };
+    } catch (e) {
+      console.debug("SSE init error:", e);
+    }
+  };
+
+  if (typeof EventSource !== "undefined") {
+    setTimeout(window.initTelegramSSE, 500);
   }
 
   // Expose triggers so external actions can start the polling loop

@@ -10,6 +10,7 @@ import httpx
 import secrets
 import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from typing import Any
 from telethon import TelegramClient, functions, types
@@ -182,6 +183,9 @@ class ProgressTracker:
 
         speed_mb = round(self.last_speed_mb or 0.0, 2)
         status = "COMPLETED" if pct >= 100.0 else "UPLOADING"
+        remaining_bytes = max(0, tot - sent_bytes)
+        speed_bytes_sec = (self.last_speed_mb or 0.0) * 1024 * 1024
+        eta_seconds = int(remaining_bytes / speed_bytes_sec) if speed_bytes_sec > 0 else 0
 
         # EFF-15: Update live progress directly (sync — no task spawn needed)
         _live_set(self.task_id, {
@@ -191,6 +195,7 @@ class ProgressTracker:
             "sent_bytes": sent_bytes,
             "total_bytes": tot,
             "speed_mb": speed_mb,
+            "eta_seconds": eta_seconds,
             "error": None,
             "sid": self.sid,
         })
@@ -1368,6 +1373,72 @@ async def get_telegram_queue(request: Request):
         "bandwidth_limit_gb": limit_gb,
         "destination": dest
     }
+
+
+@telegram_router.get("/api/telegram/sse/progress")
+async def sse_telegram_progress(request: Request):
+    """Server-Sent Events endpoint streaming real-time queue progress and live ETA."""
+    async def event_generator():
+        rs = request.app.state.rs
+        last_hash = None
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                active_item = _live_get_active()
+                if active_item is None and rs:
+                    active_task_id = await rs.get("streamly:active_transfer_global")
+                    if active_task_id:
+                        if isinstance(active_task_id, bytes):
+                            active_task_id = active_task_id.decode("utf-8")
+                        raw_status = await rs.get(f"streamly:transfer_status:{active_task_id}")
+                        if raw_status:
+                            if isinstance(raw_status, bytes):
+                                raw_status = raw_status.decode("utf-8")
+                            active_item = _json.loads(raw_status)
+                            active_item.setdefault("task_id", active_task_id)
+
+                queue_items = []
+                if rs:
+                    queue_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []
+                    if queue_ids:
+                        tids = [q.decode("utf-8") if isinstance(q, bytes) else q for q in queue_ids]
+                        keys = [f"streamly:task_args:{tid}" for tid in tids]
+                        raw_args_list = await rs._execute("MGET", *keys) or []
+                        for tid, raw_args in zip(tids, raw_args_list):
+                            if raw_args:
+                                if isinstance(raw_args, bytes):
+                                    raw_args = raw_args.decode("utf-8")
+                                args = _json.loads(raw_args)
+                                queue_items.append({
+                                    "task_id": tid,
+                                    "filename": args.get("filename", "file"),
+                                    "total_bytes": args.get("size", 0),
+                                    "status": "QUEUED"
+                                })
+
+                payload = {
+                    "active": active_item,
+                    "queue": queue_items
+                }
+                curr_hash = _json.dumps(payload, sort_keys=True)
+                if curr_hash != last_hash:
+                    last_hash = curr_hash
+                    yield f"data: {_json.dumps(payload)}\n\n"
+            except Exception as e:
+                log.debug("SSE progress generator error: %s", e)
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 class CancelPayload(BaseModel):
