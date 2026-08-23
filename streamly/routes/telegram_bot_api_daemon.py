@@ -71,6 +71,7 @@ async def ensure_local_bot_api_daemon() -> bool:
     api_id = os.environ.get("TELEGRAM_API_ID")
     api_hash = os.environ.get("TELEGRAM_API_HASH") or os.environ.get("TELEGRAM_api_hash")
     if not api_id or not api_hash:
+        log.warning("TELEGRAM_API_ID or TELEGRAM_API_HASH missing in environment; cannot start local C++ TDLib daemon.")
         return False
 
     # Check for telegram-bot-api binary in system PATH or /tmp/bin
@@ -84,6 +85,7 @@ async def ensure_local_bot_api_daemon() -> bool:
         bin_path = await _download_telegram_bot_api_binary()
 
     if not bin_path:
+        log.warning("Local telegram-bot-api binary not available.")
         return False
 
     try:
@@ -94,10 +96,17 @@ async def ensure_local_bot_api_daemon() -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        await asyncio.sleep(1.5)
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(url)
-            return resp.status_code in (200, 404)
+        for _ in range(10):
+            await asyncio.sleep(1.0)
+            try:
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    resp = await client.get(url)
+                    if resp.status_code in (200, 404):
+                        log.info("Local C++ TDLib Bot API daemon is UP and LISTENING on port 8081!")
+                        return True
+            except Exception:
+                pass
+        return False
     except Exception as e:
         log.warning("Could not launch local telegram-bot-api C++ daemon: %s", e)
         return False

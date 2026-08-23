@@ -524,6 +524,11 @@ def create_app(
                 from .routes.queue import trigger_seedr_queue
                 trigger_seedr_queue(app)
                 log.info("Seedr Queue Daemon started successfully.")
+
+                # Boot Local C++ TDLib Bot API Server Daemon
+                from .routes.telegram_bot_api_daemon import ensure_local_bot_api_daemon
+                asyncio.create_task(ensure_local_bot_api_daemon())
+                log.info("Local C++ TDLib Daemon boot task started.")
                 
                 # Startup Initialization Locks
                 acquired = await rs._execute("SET", "streamly:startup_init_lock", "1", "EX", "15", "NX")
