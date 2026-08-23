@@ -16,6 +16,12 @@ from telethon.network import ConnectionTcpIntermediate
 
 log = logging.getLogger(__name__)
 
+try:
+    import cryptg
+    log.info("Native C-extension cryptg AES-IGE accelerator active for Telegram client")
+except ImportError:
+    log.warning("cryptg not installed; falling back to pure-Python crypto")
+
 FLOOD_SLEEP_THRESHOLD = 300
 
 
