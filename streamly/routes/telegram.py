@@ -735,15 +735,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 tracker.last_pct = 0.0
                 tracker.last_write_bytes = 0
                 
-                uploader = ParallelUploader(client)
-                parts_count = (exact_size + (512 * 1024) - 1) // (512 * 1024)
-                large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
-                conn_count = large_file_connections if exact_size > 10 * 1024 * 1024 else 2
-                conn_count = min(conn_count, parts_count)
-                
-                log.info("Pre-connecting %d parallel MTProtoSender worker connections during download", conn_count)
-                preconnect_task = asyncio.create_task(uploader.ensure_senders(conn_count))
-
                 def download_progress(bytes_downloaded, speed_mbps):
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
@@ -756,10 +747,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     temp_dir=temp_dir
                 )
                 await downloader.download(download_url, filename=temp_file_name, progress_callback=download_progress)
-                try:
-                    await preconnect_task
-                except Exception as p_err:
-                    log.warning("Preconnection of MTProtoSenders during download encountered issue: %s", p_err)
 
                 if not os.path.exists(temp_path):
                     raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
@@ -767,25 +754,24 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 if actual_downloaded_size != exact_size:
                     raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
 
-                # Phase 2: High-speed 4-stream parallel upload from disk
+                # Phase 2: Native C-accelerated Telegram upload via official Desktop client session
                 tracker.phase = "upload"
                 tracker.last_pct = 50.0
                 tracker.last_write_bytes = 0
 
-                def upload_progress(current, total):
+                async def upload_progress(current, total):
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
+                    await asyncio.sleep(0.040)
 
-                log.info("Starting high-speed 4-stream parallel Telegram upload from disk")
+                log.info("Starting native C-accelerated Telegram upload from disk")
                 upload_start = time.time()
-                uploaded = await parallel_upload_local_file(
-                    client,
+                uploaded = await client.upload_file(
                     temp_path,
-                    exact_size,
-                    filename,
-                    upload_progress,
-                    uploader=uploader
+                    file_name=filename,
+                    part_size_kb=512,
+                    progress_callback=upload_progress
                 )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
@@ -799,7 +785,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 # parts=actual_parts
 
                 await client.send_file(resolved_chat, uploaded, caption=f"File transferred: {filename}")
-                await uploader.close()
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
