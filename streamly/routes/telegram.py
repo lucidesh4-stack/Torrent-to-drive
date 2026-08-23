@@ -769,7 +769,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
-                    await asyncio.sleep(0.065)
+                    await asyncio.sleep(0.015)
 
                 bot_token = (
                     os.environ.get("TELEGRAM_BOT_TOKEN") or 
