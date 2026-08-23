@@ -35,28 +35,40 @@ async def _download_telegram_bot_api_binary() -> Optional[str]:
 
     os.makedirs(target_dir, exist_ok=True)
     urls = [
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.10.0/telegram-bot-api",
         "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.10.0/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.9.0/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.7.0/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.0.0/telegram-bot-api-linux-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.10.0/telegram-bot-api",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.10.0/telegram-bot-api-linux-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/latest/download/telegram-bot-api",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/latest/download/telegram-bot-api-linux-amd64",
     ]
     log.info("Downloading pre-compiled C++ telegram-bot-api TDLib binary for Linux x86_64...")
     for download_url in urls:
         try:
-            cmd = ["curl", "-sSL", "--connect-timeout", "15", "-o", target_bin, download_url]
+            if os.path.exists(target_bin):
+                try:
+                    os.remove(target_bin)
+                except Exception:
+                    pass
+            log.info("Attempting download from %s ...", download_url)
+            cmd = ["curl", "-fsSL", "--connect-timeout", "15", "-o", target_bin, download_url]
             res = subprocess.call(cmd)
             if res == 0 and os.path.exists(target_bin) and os.path.getsize(target_bin) > 1_000_000:
                 os.chmod(target_bin, 0o755)
                 log.info("Downloaded C++ telegram-bot-api binary via curl: %.2f MB", os.path.getsize(target_bin)/(1024*1024))
                 return target_bin
+            else:
+                sz = os.path.getsize(target_bin) if os.path.exists(target_bin) else 0
+                log.warning("curl download from %s returned exit code %d (size: %d bytes)", download_url, res, sz)
         except Exception as c_err:
-            log.debug("curl download from %s failed: %s", download_url, c_err)
+            log.warning("curl download error for %s: %s", download_url, c_err)
 
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             for download_url in urls:
                 try:
                     resp = await client.get(download_url)
+                    log.info("httpx status for %s: %d (size: %d)", download_url, resp.status_code, len(resp.content))
                     if resp.status_code == 200 and len(resp.content) > 1_000_000:
                         with open(target_bin, "wb") as f:
                             f.write(resp.content)
@@ -64,7 +76,7 @@ async def _download_telegram_bot_api_binary() -> Optional[str]:
                         log.info("Downloaded C++ telegram-bot-api binary via httpx: %.2f MB", len(resp.content)/(1024*1024))
                         return target_bin
                 except Exception as d_err:
-                    log.debug("httpx download from %s failed: %s", download_url, d_err)
+                    log.warning("httpx download error for %s: %s", download_url, d_err)
     except Exception as e:
         log.warning("Could not auto-download telegram-bot-api binary: %s", e)
     return None
