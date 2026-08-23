@@ -763,7 +763,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
-                    await asyncio.sleep(0.040)
+                    await asyncio.sleep(0.065)
 
                 log.info("Starting native C-accelerated Telegram upload from disk")
                 upload_start = time.time()
