@@ -24,16 +24,47 @@ def get_local_bot_api_url() -> str:
 
 
 async def ensure_local_bot_api_daemon() -> bool:
-    """Verifies or launches local telegram-bot-api server daemon."""
+    """Verifies or launches local telegram-bot-api server daemon with --local mode."""
+    global _daemon_process
     url = f"{get_local_bot_api_url()}/"
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
+        async with httpx.AsyncClient(timeout=1.5) as client:
             resp = await client.get(url)
             if resp.status_code in (200, 404):
                 return True
     except Exception:
         pass
-    return False
+
+    api_id = os.environ.get("TELEGRAM_API_ID")
+    api_hash = os.environ.get("TELEGRAM_API_HASH") or os.environ.get("TELEGRAM_api_hash")
+    if not api_id or not api_hash:
+        return False
+
+    # Check for telegram-bot-api binary in system PATH
+    bin_path = None
+    for p in ["/usr/bin/telegram-bot-api", "/usr/local/bin/telegram-bot-api", "telegram-bot-api"]:
+        if os.path.exists(p) or (sys.platform != "win32" and subprocess.call(["which", p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0):
+            bin_path = p
+            break
+
+    if not bin_path:
+        return False
+
+    try:
+        os.makedirs("/tmp/telegram-bot-api", exist_ok=True)
+        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local flag...")
+        _daemon_process = subprocess.Popen(
+            [bin_path, f"--api-id={api_id}", f"--api-hash={api_hash}", "--local", "--http-port=8081", "--dir=/tmp/telegram-bot-api"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        await asyncio.sleep(1.0)
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(url)
+            return resp.status_code in (200, 404)
+    except Exception as e:
+        log.warning("Could not launch local telegram-bot-api C++ daemon: %s", e)
+        return False
 
 
 async def upload_via_local_bot_api(
