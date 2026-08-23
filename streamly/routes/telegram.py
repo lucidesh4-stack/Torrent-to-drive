@@ -494,72 +494,16 @@ class ParallelUploader:
 
 
 async def parallel_upload_local_file(client, file_path, file_size, filename, progress_callback):
-    part_size = 512 * 1024
-    parts_count = (file_size + part_size - 1) // part_size
-    file_id = secrets.randbits(63)
-    is_big = file_size > 10 * 1024 * 1024
+    """Upload local file directly using the persistent Telethon client connection."""
+    def cb(current, total):
+        if progress_callback:
+            progress_callback(current, total or file_size)
 
-    # Connection count for parallel SaveBigFilePartRequest/SaveFilePartRequest calls.
-    #
-    # History: 12 -> 6/3/2 -> 3/3/2 -> (this change) env-tunable, default 3/3/2.
-    # Log analysis across real transfers on THIS account's session shows this is a
-    # genuine tradeoff, not a "lower is always better" situation:
-    #   - 12 connections (Enola.Holmes.3, ~1.3GB): 61 flood-wait events in ~85s upload.
-    #   - 6 connections (Thank.You.For.Smoking, ~1.5GB): 24 flood-wait events in a 53+s
-    #     upload that STILL hadn't finished when cancelled (>=28 MB/s ceiling, likely less).
-    #   - 3 connections (~496MB): ZERO flood-waits, but only ~5 MB/s (40 Mbps) -- slower
-    #     than even the incomplete 6-connection run above. This overcorrected: it avoided
-    #     the rate limiter entirely by giving up too much parallelism.
-    # Conclusion: the real sweet spot is somewhere between 3 (too slow, no flood-wait) and
-    # 6 (faster per-connection, but flood-wait-heavy) -- likely 4 or 5. This value is now
-    # controlled by the TG_UPLOAD_CONNECTIONS_LARGE env var (default 3) specifically so it
-    # can be tuned via a Hugging Face Space restart, without needing a code redeploy for
-    # every experiment. Set it in the Space's "Variables and secrets" settings, e.g. to 4
-    # or 5, restart the Space, then send a real large file and compare the "Upload phase
-    # complete: ... Mbps average" log line plus flood-wait event count against the
-    # baselines above to see which is fastest overall.
-    #
-    # NOTE: the right number depends on Telegram's rate-limit tier for the account/session
-    # in use, which isn't observable from static analysis -- it must be found empirically,
-    # per-account, exactly as described above.
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "5"))
-    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
-    connections = min(connections, parts_count)
-
-
-    uploader = ParallelUploader(client, progress_callback=progress_callback, file_size=file_size)
-    await uploader.init_upload(file_id, file_size, part_size, connections)
-
-    try:
-        # f.read() is a blocking syscall; offloaded via asyncio.to_thread so the event
-        # loop stays free to serve other concurrent requests while this read is in
-        # flight (same reasoning as the writes in core/http_client.py's download path).
-        with open(file_path, "rb") as f:
-            for part_index in range(parts_count):
-                for sender in uploader.senders:
-                    if sender.exception:
-                        raise sender.exception
-
-                chunk = await asyncio.to_thread(f.read, part_size)
-                if not chunk:
-                    break
-                await uploader.upload(part_index, chunk)
-        await uploader.finish_upload()
-    except BaseException as e:
-        # BaseException (not Exception) is required here: asyncio.CancelledError
-        # inherits from BaseException, not Exception, since Python 3.8. Without this,
-        # a task.cancel() during upload skips finish_upload() entirely, leaking every
-        # open MTProtoSender connection (up to 12) until the GC reaps them minutes later.
-        try:
-            await uploader.finish_upload()
-        except Exception:
-            log.warning("finish_upload() raised during cleanup after %s", type(e).__name__, exc_info=True)
-        raise
-
-    if is_big:
-        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
-    else:
-        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
+    return await client.upload_file(
+        file_path,
+        file_name=filename,
+        progress_callback=cb
+    )
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
