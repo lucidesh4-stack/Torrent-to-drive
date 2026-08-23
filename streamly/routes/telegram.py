@@ -368,15 +368,22 @@ async def _trigger_next_transfer_locked(app):
 
 
 class UploadSender:
-    def __init__(self, uploader, client, sender, file_id, part_count, big, loop):
+    def __init__(self, uploader, client, sender, loop):
         self.uploader = uploader
         self.client = client
         self.sender = sender
+        self.loop = loop
+        self.file_id = None
+        self.part_count = 0
+        self.big = False
+        self.previous = None
+        self.exception = None
+
+    def prepare_file(self, file_id: int, part_count: int, big: bool):
+        self.file_id = file_id
         self.part_count = part_count
         self.big = big
-        self.file_id = file_id
         self.previous = None
-        self.loop = loop
         self.exception = None
 
     async def start_upload(self, part_index: int, data: bytes) -> None:
@@ -407,24 +414,34 @@ class UploadSender:
             self.exception = e
             raise e
 
-    async def disconnect(self) -> None:
-        if self.exception:
-            raise self.exception
+    async def flush(self) -> None:
         if self.previous:
             await self.previous
-        await self.sender.disconnect()
+        if self.exception:
+            raise self.exception
+
+    async def disconnect(self) -> None:
+        if self.previous:
+            try:
+                await self.previous
+            except Exception:
+                pass
+        try:
+            await self.sender.disconnect()
+        except Exception:
+            pass
 
 
 class ParallelUploader:
-    def __init__(self, client, dc_id=None, progress_callback=None, file_size=0):
+    def __init__(self, client, dc_id=None):
         self.client = client
         self.loop = client.loop
         self.dc_id = dc_id or client.session.dc_id
         self.auth_key = (None if dc_id and client.session.dc_id != dc_id
                          else client.session.auth_key)
         self.senders = []
-        self.progress_callback = progress_callback
-        self.file_size = file_size
+        self.progress_callback = None
+        self.file_size = 0
         self.uploaded_bytes = 0
 
     def update_progress(self, sent):
@@ -451,21 +468,36 @@ class ParallelUploader:
             self.auth_key = sender.auth_key
         return sender
 
-    async def init_upload(self, file_id: int, file_size: int, part_size: int, connections: int) -> None:
+    async def ensure_senders(self, connections: int) -> None:
+        active_senders = []
+        for sender in self.senders:
+            if sender.sender and sender.sender.is_connected():
+                active_senders.append(sender)
+            else:
+                try:
+                    await sender.disconnect()
+                except Exception:
+                    pass
+
+        needed = connections - len(active_senders)
+        if needed > 0:
+            log.info("Spawning %d persistent parallel MTProtoSender worker connections", needed)
+            new_senders = await asyncio.gather(*[self._create_sender() for _ in range(needed)])
+            for s_conn in new_senders:
+                active_senders.append(UploadSender(self, self.client, s_conn, loop=self.loop))
+
+        self.senders = active_senders
+
+    async def prepare_for_file(self, file_id: int, file_size: int, part_size: int, connections: int, progress_callback=None) -> None:
         part_count = (file_size + part_size - 1) // part_size
         big = file_size > 10 * 1024 * 1024
+        self.file_size = file_size
+        self.uploaded_bytes = 0
+        self.progress_callback = progress_callback
 
-        self.senders = [
-            await self._create_upload_sender(file_id, part_count, big, connections),
-            *await asyncio.gather(*[
-                self._create_upload_sender(file_id, part_count, big, connections)
-                for _ in range(1, connections)
-            ])
-        ]
-
-    async def _create_upload_sender(self, file_id: int, part_count: int, big: bool, connections: int) -> UploadSender:
-        sender_conn = await self._create_sender()
-        return UploadSender(self, self.client, sender_conn, file_id, part_count, big, loop=self.loop)
+        await self.ensure_senders(connections)
+        for sender in self.senders:
+            sender.prepare_file(file_id, part_count, big)
 
     async def upload(self, part_index: int, part: bytes) -> None:
         idle_sender = None
@@ -487,23 +519,57 @@ class ParallelUploader:
 
         await idle_sender.start_upload(part_index, part)
 
-    async def finish_upload(self) -> None:
+    async def finish_file(self) -> None:
         if self.senders:
+            await asyncio.gather(*[sender.flush() for sender in self.senders if sender.previous])
+
+    async def close(self) -> None:
+        if self.senders:
+            log.info("Queue complete. Closing persistent parallel MTProtoSender worker pool.")
             await asyncio.gather(*[sender.disconnect() for sender in self.senders])
             self.senders = []
 
 
 async def parallel_upload_local_file(client, file_path, file_size, filename, progress_callback):
-    """Upload local file directly using the persistent Telethon client connection."""
-    def cb(current, total):
-        if progress_callback:
-            progress_callback(current, total or file_size)
+    part_size = 512 * 1024
+    parts_count = (file_size + part_size - 1) // part_size
+    file_id = secrets.randbits(63)
+    is_big = file_size > 10 * 1024 * 1024
 
-    return await client.upload_file(
-        file_path,
-        file_name=filename,
-        progress_callback=cb
-    )
+    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "5"))
+    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
+    connections = min(connections, parts_count)
+
+    uploader = getattr(client, "_streamly_uploader_pool", None)
+    if uploader is None:
+        uploader = ParallelUploader(client)
+        setattr(client, "_streamly_uploader_pool", uploader)
+
+    await uploader.prepare_for_file(file_id, file_size, part_size, connections, progress_callback=progress_callback)
+
+    try:
+        with open(file_path, "rb") as f:
+            for part_index in range(parts_count):
+                for sender in uploader.senders:
+                    if sender.exception:
+                        raise sender.exception
+
+                chunk = await asyncio.to_thread(f.read, part_size)
+                if not chunk:
+                    break
+                await uploader.upload(part_index, chunk)
+        await uploader.finish_file()
+    except BaseException as e:
+        try:
+            await uploader.finish_file()
+        except Exception:
+            pass
+        raise
+
+    if is_big:
+        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
+    else:
+        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
@@ -824,6 +890,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 ["DEL", f"streamly:cancel_request:{task_id}"],
                 ["DEL", f"streamly:task_args:{task_id}"]
             )
+            queue_len = await rs._execute("LLEN", "streamly:transfer_queue") or 0
+            if queue_len == 0 and client:
+                uploader = getattr(client, "_streamly_uploader_pool", None)
+                if uploader:
+                    await uploader.close()
+                    setattr(client, "_streamly_uploader_pool", None)
         except Exception as cl_err:
             log.warning("Redis cleanup failed for task %s: %s", task_id, cl_err)
         trigger_next_transfer(app)
