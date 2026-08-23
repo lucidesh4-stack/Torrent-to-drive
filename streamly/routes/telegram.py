@@ -765,10 +765,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 tracker.last_pct = 50.0
                 tracker.last_write_bytes = 0
 
-                def upload_progress(current, total):
+                async def upload_progress(current, total):
                     if cancel_flag[0]:
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
+                    await asyncio.sleep(0.040)
 
                 log.info("Starting high-speed Telegram upload from disk via Telethon native uploader")
                 upload_start = time.time()
