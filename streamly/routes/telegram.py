@@ -603,10 +603,16 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 async def wait_for_sequence_turn(app, seq_num: Optional[int]):
     if seq_num is None:
         return
-    if not hasattr(app.state, "current_post_seq") or app.state.current_post_seq > seq_num:
-        app.state.current_post_seq = seq_num
 
-    # Auto-align current_post_seq if it lags behind min active task sequence number
+    # Initialize current_post_seq to min active sequence if not set
+    if not hasattr(app.state, "current_post_seq"):
+        active_seqs = [
+            getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
+        ]
+        active_seqs = [s for s in active_seqs if s is not None]
+        app.state.current_post_seq = min(active_seqs) if active_seqs else seq_num
+
+    # Auto-align current_post_seq ONLY if it lags behind ALL active tasks
     if getattr(app.state, "current_post_seq", 1) < seq_num:
         active_seqs = [
             getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
