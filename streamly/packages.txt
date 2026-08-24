@@ -1,3 +1,4 @@
-telegram-bot-api
+curl
+ca-certificates
 libssl-dev
 zlib1g-dev

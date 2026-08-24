@@ -61,6 +61,22 @@ async def _download_telegram_bot_api_binary() -> Optional[str]:
         except Exception as c_err:
             log.warning("curl download error for %s: %s", download_url, c_err)
 
+    import urllib.request
+    for download_url in urls:
+        try:
+            log.info("Attempting urllib download from %s ...", download_url)
+            req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"})
+            with urllib.request.urlopen(req, timeout=45) as response:
+                content = response.read()
+                if len(content) > 1_000_000:
+                    with open(target_bin, "wb") as out_file:
+                        out_file.write(content)
+                    os.chmod(target_bin, 0o755)
+                    log.info("Downloaded C++ telegram-bot-api binary via urllib: %.2f MB", len(content)/(1024*1024))
+                    return target_bin
+        except Exception as u_err:
+            log.warning("urllib download error for %s: %s", download_url, u_err)
+
     try:
         async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
             for download_url in urls:
