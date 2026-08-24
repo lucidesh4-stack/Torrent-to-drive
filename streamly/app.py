@@ -525,10 +525,13 @@ def create_app(
                 trigger_seedr_queue(app)
                 log.info("Seedr Queue Daemon started successfully.")
 
-                # Boot Local C++ TDLib Bot API Server Daemon
+                # Boot Local C++ TDLib Bot API Server Daemon Pool (Ports 8081, 8082, 8083)
                 from .routes.telegram_bot_api_daemon import ensure_local_bot_api_daemon
-                asyncio.create_task(ensure_local_bot_api_daemon())
-                log.info("Local C++ TDLib Daemon boot task started.")
+                async def _boot_all_daemons():
+                    for p in [8081, 8082, 8083]:
+                        await ensure_local_bot_api_daemon(port=p)
+                asyncio.create_task(_boot_all_daemons())
+                log.info("Local C++ TDLib Daemon pool boot task started (Ports 8081, 8082, 8083).")
                 
                 # Startup Initialization Locks
                 acquired = await rs._execute("SET", "streamly:startup_init_lock", "1", "EX", "15", "NX")

@@ -359,6 +359,11 @@ async def _trigger_next_transfer_locked(app):
         task.add_done_callback(app.state.background_tasks.discard)
         log.info("Queue check: started transfer background task for %s", next_task_id)
         
+        # Immediately trigger additional workers if capacity available (< 3)
+        active_count = len([t for t in getattr(app.state, "active_tasks", {}).values() if not t.done()])
+        if active_count < 3:
+            asyncio.create_task(trigger_next_transfer(app))
+        
     except Exception as e:
         log.exception("Error in queue dispatch trigger: %s", e)
         try:
