@@ -12,7 +12,7 @@ import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
-from typing import Any
+from typing import Any, Optional
 from telethon import TelegramClient, functions, types
 from telethon.network import MTProtoSender
 from telethon.errors import FilePartMissingError, FloodWaitError, RPCError
@@ -341,6 +341,7 @@ async def _trigger_next_transfer_locked(app):
         filename = args.get("filename")
         size = int(args.get("size", 0))
         sid = args.get("sid")
+        seq_num = args.get("seq_num")
         
         task_id = next_task_id
         await rs.pipeline(
@@ -350,7 +351,7 @@ async def _trigger_next_transfer_locked(app):
         )
         
         # Start async task
-        task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid))
+        task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid, seq_num=seq_num))
         if not hasattr(app.state, "active_tasks"):
             app.state.active_tasks = {}
         app.state.active_tasks[next_task_id] = task
@@ -582,7 +583,27 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
         return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
 
 
-async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid):
+async def wait_for_sequence_turn(app, seq_num: Optional[int]):
+    if seq_num is None:
+        return
+    if not hasattr(app.state, "current_post_seq"):
+        app.state.current_post_seq = 1
+    log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, app.state.current_post_seq)
+    while getattr(app.state, "current_post_seq", 1) < seq_num:
+        await asyncio.sleep(0.1)
+    log.info("Task seq #%d turn reached! Completing channel post now...", seq_num)
+
+
+def advance_sequence_turn(app, seq_num: Optional[int]):
+    if seq_num is None:
+        return
+    current = getattr(app.state, "current_post_seq", 1)
+    if current <= seq_num:
+        app.state.current_post_seq = seq_num + 1
+        log.info("Advanced channel posting sequence turn to #%d", app.state.current_post_seq)
+
+
+async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid, seq_num: Optional[int] = None):
     exact_size = size
     cancel_flag = [False]
     
@@ -799,7 +820,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                                 "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
                                 exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                             )
+                            await wait_for_sequence_turn(app, seq_num)
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
+                            advance_sequence_turn(app, seq_num)
                             break
                         except Exception as bot_err:
                             err_msg = str(bot_err) or type(bot_err).__name__
@@ -845,7 +868,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 actual_parts = uploaded_parts
                 # parts=actual_parts
 
+                await wait_for_sequence_turn(app, seq_num)
                 await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
+                advance_sequence_turn(app, seq_num)
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
@@ -1301,13 +1326,16 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     if not target_chat:
         target_chat = os.getenv("TELEGRAM_CHAT_ID", "-1004247146382")
 
+    seq_num = await rs.incr("streamly:task_seq_counter")
+
     task_args = {
         "task_id": task_id,
         "url": file_info,
         "chat_id": target_chat,
         "filename": filename,
         "size": size,
-        "sid": sid
+        "sid": sid,
+        "seq_num": seq_num
     }
     
     await rs.set(f"streamly:task_args:{task_id}", _json.dumps(task_args))
