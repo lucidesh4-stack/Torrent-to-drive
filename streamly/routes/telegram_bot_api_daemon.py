@@ -130,7 +130,7 @@ async def ensure_local_bot_api_daemon() -> bool:
 
     try:
         os.makedirs("/tmp/telegram-bot-api", exist_ok=True)
-        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local flag...")
+        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local --threads=8 --verbosity=0 flags...")
         _daemon_process = subprocess.Popen(
             [
                 bin_path,
@@ -138,6 +138,8 @@ async def ensure_local_bot_api_daemon() -> bool:
                 f"--api-hash={api_hash}",
                 "--local",
                 "--http-port=8081",
+                "--threads=8",
+                "--verbosity=0",
                 "--dir=/tmp/telegram-bot-api"
             ],
             stdout=subprocess.DEVNULL,
