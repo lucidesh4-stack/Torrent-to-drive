@@ -35,12 +35,14 @@ async def _download_telegram_bot_api_binary() -> Optional[str]:
 
     os.makedirs(target_dir, exist_ok=True)
     urls = [
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.10/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.9/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.7/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/7.0/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.10/telegram-bot-api-linux-amd64",
-        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.9/telegram-bot-api-linux-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v6.9/telegram-bot-api-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v6.9/telegram-bot-api",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v6.8/telegram-bot-api-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v6.8/telegram-bot-api",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.0/telegram-bot-api-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/v7.0/telegram-bot-api",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/6.9/telegram-bot-api-amd64",
+        "https://github.com/aiogram/telegram-bot-api-executables/releases/download/6.8/telegram-bot-api-amd64",
     ]
     log.info("Downloading pre-compiled C++ telegram-bot-api TDLib binary for Linux x86_64...")
     for download_url in urls:
