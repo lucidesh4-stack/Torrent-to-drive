@@ -301,9 +301,8 @@ async def _trigger_next_transfer_locked(app):
         if acquired != "OK":
             return
             
-        active = await rs.get("streamly:active_transfer_global")
-        has_memory_active = hasattr(app.state, "active_tasks") and any(not t.done() for t in app.state.active_tasks.values())
-        if active or has_memory_active:
+        active_count = len([t for t in getattr(app.state, "active_tasks", {}).values() if not t.done()])
+        if active_count >= 3:
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
             return
             
@@ -789,10 +788,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         chat_id_val = str(resolved_chat)
 
                     if chat_id_val:
-                        log.info("Starting Local C++ TDLib daemon upload for chat %s", chat_id_val)
+                        daemon_port = 8081 + (abs(hash(task_id)) % 3)
+                        log.info("Starting Local C++ TDLib daemon upload on port %d for chat %s", daemon_port, chat_id_val)
                         upload_start = time.time()
                         try:
-                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync)
+                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
                             upload_elapsed = time.time() - upload_start
                             upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                             log.info(

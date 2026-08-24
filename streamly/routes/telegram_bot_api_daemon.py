@@ -96,10 +96,16 @@ async def _download_telegram_bot_api_binary() -> Optional[str]:
     return None
 
 
-async def ensure_local_bot_api_daemon() -> bool:
-    """Verifies or launches local telegram-bot-api server daemon with --local mode."""
-    global _daemon_process
-    url = f"{get_local_bot_api_url()}/"
+_daemon_processes: dict[int, subprocess.Popen] = {}
+
+
+def get_local_bot_api_url(port: int = 8081) -> str:
+    return f"http://127.0.0.1:{port}"
+
+
+async def ensure_local_bot_api_daemon(port: int = 8081) -> bool:
+    """Verifies or launches local telegram-bot-api server daemon with --local mode on specified port (8081, 8082, 8083)."""
+    url = f"{get_local_bot_api_url(port)}/"
     try:
         async with httpx.AsyncClient(timeout=1.5) as client:
             resp = await client.get(url)
@@ -129,40 +135,42 @@ async def ensure_local_bot_api_daemon() -> bool:
         return False
 
     try:
-        os.makedirs("/tmp/telegram-bot-api", exist_ok=True)
-        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local --verbosity=0 --max-connections=10000 flags...")
-        _daemon_process = subprocess.Popen(
+        os.makedirs(f"/tmp/telegram-bot-api-{port}", exist_ok=True)
+        os.makedirs(f"/tmp/telegram-bot-api-temp-{port}", exist_ok=True)
+        log.info("Launching local telegram-bot-api C++ daemon binary on port %d with --local flags...", port)
+        proc = subprocess.Popen(
             [
                 bin_path,
                 f"--api-id={api_id}",
                 f"--api-hash={api_hash}",
                 "--local",
-                "--http-port=8081",
+                f"--http-port={port}",
                 "--verbosity=0",
                 "--max-connections=10000",
-                "--dir=/tmp/telegram-bot-api",
-                "--temp-dir=/tmp/telegram-bot-api-temp"
+                f"--dir=/tmp/telegram-bot-api-{port}",
+                f"--temp-dir=/tmp/telegram-bot-api-temp-{port}"
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE
         )
+        _daemon_processes[port] = proc
         for _ in range(25):
             await asyncio.sleep(0.2)
-            if _daemon_process.poll() is not None:
-                _, err_out = _daemon_process.communicate()
-                log.warning("Local telegram-bot-api daemon exited prematurely with code %s: %s", _daemon_process.returncode, err_out.decode('utf-8', errors='ignore'))
+            if proc.poll() is not None:
+                _, err_out = proc.communicate()
+                log.warning("Local telegram-bot-api daemon on port %d exited prematurely with code %s: %s", port, proc.returncode, err_out.decode('utf-8', errors='ignore'))
                 return False
             try:
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     resp = await client.get(url)
                     if resp.status_code in (200, 404):
-                        log.info("Local C++ TDLib Bot API daemon is UP and LISTENING on port 8081!")
+                        log.info("Local C++ TDLib Bot API daemon is UP and LISTENING on port %d!", port)
                         return True
             except Exception:
                 pass
         return False
     except Exception as e:
-        log.warning("Could not launch local telegram-bot-api C++ daemon: %s", e)
+        log.warning("Could not launch local telegram-bot-api C++ daemon on port %d: %s", port, e)
         return False
 
 
@@ -171,25 +179,25 @@ async def upload_via_local_bot_api(
     chat_id: str,
     file_path: str,
     filename: str,
-    progress_callback=None
+    progress_callback=None,
+    port: int = 8081
 ) -> dict:
     """
-    High-speed Telegram Bot API uploader engine.
-    Uses local C++ TDLib server if active on 127.0.0.1:8081, or streams directly to https://api.telegram.org at 20-30 MB/s.
+    High-speed Telegram Bot API uploader engine using local C++ TDLib daemon on specified port.
     """
-    local_base_url = get_local_bot_api_url()
+    local_base_url = get_local_bot_api_url(port)
     local_url = f"{local_base_url}/bot{bot_token}/sendDocument"
     cloud_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     file_size = os.path.getsize(file_path)
 
-    log.info("Starting high-speed Bot API upload for file %s (%.2f MB)", filename, file_size / (1024 * 1024))
+    log.info("Starting high-speed Bot API upload for file %s (%.2f MB) via daemon port %d", filename, file_size / (1024 * 1024), port)
     start_time = time.time()
 
     limits = httpx.Limits(max_keepalive_connections=50, max_connections=100)
     timeout_config = httpx.Timeout(1200.0, connect=60.0, read=1200.0, write=1200.0)
     async with httpx.AsyncClient(limits=limits, timeout=timeout_config, follow_redirects=True) as client:
-        # Try local C++ TDLib server daemon if active on port 8081
-        if await ensure_local_bot_api_daemon():
+        # Try local C++ TDLib server daemon if active on specified port
+        if await ensure_local_bot_api_daemon(port):
             payload = {
                 "chat_id": chat_id,
                 "document": f"file://{os.path.abspath(file_path)}",
@@ -218,10 +226,10 @@ async def upload_via_local_bot_api(
                 if resp.status_code == 200:
                     elapsed = time.time() - start_time
                     speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
-                    log.info("Local C++ TDLib Bot API upload succeeded: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
+                    log.info("Local C++ TDLib Bot API upload on port %d succeeded: %.2f MB in %.1fs (%.2f Mbps average)", port, file_size / (1024 * 1024), elapsed, speed_mbps)
                     return resp.json()
             except Exception as local_err:
-                log.debug("Local daemon send skipped: %s", local_err)
+                log.debug("Local daemon send on port %d skipped: %s", port, local_err)
             finally:
                 done[0] = True
                 ticker_task.cancel()
