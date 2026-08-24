@@ -746,9 +746,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 log.info("Starting high-speed multi-connection Seedr download to disk")
                 downloader = SeedrDownloader(
                     worker_url=app.state.config.cloudflare_worker_proxy,
-                    temp_dir=temp_dir
+                    temp_dir=task_temp_dir
                 )
-                await downloader.download(download_url, filename=temp_file_name, progress_callback=download_progress)
+                await downloader.download(download_url, filename=filename, progress_callback=download_progress)
 
                 if not os.path.exists(temp_path):
                     raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
