@@ -821,22 +821,24 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     except Exception as b_err:
                         log.warning("Could not initialize Bot MTProto session: %s; using user session", b_err)
 
-                log.info("Starting native C-accelerated MTProto upload from disk (512KB chunks)")
+                log.info("Starting high-speed parallel MTProto multi-socket upload (8 workers, 512KB chunks)")
                 upload_start = time.time()
-                uploaded = await upload_client.upload_file(
+                from ..core.parallel_upload import fast_upload_file
+                uploaded = await fast_upload_file(
+                    upload_client,
                     temp_path,
-                    file_name=filename,
-                    part_size_kb=512,
-                    progress_callback=upload_progress
+                    filename,
+                    progress_callback=upload_progress_sync,
+                    workers=8
                 )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                 log.info(
-                    "Upload phase complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                    "Parallel MTProto multi-socket upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
                     exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                 )
 
-                uploaded_parts = uploaded.parts
+                uploaded_parts = getattr(uploaded, 'parts', 0)
                 actual_parts = uploaded_parts
                 # parts=actual_parts
 
