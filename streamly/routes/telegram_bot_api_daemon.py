@@ -180,6 +180,24 @@ async def upload_via_local_bot_api(
                 "document": f"file://{os.path.abspath(file_path)}",
                 "caption": f"File transferred: {filename}"
             }
+            done = [False]
+            async def _live_progress_ticker():
+                start_t = time.time()
+                # Estimate ~12 MB/s local daemon throughput for live UI feedback
+                est_speed_bytes_sec = 12 * 1024 * 1024
+                while not done[0]:
+                    await asyncio.sleep(0.3)
+                    if done[0]:
+                        break
+                    elapsed = time.time() - start_t
+                    est_bytes = min(int(elapsed * est_speed_bytes_sec), max(0, int(file_size * 0.95)))
+                    if progress_callback:
+                        try:
+                            progress_callback(est_bytes, file_size)
+                        except Exception:
+                            pass
+
+            ticker_task = asyncio.create_task(_live_progress_ticker())
             try:
                 resp = await client.post(local_url, json=payload)
                 if resp.status_code == 200:
@@ -189,11 +207,42 @@ async def upload_via_local_bot_api(
                     return resp.json()
             except Exception as local_err:
                 log.debug("Local daemon send skipped: %s", local_err)
+            finally:
+                done[0] = True
+                ticker_task.cancel()
+                if progress_callback:
+                    try:
+                        progress_callback(file_size, file_size)
+                    except Exception:
+                        pass
 
         # Stream directly to official Telegram Cloud Bot API (https://api.telegram.org)
         log.info("Streaming file directly to Telegram Cloud Bot API (https://api.telegram.org)")
-        with open(file_path, "rb") as f:
-            files = {"document": (filename, f)}
+        
+        class _ProgressFileReader:
+            def __init__(self, fpath, p_cb):
+                self.f = open(fpath, "rb")
+                self.file_size = os.path.getsize(fpath)
+                self.read_bytes = 0
+                self.p_cb = p_cb
+
+            def read(self, size=-1):
+                chunk = self.f.read(size)
+                if chunk:
+                    self.read_bytes += len(chunk)
+                    if self.p_cb:
+                        try:
+                            self.p_cb(self.read_bytes, self.file_size)
+                        except Exception:
+                            pass
+                return chunk
+
+            def close(self):
+                self.f.close()
+
+        p_reader = _ProgressFileReader(file_path, progress_callback)
+        try:
+            files = {"document": (filename, p_reader)}
             data = {"chat_id": str(chat_id), "caption": f"File transferred: {filename}"}
             resp = await client.post(cloud_url, data=data, files=files)
             resp.raise_for_status()
@@ -201,3 +250,5 @@ async def upload_via_local_bot_api(
             speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
             log.info("Official Telegram Cloud Bot API upload complete: %.2f MB in %.1fs (%.2f Mbps average)", file_size / (1024 * 1024), elapsed, speed_mbps)
             return resp.json()
+        finally:
+            p_reader.close()
