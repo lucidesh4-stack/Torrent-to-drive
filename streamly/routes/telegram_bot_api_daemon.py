@@ -130,7 +130,7 @@ async def ensure_local_bot_api_daemon() -> bool:
 
     try:
         os.makedirs("/tmp/telegram-bot-api", exist_ok=True)
-        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local --threads=8 flags...")
+        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local flag...")
         _daemon_process = subprocess.Popen(
             [
                 bin_path,
@@ -138,16 +138,17 @@ async def ensure_local_bot_api_daemon() -> bool:
                 f"--api-hash={api_hash}",
                 "--local",
                 "--http-port=8081",
-                "--threads=8",
-                "--max-connections=100",
-                "--verbosity=0",
                 "--dir=/tmp/telegram-bot-api"
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.PIPE
         )
-        for _ in range(10):
-            await asyncio.sleep(1.0)
+        for _ in range(25):
+            await asyncio.sleep(0.2)
+            if _daemon_process.poll() is not None:
+                _, err_out = _daemon_process.communicate()
+                log.warning("Local telegram-bot-api daemon exited prematurely with code %s: %s", _daemon_process.returncode, err_out.decode('utf-8', errors='ignore'))
+                return False
             try:
                 async with httpx.AsyncClient(timeout=2.0) as client:
                     resp = await client.get(url)
