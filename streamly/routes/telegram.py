@@ -54,6 +54,7 @@ _DEFAULT_SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10485760"
 
 # EFF-17: Track which bandwidth keys already have TTL set
 _BW_KEYS_WITH_TTL: set[str] = set()
+_TELETHON_MTPROTO_LOCK = asyncio.Lock()
 
 
 # EFF-16: These are sync — no lock needed in single-threaded asyncio for dict ops
@@ -899,12 +900,13 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
 
                 log.info("Starting native C-accelerated MTProto upload from disk (512KB chunks)")
                 upload_start = time.time()
-                uploaded = await upload_client.upload_file(
-                    temp_path,
-                    file_name=filename,
-                    part_size_kb=512,
-                    progress_callback=upload_progress_sync
-                )
+                async with _TELETHON_MTPROTO_LOCK:
+                    uploaded = await upload_client.upload_file(
+                        temp_path,
+                        file_name=filename,
+                        part_size_kb=512,
+                        progress_callback=upload_progress_sync
+                    )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                 log.info(

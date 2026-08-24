@@ -228,8 +228,10 @@ async def upload_via_local_bot_api(
                     speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
                     log.info("Local C++ TDLib Bot API upload on port %d succeeded: %.2f MB in %.1fs (%.2f Mbps average)", port, file_size / (1024 * 1024), elapsed, speed_mbps)
                     return resp.json()
+                else:
+                    log.warning("Local C++ TDLib daemon port %d returned HTTP %d: %s", port, resp.status_code, resp.text[:500])
             except Exception as local_err:
-                log.debug("Local daemon send on port %d skipped: %s", port, local_err)
+                log.warning("Local daemon send on port %d failed: %s", port, local_err)
             finally:
                 done[0] = True
                 ticker_task.cancel()
