@@ -175,9 +175,21 @@ async def upload_via_local_bot_api(
     async with httpx.AsyncClient(timeout=timeout_config, follow_redirects=True) as client:
         # Try local C++ TDLib server daemon if active on port 8081
         if await ensure_local_bot_api_daemon():
+            send_path = file_path
+            clean_dir = "/tmp/clean_exports"
+            clean_path = os.path.join(clean_dir, filename)
+            try:
+                os.makedirs(clean_dir, exist_ok=True)
+                if os.path.exists(clean_path):
+                    os.remove(clean_path)
+                os.symlink(os.path.abspath(file_path), clean_path)
+                send_path = clean_path
+            except Exception as sym_err:
+                log.debug("Could not create symlink for clean filename, using file_path: %s", sym_err)
+
             payload = {
                 "chat_id": chat_id,
-                "document": f"file://{os.path.abspath(file_path)}",
+                "document": f"file://{os.path.abspath(send_path)}",
                 "caption": f"File transferred: {filename}"
             }
             try:
