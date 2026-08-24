@@ -885,6 +885,14 @@
       return toast("Select at least one file. Folders cannot be sent directly.");
     }
     
+    // Sort filesToSend strictly according to folder list order / natural episode order
+    filesToSend.sort((a, b) => {
+      const idxA = items.findIndex(x => x.key === a.key);
+      const idxB = items.findIndex(x => x.key === b.key);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: "base" });
+    });
+    
     // Check sizes
     for (const item of filesToSend) {
       if (item.size > 2097152000) {

@@ -148,7 +148,7 @@ async def get_projected_bandwidth(rs, ym, current_file_size=0, active_item=None,
 
 
 class ProgressTracker:
-    def __init__(self, rs, task_id, filename, total_bytes, cancel_flag, sid=None, app=None):
+    def __init__(self, rs, task_id, filename, total_bytes, cancel_flag, sid=None, app=None, seq_num=None):
         self.rs = rs
         self.task_id = task_id
         self.filename = filename
@@ -156,6 +156,7 @@ class ProgressTracker:
         self.cancel_flag = cancel_flag
         self.sid = sid
         self.app = app
+        self.seq_num = seq_num
         self.last_pct = 0.0
         self.last_bandwidth_sent_bytes = 0
         self.last_write_time = time.time()
@@ -203,6 +204,7 @@ class ProgressTracker:
             "sent_bytes": sent_bytes,
             "total_bytes": tot,
             "speed_mb": speed_mb,
+            "seq_num": self.seq_num,
             "error": None,
             "sid": self.sid,
         })
@@ -758,7 +760,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         if parts_count > _TG_MAX_PARTS:
             raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
 
-        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid, app=app)
+        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid, app=app, seq_num=seq_num)
 
         max_attempts = 3
         backoff = 5.0

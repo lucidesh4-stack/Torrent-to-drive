@@ -84,6 +84,12 @@
     // 2. Render Active Transfers (Multi-Parallel Support)
     const activeCard = $("tgActiveTransferCard");
     const activeItems = data.active_items || (data.active ? [data.active] : []);
+    activeItems.sort((a, b) => {
+      if (a.seq_num !== undefined && b.seq_num !== undefined && a.seq_num !== b.seq_num) {
+        return a.seq_num - b.seq_num;
+      }
+      return (a.filename || "").localeCompare(b.filename || "", undefined, { numeric: true, sensitivity: "base" });
+    });
     if (activeItems.length > 0) {
       activeCard.innerHTML = activeItems.map(active => {
         const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
