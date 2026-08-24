@@ -75,6 +75,16 @@ def _live_get_active() -> dict | None:
     return None
 
 
+def _live_get_all_active() -> list[dict]:
+    items = []
+    for tid, v in list(_LIVE_PROGRESS.items()):
+        if v.get("status") in ("UPLOADING", "QUEUED"):
+            out = dict(v)
+            out.setdefault("task_id", tid)
+            items.append(out)
+    return items
+
+
 def _live_clear(task_id: str) -> None:
     _LIVE_PROGRESS.pop(task_id, None)
 
@@ -591,11 +601,30 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 async def wait_for_sequence_turn(app, seq_num: Optional[int]):
     if seq_num is None:
         return
-    if not hasattr(app.state, "current_post_seq"):
-        app.state.current_post_seq = 1
+    if not hasattr(app.state, "current_post_seq") or app.state.current_post_seq > seq_num:
+        app.state.current_post_seq = seq_num
+
+    # Auto-align current_post_seq if it lags behind min active task sequence number
+    if getattr(app.state, "current_post_seq", 1) < seq_num:
+        active_seqs = [
+            getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
+        ]
+        active_seqs = [s for s in active_seqs if s is not None]
+        if active_seqs:
+            min_seq = min(active_seqs)
+            if app.state.current_post_seq < min_seq:
+                log.info("Auto-aligning current_post_seq from %d to min active task seq %d", app.state.current_post_seq, min_seq)
+                app.state.current_post_seq = min_seq
+
     log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, app.state.current_post_seq)
+    wait_counter = 0
     while getattr(app.state, "current_post_seq", 1) < seq_num:
         await asyncio.sleep(0.1)
+        wait_counter += 1
+        if wait_counter > 1200:
+            log.warning("Sequence turn timeout for seq #%d; forcing sequence turn advancement", seq_num)
+            app.state.current_post_seq = seq_num
+            break
     log.info("Task seq #%d turn reached! Completing channel post now...", seq_num)
 
 
@@ -609,6 +638,12 @@ def advance_sequence_turn(app, seq_num: Optional[int]):
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid, seq_num: Optional[int] = None):
+    try:
+        curr_t = asyncio.current_task()
+        if curr_t:
+            setattr(curr_t, "_seq_num", seq_num)
+    except Exception:
+        pass
     exact_size = size
     cancel_flag = [False]
     
@@ -1488,8 +1523,8 @@ async def sse_telegram_progress(request: Request):
             if await request.is_disconnected():
                 break
             try:
-                active_item = _live_get_active()
-                if active_item is None and rs:
+                active_items = _live_get_all_active()
+                if not active_items and rs:
                     active_task_id = await rs.get("streamly:active_transfer_global")
                     if active_task_id:
                         if isinstance(active_task_id, bytes):
@@ -1498,8 +1533,9 @@ async def sse_telegram_progress(request: Request):
                         if raw_status:
                             if isinstance(raw_status, bytes):
                                 raw_status = raw_status.decode("utf-8")
-                            active_item = _json.loads(raw_status)
-                            active_item.setdefault("task_id", active_task_id)
+                            item = _json.loads(raw_status)
+                            item.setdefault("task_id", active_task_id)
+                            active_items = [item]
 
                 queue_items = []
                 if rs:
@@ -1521,7 +1557,8 @@ async def sse_telegram_progress(request: Request):
                                 })
 
                 payload = {
-                    "active": active_item,
+                    "active": active_items[0] if active_items else None,
+                    "active_items": active_items,
                     "queue": queue_items
                 }
                 curr_hash = _json.dumps(payload, sort_keys=True)

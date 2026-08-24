@@ -81,35 +81,39 @@
     
     $("tgTransfersTargetText").textContent = data.destination || "me";
 
-    // 2. Render Active Transfer
+    // 2. Render Active Transfers (Multi-Parallel Support)
     const activeCard = $("tgActiveTransferCard");
-    if (data.active) {
-      const active = data.active;
-      const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
-      const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
-      // Escape all server-supplied values before interpolating into innerHTML.
-      const fname = escapeHtml(active.filename || "file");
-      const fstatus = escapeHtml(active.status || "UPLOADING");
-      const ftask = escapeHtml(active.task_id || "");
-      
-      activeCard.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
-          <div style="flex: 1; min-width: 0;">
-            <strong style="display: block; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
-            <span class="muted" style="font-size: 12px;">Status: <span style="color: var(--accent); font-weight: 600;">${fstatus}</span></span>
+    const activeItems = data.active_items || (data.active ? [data.active] : []);
+    if (activeItems.length > 0) {
+      activeCard.innerHTML = activeItems.map(active => {
+        const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
+        const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
+        const fname = escapeHtml(active.filename || "file");
+        const fstatus = escapeHtml(active.status || "UPLOADING");
+        const ftask = escapeHtml(active.task_id || "");
+        
+        return `
+        <div style="margin-bottom: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+            <div style="flex: 1; min-width: 0;">
+              <strong style="display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
+              <span class="muted" style="font-size: 11px;">Status: <span style="color: var(--accent); font-weight: 600;">${fstatus}</span></span>
+            </div>
+            ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}')" style="background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px;" title="Cancel Upload">✕</button>` : ''}
           </div>
-          <button class="tg-cancel-btn danger ghost" data-task-id="${ftask}" title="Cancel transfer" aria-label="Cancel transfer" style="flex-shrink: 0; padding: 4px 9px; font-size: 15px; line-height: 1;">&times;</button>
-        </div>
-        <div style="width: 100%; height: 6px; background: var(--panel-1); border-radius: 3px; overflow: hidden; border: 1px solid var(--line);">
-          <div style="width: ${progress}%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 11px;" class="muted">
-          <span>Progress: ${progress}% (${formatBytes(active.sent_bytes || 0)} / ${formatBytes(active.total_bytes || 0)})</span>
-          <strong style="color: var(--accent);">${speed}</strong>
-        </div>
-      `;
+          
+          <div style="margin-top: 8px; background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
+            <div style="width: ${progress}%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
+          </div>
+          
+          <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px;" class="muted">
+            <span>Progress: ${progress}% (${formatBytes(active.sent_bytes || 0)} / ${formatBytes(active.total_bytes || 0)})</span>
+            <span style="font-weight: 600; color: var(--accent);">${speed}</span>
+          </div>
+        </div>`;
+      }).join('');
     } else {
-      activeCard.innerHTML = `<div class="empty" style="padding: 8px; margin: 0;">No active transfers running.</div>`;
+      activeCard.innerHTML = `<div class="muted" style="font-size: 13px; text-align: center; padding: 12px;">No active transfer in progress.</div>`;
     }
 
     // 3. Render Queue List
