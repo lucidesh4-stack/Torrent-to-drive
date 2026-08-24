@@ -717,8 +717,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             temp_dir = os.path.join(os.getcwd(), "temp_downloads")
             os.makedirs(temp_dir, exist_ok=True)
 
-        temp_file_name = f"transfer_{task_id}_{filename}"
-        temp_path = os.path.join(temp_dir, temp_file_name)
+        task_temp_dir = os.path.join(temp_dir, task_id)
+        os.makedirs(task_temp_dir, exist_ok=True)
+        temp_path = os.path.join(task_temp_dir, filename)
 
         for attempt in range(1, max_attempts + 1):
             log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
@@ -940,11 +941,14 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             cancel_poller.cancel()
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks.pop(task_id, None)
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception as ce:
-                log.warning("Failed to clean up temp file %s: %s", temp_path, ce)
+        if temp_path:
+            task_dir = os.path.dirname(temp_path)
+            if os.path.exists(task_dir):
+                try:
+                    import shutil
+                    shutil.rmtree(task_dir, ignore_errors=True)
+                except Exception as ce:
+                    log.warning("Failed to clean up temp dir %s: %s", task_dir, ce)
         if client:
             await safe_disconnect(client)
         _live_clear(task_id)
