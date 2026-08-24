@@ -130,9 +130,19 @@ async def ensure_local_bot_api_daemon() -> bool:
 
     try:
         os.makedirs("/tmp/telegram-bot-api", exist_ok=True)
-        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local flag...")
+        log.info("Launching local telegram-bot-api C++ daemon binary on port 8081 with --local --threads=8 flags...")
         _daemon_process = subprocess.Popen(
-            [bin_path, f"--api-id={api_id}", f"--api-hash={api_hash}", "--local", "--http-port=8081", "--dir=/tmp/telegram-bot-api"],
+            [
+                bin_path,
+                f"--api-id={api_id}",
+                f"--api-hash={api_hash}",
+                "--local",
+                "--http-port=8081",
+                "--threads=8",
+                "--max-connections=100",
+                "--verbosity=0",
+                "--dir=/tmp/telegram-bot-api"
+            ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -171,8 +181,9 @@ async def upload_via_local_bot_api(
     log.info("Starting high-speed Bot API upload for file %s (%.2f MB)", filename, file_size / (1024 * 1024))
     start_time = time.time()
 
+    limits = httpx.Limits(max_keepalive_connections=50, max_connections=100)
     timeout_config = httpx.Timeout(1200.0, connect=60.0, read=1200.0, write=1200.0)
-    async with httpx.AsyncClient(timeout=timeout_config, follow_redirects=True) as client:
+    async with httpx.AsyncClient(limits=limits, timeout=timeout_config, follow_redirects=True) as client:
         # Try local C++ TDLib server daemon if active on port 8081
         if await ensure_local_bot_api_daemon():
             payload = {
