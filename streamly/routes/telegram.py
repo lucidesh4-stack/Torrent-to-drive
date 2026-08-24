@@ -1331,7 +1331,8 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     if not target_chat:
         target_chat = os.getenv("TELEGRAM_CHAT_ID", "-1004247146382")
 
-    seq_num = await rs.incr("streamly:task_seq_counter")
+    raw_seq = await rs._execute("INCR", "streamly:task_seq_counter")
+    seq_num = int(raw_seq) if raw_seq and str(raw_seq).isdigit() else 1
 
     task_args = {
         "task_id": task_id,
