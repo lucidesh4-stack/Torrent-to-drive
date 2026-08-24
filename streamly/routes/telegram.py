@@ -778,50 +778,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     getattr(app.state.config, "telegram_bot_token", "")
                 )
 
-                upload_client = client
-                target_destination = resolved_chat
-
-                if bot_token:
-                    try:
-                        bot_client = await tg_manager.get_bot_client(bot_token, app=app)
-                        upload_client = bot_client
-                        if hasattr(resolved_chat, "channel_id"):
-                            target_destination = f"-100{resolved_chat.channel_id}"
-                        elif hasattr(resolved_chat, "id"):
-                            cid = str(resolved_chat.id)
-                            target_destination = f"-100{cid}" if not cid.startswith("-") and len(cid) >= 10 else int(cid)
-                        log.info("Authenticated Bot MTProto session for target %s", target_destination)
-                    except Exception as b_err:
-                        log.warning("Could not initialize Bot MTProto session: %s; using user session", b_err)
-
-                log.info("Starting high-speed parallel MTProto multi-socket upload (8 workers, 512KB chunks)")
-                upload_start = time.time()
-                from ..core.parallel_upload import fast_upload_file
-                try:
-                    uploaded = await fast_upload_file(
-                        upload_client,
-                        temp_path,
-                        filename,
-                        progress_callback=upload_progress_sync,
-                        workers=8
-                    )
-                    upload_elapsed = time.time() - upload_start
-                    upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
-                    log.info(
-                        "Parallel MTProto multi-socket upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
-                        exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
-                    )
-
-                    uploaded_parts = getattr(uploaded, 'parts', 0)
-                    actual_parts = uploaded_parts
-                    # parts=actual_parts
-
-                    await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
-                    log.info("Upload and send completed successfully via 8-worker Parallel MTProto on attempt %d", attempt)
-                    break
-                except Exception as p_err:
-                    log.warning("Parallel MTProto upload encountered issue: %s; falling back to local Bot API daemon", p_err)
-
                 if bot_token and resolved_chat is not None:
                     chat_id_val = None
                     if hasattr(resolved_chat, "channel_id"):
@@ -847,7 +803,51 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                             break
                         except Exception as bot_err:
                             err_msg = str(bot_err) or type(bot_err).__name__
-                            log.warning("Local C++ TDLib daemon encountered issue: %s", err_msg)
+                            log.warning("Local C++ TDLib daemon encountered issue: %s; falling back to Bot MTProto session", err_msg)
+
+                upload_client = client
+                target_destination = resolved_chat
+
+                if bot_token:
+                    try:
+                        bot_client = await tg_manager.get_bot_client(bot_token, app=app)
+                        upload_client = bot_client
+                        if hasattr(resolved_chat, "channel_id"):
+                            target_destination = int(f"-100{resolved_chat.channel_id}")
+                        elif hasattr(resolved_chat, "id"):
+                            cid = str(resolved_chat.id)
+                            target_destination = int(f"-100{cid}") if not cid.startswith("-") and len(cid) >= 10 else int(cid)
+                        elif isinstance(resolved_chat, (int, str)):
+                            try:
+                                target_destination = int(resolved_chat)
+                            except Exception:
+                                target_destination = resolved_chat
+                        log.info("Authenticated Bot MTProto session for target %s", target_destination)
+                    except Exception as b_err:
+                        log.warning("Could not initialize Bot MTProto session: %s; using user session", b_err)
+
+                log.info("Starting native C-accelerated MTProto upload from disk (512KB chunks)")
+                upload_start = time.time()
+                uploaded = await upload_client.upload_file(
+                    temp_path,
+                    file_name=filename,
+                    part_size_kb=512,
+                    progress_callback=upload_progress_sync
+                )
+                upload_elapsed = time.time() - upload_start
+                upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
+                log.info(
+                    "Upload phase complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                    exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
+                )
+
+                uploaded_parts = getattr(uploaded, 'parts', 0)
+                actual_parts = uploaded_parts
+                # parts=actual_parts
+
+                await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
+                log.info("Upload and send completed successfully on attempt %d", attempt)
+                break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
                 user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
                 cancel_flag[0] = True
