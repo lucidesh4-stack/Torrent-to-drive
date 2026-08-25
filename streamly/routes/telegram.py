@@ -601,49 +601,74 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
         return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
 
 
-async def wait_for_sequence_turn(app, seq_num: Optional[int]):
+async def get_current_post_seq(app, rs) -> int:
+    """Fetch the current active posting sequence turn from Redis and memory."""
+    current = getattr(app.state, "current_post_seq", None)
+    if rs:
+        try:
+            val = await rs._execute("GET", "streamly:current_channel_post_seq")
+            if val is not None and str(val).isdigit():
+                redis_seq = int(val)
+                app.state.current_post_seq = redis_seq
+                return redis_seq
+        except Exception as e:
+            log.warning("Failed to fetch current_channel_post_seq from Redis: %s", e)
+    if current is None:
+        current = 1
+        app.state.current_post_seq = 1
+    return current
+
+
+async def set_current_post_seq(app, rs, seq_num: int):
+    """Update current active posting sequence turn in Redis and memory."""
+    app.state.current_post_seq = seq_num
+    if rs:
+        try:
+            await rs._execute("SET", "streamly:current_channel_post_seq", str(seq_num))
+        except Exception as e:
+            log.warning("Failed to set current_channel_post_seq in Redis: %s", e)
+
+
+async def wait_for_sequence_turn(app, rs, seq_num: Optional[int]):
     if seq_num is None:
         return
 
-    # Initialize current_post_seq to min active sequence if not set
-    if not hasattr(app.state, "current_post_seq"):
-        active_seqs = [
-            getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
-        ]
-        active_seqs = [s for s in active_seqs if s is not None]
-        app.state.current_post_seq = min(active_seqs) if active_seqs else seq_num
+    current = await get_current_post_seq(app, rs)
 
     # Auto-align current_post_seq ONLY if it lags behind ALL active tasks
-    if getattr(app.state, "current_post_seq", 1) < seq_num:
+    if current < seq_num:
         active_seqs = [
             getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
         ]
         active_seqs = [s for s in active_seqs if s is not None]
         if active_seqs:
             min_seq = min(active_seqs)
-            if app.state.current_post_seq < min_seq:
-                log.info("Auto-aligning current_post_seq from %d to min active task seq %d", app.state.current_post_seq, min_seq)
-                app.state.current_post_seq = min_seq
+            if current < min_seq:
+                log.info("Auto-aligning current_post_seq from %d to min active task seq %d", current, min_seq)
+                await set_current_post_seq(app, rs, min_seq)
+                current = min_seq
 
-    log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, app.state.current_post_seq)
+    log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, current)
     wait_counter = 0
-    while getattr(app.state, "current_post_seq", 1) < seq_num:
+    while current < seq_num:
         await asyncio.sleep(0.1)
         wait_counter += 1
+        current = await get_current_post_seq(app, rs)
         if wait_counter > 1200:
             log.warning("Sequence turn timeout for seq #%d; forcing sequence turn advancement", seq_num)
-            app.state.current_post_seq = seq_num
+            await set_current_post_seq(app, rs, seq_num)
             break
     log.info("Task seq #%d turn reached! Completing channel post now...", seq_num)
 
 
-def advance_sequence_turn(app, seq_num: Optional[int]):
+async def advance_sequence_turn(app, rs, seq_num: Optional[int]):
     if seq_num is None:
         return
-    current = getattr(app.state, "current_post_seq", 1)
+    current = await get_current_post_seq(app, rs)
     if current <= seq_num:
-        app.state.current_post_seq = seq_num + 1
-        log.info("Advanced channel posting sequence turn to #%d", app.state.current_post_seq)
+        next_seq = seq_num + 1
+        await set_current_post_seq(app, rs, next_seq)
+        log.info("Advanced channel posting sequence turn to #%d (persisted in Redis)", next_seq)
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid, seq_num: Optional[int] = None):
@@ -869,9 +894,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                                 "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
                                 exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                             )
-                            await wait_for_sequence_turn(app, seq_num)
+                            await wait_for_sequence_turn(app, rs, seq_num)
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
-                            advance_sequence_turn(app, seq_num)
+                            await advance_sequence_turn(app, rs, seq_num)
                             break
                         except Exception as bot_err:
                             err_msg = str(bot_err) or type(bot_err).__name__
@@ -918,9 +943,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 actual_parts = uploaded_parts
                 # parts=actual_parts
 
-                await wait_for_sequence_turn(app, seq_num)
+                await wait_for_sequence_turn(app, rs, seq_num)
                 await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
-                advance_sequence_turn(app, seq_num)
+                await advance_sequence_turn(app, rs, seq_num)
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
@@ -1378,6 +1403,11 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
 
     raw_seq = await rs._execute("INCR", "streamly:task_seq_counter")
     seq_num = int(raw_seq) if raw_seq and str(raw_seq).isdigit() else 1
+
+    current_turn_val = await rs._execute("GET", "streamly:current_channel_post_seq")
+    if current_turn_val is None:
+        await rs._execute("SET", "streamly:current_channel_post_seq", str(seq_num))
+        request.app.state.current_post_seq = seq_num
 
     task_args = {
         "task_id": task_id,
