@@ -217,6 +217,10 @@ async def upload_via_local_bot_api(
                     if progress_callback:
                         try:
                             progress_callback(est_bytes, file_size)
+                        except (ValueError, asyncio.CancelledError) as cancel_err:
+                            log.info("Cancellation requested during local daemon ticker: %s", cancel_err)
+                            done[0] = True
+                            raise cancel_err
                         except Exception:
                             pass
 
@@ -230,16 +234,14 @@ async def upload_via_local_bot_api(
                     return resp.json()
                 else:
                     log.warning("Local C++ TDLib daemon port %d returned HTTP %d: %s", port, resp.status_code, resp.text[:500])
+            except (asyncio.CancelledError, ValueError) as cancel_err:
+                log.info("Local daemon send on port %d cancelled: %s", port, cancel_err)
+                raise cancel_err
             except Exception as local_err:
                 log.warning("Local daemon send on port %d failed: %s", port, local_err)
             finally:
                 done[0] = True
                 ticker_task.cancel()
-                if progress_callback:
-                    try:
-                        progress_callback(file_size, file_size)
-                    except Exception:
-                        pass
 
         # Stream directly to official Telegram Cloud Bot API (https://api.telegram.org)
         log.info("Streaming file directly to Telegram Cloud Bot API (https://api.telegram.org)")

@@ -30,15 +30,15 @@
   // loaded last silently won, and the other's callers ended up invoking this
   // (wrong) function with the wrong argument shape. Renamed to remove the
   // collision -- see the matching comment in 2-cloud.js's cancelSeedrTransfer.
-  window.cancelTelegramTransfer = async function(taskId) {
-    // Guard against empty/missing task ids (stray clicks on placeholder rows) and
-    // duplicate in-flight cancels for the same task (double-click, repeated clicks
-    // before the queue re-renders) -- both previously produced needless 422s.
+  window.cancelTelegramTransfer = async function(taskId, event) {
+    if (event) {
+      if (event.preventDefault) event.preventDefault();
+      if (event.stopPropagation) event.stopPropagation();
+    }
     const tid = String(taskId || "").trim();
     if (!tid) return;
     if (window._cancelInFlight.has(tid)) return;
 
-    if (!confirm("Are you sure you want to cancel this transfer?")) return;
     window._cancelInFlight.add(tid);
     try {
       const res = await postJson("/api/telegram/cancel", { task_id: tid });
@@ -106,7 +106,7 @@
               <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.15); color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">${fstatus}</span>
               <strong style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
             </div>
-            ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}')" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #f87171; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 12px; font-weight: 600; flex-shrink: 0; line-height: 1; transition: all 0.2s;" title="Cancel Upload" aria-label="Cancel Upload">✕</button>` : ''}
+            ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}', event)" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #f87171; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 12px; font-weight: 600; flex-shrink: 0; line-height: 1; transition: all 0.2s;" title="Cancel Upload" aria-label="Cancel Upload">✕</button>` : ''}
           </div>
           <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;" class="muted">
             <span>${sentFormatted} / ${totalFormatted}</span>
