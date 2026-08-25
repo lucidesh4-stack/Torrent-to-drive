@@ -279,3 +279,37 @@ async def upload_via_local_bot_api(
             return resp.json()
         finally:
             p_reader.close()
+
+
+_BOT_ID_CACHE: dict[str, str] = {}
+
+
+async def get_bot_id(bot_token: str, port: int = 8081) -> str | None:
+    if bot_token in _BOT_ID_CACHE:
+        return _BOT_ID_CACHE[bot_token]
+    local_base_url = get_local_bot_api_url(port)
+    url = f"{local_base_url}/bot{bot_token}/getMe"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                bot_id = str(resp.json()["result"]["id"])
+                _BOT_ID_CACHE[bot_token] = bot_id
+                return bot_id
+    except Exception as e:
+        log.warning("Could not fetch bot_id via getMe on port %d: %s", port, e)
+    return None
+
+
+async def post_file_id_to_channel(bot_token: str, chat_id: str, file_id: str, filename: str, port: int = 8081) -> dict:
+    local_base_url = get_local_bot_api_url(port)
+    url = f"{local_base_url}/bot{bot_token}/sendDocument"
+    payload = {
+        "chat_id": chat_id,
+        "document": file_id,
+        "caption": f"File transferred: {filename}"
+    }
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(url, json=payload)
+        resp.raise_for_status()
+        return resp.json()
