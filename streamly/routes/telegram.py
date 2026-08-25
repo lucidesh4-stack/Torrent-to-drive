@@ -883,8 +883,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         chat_id_val = str(resolved_chat)
 
                     if chat_id_val:
-                        daemon_port = 8081 + (abs(hash(task_id)) % 3)
-                        log.info("Starting Local C++ TDLib daemon upload on port %d for chat %s", daemon_port, chat_id_val)
+                        if seq_num is not None:
+                            daemon_port = 8081 + ((seq_num - 1) % 3)
+                        else:
+                            daemon_port = 8081 + (abs(hash(task_id)) % 3)
+                        log.info("Task seq #%s starting Local C++ TDLib daemon upload on port %d for chat %s", str(seq_num), daemon_port, chat_id_val)
+                        await wait_for_sequence_turn(app, rs, seq_num)
                         upload_start = time.time()
                         try:
                             res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
@@ -894,7 +898,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                                 "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
                                 exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                             )
-                            await wait_for_sequence_turn(app, rs, seq_num)
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
                             await advance_sequence_turn(app, rs, seq_num)
                             break
