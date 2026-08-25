@@ -648,16 +648,32 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int]):
                 await set_current_post_seq(app, rs, min_seq)
                 current = min_seq
 
+async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: Optional[list] = None):
+    if seq_num is None:
+        return
+    current = await get_current_post_seq(app, rs)
+    if current >= seq_num:
+        return
+
     log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, current)
     wait_counter = 0
-    while current < seq_num:
-        await asyncio.sleep(0.1)
-        wait_counter += 1
-        current = await get_current_post_seq(app, rs)
-        if wait_counter > 1200:
-            log.warning("Sequence turn timeout for seq #%d; forcing sequence turn advancement", seq_num)
-            await set_current_post_seq(app, rs, seq_num)
-            break
+    try:
+        while current < seq_num:
+            if cancel_flag and cancel_flag[0]:
+                log.info("Task seq #%d cancelled while waiting at sequence gate; advancing turn", seq_num)
+                await advance_sequence_turn(app, rs, seq_num)
+                raise asyncio.CancelledError("Cancelled by user while waiting for sequence turn")
+            await asyncio.sleep(0.1)
+            wait_counter += 1
+            current = await get_current_post_seq(app, rs)
+            if wait_counter > 1200:
+                log.warning("Sequence turn timeout for seq #%d; forcing sequence turn advancement", seq_num)
+                await set_current_post_seq(app, rs, seq_num)
+                break
+    except asyncio.CancelledError:
+        log.info("Task seq #%d received CancelledError at sequence gate; advancing sequence turn", seq_num)
+        await advance_sequence_turn(app, rs, seq_num)
+        raise
     log.info("Task seq #%d turn reached! Completing channel post now...", seq_num)
 
 
@@ -890,7 +906,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         else:
                             daemon_port = 8081 + (abs(hash(task_id)) % 3)
                         log.info("Task seq #%s starting Local C++ TDLib daemon upload on port %d for chat %s", str(seq_num), daemon_port, chat_id_val)
-                        await wait_for_sequence_turn(app, rs, seq_num)
+                        await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
                         upload_start = time.time()
                         try:
                             res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
@@ -948,7 +964,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 actual_parts = uploaded_parts
                 # parts=actual_parts
 
-                await wait_for_sequence_turn(app, rs, seq_num)
+                await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
                 await upload_client.send_file(target_destination, uploaded, caption=f"File transferred: {filename}")
                 await advance_sequence_turn(app, rs, seq_num)
                 log.info("Upload and send completed successfully on attempt %d", attempt)
