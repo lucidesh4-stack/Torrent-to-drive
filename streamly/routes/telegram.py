@@ -897,28 +897,17 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         else:
                             daemon_port = 8081 + (abs(hash(task_id)) % 3)
                         
-                        bot_id = await get_bot_id(bot_token, port=daemon_port) or chat_id_val
-                        log.info("Task seq #%s starting Local C++ TDLib daemon parallel pre-upload on port %d", str(seq_num), daemon_port)
+                        log.info("Task seq #%s starting Local C++ TDLib daemon upload on port %d for chat %s", str(seq_num), daemon_port, chat_id_val)
+                        await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
                         upload_start = time.time()
                         try:
-                            res = await upload_via_local_bot_api(bot_token, bot_id, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
+                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
                             upload_elapsed = time.time() - upload_start
                             upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                             log.info(
-                                "Local C++ TDLib daemon upload phase complete: %.2f MB in %.1fs (%.2f Mbps average)",
+                                "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
                                 exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                             )
-                            file_id = None
-                            if isinstance(res, dict):
-                                result_obj = res.get("result", {})
-                                if isinstance(result_obj, dict):
-                                    doc_obj = result_obj.get("document", {})
-                                    if isinstance(doc_obj, dict):
-                                        file_id = doc_obj.get("file_id")
-
-                            await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
-                            if file_id and bot_id != chat_id_val:
-                                await post_file_id_to_channel(bot_token, chat_id_val, file_id, filename, port=daemon_port)
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
                             await advance_sequence_turn(app, rs, seq_num)
                             break
@@ -949,12 +938,13 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
 
                 log.info("Starting high-speed MTProto parallel upload from disk (512KB chunks)")
                 upload_start = time.time()
-                uploaded = await upload_client.upload_file(
-                    temp_path,
-                    file_name=filename,
-                    part_size_kb=512,
-                    progress_callback=upload_progress_sync
-                )
+                async with _TELETHON_MTPROTO_LOCK:
+                    uploaded = await upload_client.upload_file(
+                        temp_path,
+                        file_name=filename,
+                        part_size_kb=512,
+                        progress_callback=upload_progress_sync
+                    )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                 log.info(
