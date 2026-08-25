@@ -199,6 +199,7 @@ class ProgressTracker:
 
         # EFF-15: Update live progress directly (sync — no task spawn needed)
         _live_set(self.task_id, {
+            "task_id": self.task_id,
             "progress": pct,
             "status": status,
             "filename": self.filename,
@@ -879,46 +880,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     tracker(current, total)
                     await asyncio.sleep(0.030)
 
-                bot_token = (
-                    os.environ.get("TELEGRAM_BOT_TOKEN") or 
-                    os.environ.get("TG_BOT_TOKEN") or 
-                    os.environ.get("BOT_TOKEN") or
-                    getattr(app.state.config, "telegram_bot_token", "")
-                )
-
-                if bot_token and resolved_chat is not None:
-                    chat_id_val = None
-                    if hasattr(resolved_chat, "channel_id"):
-                        chat_id_val = f"-100{resolved_chat.channel_id}"
-                    elif hasattr(resolved_chat, "id"):
-                        cid = str(resolved_chat.id)
-                        chat_id_val = f"-100{cid}" if not cid.startswith("-") and len(cid) >= 10 else cid
-                    elif isinstance(resolved_chat, (int, str)):
-                        chat_id_val = str(resolved_chat)
-
-                    if chat_id_val:
-                        if seq_num is not None:
-                            daemon_port = 8081 + ((seq_num - 1) % 3)
-                        else:
-                            daemon_port = 8081 + (abs(hash(task_id)) % 3)
-                        log.info("Task seq #%s starting Local C++ TDLib daemon upload on port %d for chat %s", str(seq_num), daemon_port, chat_id_val)
-                        await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
-                        upload_start = time.time()
-                        try:
-                            res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
-                            upload_elapsed = time.time() - upload_start
-                            upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
-                            log.info(
-                                "Local C++ TDLib daemon upload complete: %.2f MB in %.1fs (%.2f Mbps average)",
-                                exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
-                            )
-                            log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
-                            await advance_sequence_turn(app, rs, seq_num)
-                            break
-                        except Exception as bot_err:
-                            err_msg = str(bot_err) or type(bot_err).__name__
-                            log.warning("Local C++ TDLib daemon encountered issue: %s; falling back to Bot MTProto session", err_msg)
-
                 upload_client = client
                 target_destination = resolved_chat
 
@@ -940,15 +901,14 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     except Exception as b_err:
                         log.warning("Could not initialize Bot MTProto session: %s; using user session", b_err)
 
-                log.info("Starting native C-accelerated MTProto upload from disk (512KB chunks)")
+                log.info("Starting high-speed MTProto parallel upload from disk (512KB chunks)")
                 upload_start = time.time()
-                async with _TELETHON_MTPROTO_LOCK:
-                    uploaded = await upload_client.upload_file(
-                        temp_path,
-                        file_name=filename,
-                        part_size_kb=512,
-                        progress_callback=upload_progress_sync
-                    )
+                uploaded = await upload_client.upload_file(
+                    temp_path,
+                    file_name=filename,
+                    part_size_kb=512,
+                    progress_callback=upload_progress_sync
+                )
                 upload_elapsed = time.time() - upload_start
                 upload_speed_mbps = (exact_size / (1024 * 1024) / upload_elapsed) * 8 if upload_elapsed > 0 else 0.0
                 log.info(
