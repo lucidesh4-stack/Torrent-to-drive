@@ -629,7 +629,7 @@ async def set_current_post_seq(app, rs, seq_num: int):
             log.warning("Failed to set current_channel_post_seq in Redis: %s", e)
 
 
-async def wait_for_sequence_turn(app, rs, seq_num: Optional[int]):
+async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: Optional[list] = None):
     if seq_num is None:
         return
 
@@ -648,10 +648,6 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int]):
                 await set_current_post_seq(app, rs, min_seq)
                 current = min_seq
 
-async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: Optional[list] = None):
-    if seq_num is None:
-        return
-    current = await get_current_post_seq(app, rs)
     if current >= seq_num:
         return
 
