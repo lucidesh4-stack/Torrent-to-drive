@@ -681,6 +681,10 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     exact_size = size
     cancel_flag = [False]
     
+    if not hasattr(app.state, "cancel_flags"):
+        app.state.cancel_flags = {}
+    app.state.cancel_flags[task_id] = cancel_flag
+    
     async def poll_cancel_request():
         while not cancel_flag[0]:
             try:
@@ -689,10 +693,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     cancel_flag[0] = True
                     break
             except Exception as e:
-                # Best-effort: a transient Redis error here just means this poll cycle
-                # is skipped and we try again in 5s, not a hard failure.
                 log.debug("Cancel-request poll failed for task %s (will retry): %s", task_id, e)
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(1.0)
             
     cancel_poller = asyncio.create_task(poll_cancel_request())
     
@@ -951,6 +953,10 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 await advance_sequence_turn(app, rs, seq_num)
                 log.info("Upload and send completed successfully on attempt %d", attempt)
                 break
+            except asyncio.CancelledError:
+                cancel_flag[0] = True
+                log.info("Task %s cancelled via asyncio.CancelledError. Aborting retry loop.", task_id)
+                raise
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
                 user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
                 cancel_flag[0] = True
@@ -1049,6 +1055,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             cancel_poller.cancel()
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks.pop(task_id, None)
+        if hasattr(app.state, "cancel_flags"):
+            app.state.cancel_flags.pop(task_id, None)
         if temp_path:
             task_dir = os.path.dirname(temp_path)
             if os.path.exists(task_dir):
@@ -1639,11 +1647,16 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
     # Bypass user-ownership sid check to prevent 403 Forbidden errors when session cookies change.
     
     # 1. Check if it's currently active (in memory or Redis)
+    cancel_flags = getattr(request.app.state, "cancel_flags", {})
+    if task_id in cancel_flags:
+        cancel_flags[task_id][0] = True
+        log.info("Flipped cancel_flag[0] = True for task %s", task_id)
+
     is_memory_active = hasattr(request.app.state, "active_tasks") and task_id in request.app.state.active_tasks and not request.app.state.active_tasks[task_id].done()
     active = await rs.get("streamly:active_transfer_global")
     is_redis_active = active and (isinstance(active, bytes) and active.decode("utf-8") == task_id or active == task_id)
     
-    if is_memory_active or is_redis_active:
+    if is_memory_active or is_redis_active or task_id in cancel_flags:
         if is_memory_active:
             task = request.app.state.active_tasks[task_id]
             task.cancel()

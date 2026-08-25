@@ -92,29 +92,25 @@
     });
     if (activeItems.length > 0) {
       activeCard.innerHTML = activeItems.map(active => {
-        const progress = active.progress !== undefined ? Number(active.progress).toFixed(1) : "0.0";
         const speed = active.speed_mb !== undefined ? `${active.speed_mb.toFixed(2)} MB/s` : "0.00 MB/s";
         const fname = escapeHtml(active.filename || "file");
         const fstatus = escapeHtml(active.status || "UPLOADING");
         const ftask = escapeHtml(active.task_id || "");
+        const sentFormatted = formatBytes(active.sent_bytes || 0);
+        const totalFormatted = formatBytes(active.total_bytes || 0);
         
         return `
-        <div style="margin-bottom: 10px; padding: 10px 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px;">
-          <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
-            <div style="flex: 1; min-width: 0;">
-              <strong style="display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
-              <span class="muted" style="font-size: 11px;">Status: <span style="color: var(--accent); font-weight: 600;">${fstatus}</span></span>
+        <div style="margin-bottom: 8px; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
+              <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.15); color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">${fstatus}</span>
+              <strong style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
             </div>
-            ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}')" style="background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px;" title="Cancel Upload">✕</button>` : ''}
+            ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}')" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #f87171; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 12px; font-weight: 600; flex-shrink: 0; line-height: 1; transition: all 0.2s;" title="Cancel Upload" aria-label="Cancel Upload">✕</button>` : ''}
           </div>
-          
-          <div style="margin-top: 8px; background: rgba(255,255,255,0.05); height: 6px; border-radius: 3px; overflow: hidden;">
-            <div style="width: ${progress}%; height: 100%; background: var(--accent); transition: width 0.3s ease;"></div>
-          </div>
-          
-          <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px;" class="muted">
-            <span>Progress: ${progress}% (${formatBytes(active.sent_bytes || 0)} / ${formatBytes(active.total_bytes || 0)})</span>
-            <span style="font-weight: 600; color: var(--accent);">${speed}</span>
+          <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px;" class="muted">
+            <span>${sentFormatted} / ${totalFormatted}</span>
+            <span style="font-weight: 600; color: var(--accent); font-family: monospace;">${speed}</span>
           </div>
         </div>`;
       }).join('');
