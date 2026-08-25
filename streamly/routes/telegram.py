@@ -874,11 +874,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                         raise ValueError("Cancelled by user")
                     tracker(current, total)
 
-                async def upload_progress(current, total):
-                    if cancel_flag[0]:
-                        raise ValueError("Cancelled by user")
-                    tracker(current, total)
-                    await asyncio.sleep(0.030)
+                bot_token = (
+                    os.environ.get("TELEGRAM_BOT_TOKEN") or 
+                    os.environ.get("TG_BOT_TOKEN") or 
+                    os.environ.get("BOT_TOKEN") or
+                    getattr(app.state.config, "telegram_bot_token", "")
+                )
 
                 upload_client = client
                 target_destination = resolved_chat
