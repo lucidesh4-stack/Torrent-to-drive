@@ -249,12 +249,22 @@
     }
   }
 
+  window.stopTelegramSSE = function() {
+    if (window._tgEventSource) {
+      try {
+        window._tgEventSource.close();
+      } catch (e) {}
+      window._tgEventSource = null;
+    }
+  };
+
   // Hook Navigation button
   if ($("telegramTabBtn")) {
     $("telegramTabBtn").addEventListener("click", () => {
       if (typeof window.updateBottomNavHighlight === "function") window.updateBottomNavHighlight(3);
       isOverlayOpen = true;
       $("telegramTransfersOverlay").classList.remove("hidden");
+      window.initTelegramSSE();
       refreshQueueStatus();
     });
   }
@@ -264,12 +274,14 @@
     $("closeTelegramTransfersBtn").addEventListener("click", () => {
       isOverlayOpen = false;
       $("telegramTransfersOverlay").classList.add("hidden");
+      window.stopTelegramSSE();
       if (pollTimer) clearTimeout(pollTimer);
       if (typeof window.restoreActiveMainTabHighlight === "function") window.restoreActiveMainTabHighlight();
     });
   }
 
   window.initTelegramSSE = function() {
+    if (!isOverlayOpen) return;
     if (window._tgEventSource) return;
     try {
       const es = new EventSource("/api/telegram/sse/progress");
@@ -293,12 +305,11 @@
     }
   };
 
-  if (typeof EventSource !== "undefined") {
-    setTimeout(window.initTelegramSSE, 500);
-  }
-
   // Expose triggers so external actions can start the polling loop
   window.triggerQueuePolling = function() {
-    refreshQueueStatus();
+    if (isOverlayOpen) {
+      window.initTelegramSSE();
+      refreshQueueStatus();
+    }
   };
 })();
