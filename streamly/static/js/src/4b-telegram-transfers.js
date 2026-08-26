@@ -40,6 +40,12 @@
     if (window._cancelInFlight.has(tid)) return;
 
     window._cancelInFlight.add(tid);
+    const btn = event && (event.currentTarget || event.target);
+    if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = '0.4';
+      btn.style.pointerEvents = 'none';
+    }
     try {
       const res = await postJson("/api/telegram/cancel", { task_id: tid });
       if (res.success) {
@@ -48,9 +54,19 @@
         refreshQueueStatus();
       } else {
         toast(res.error || "Failed to cancel transfer.");
+        if (btn) {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.pointerEvents = 'auto';
+        }
       }
     } catch (e) {
       toast(e.message || "Failed to cancel transfer.");
+      if (btn) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.pointerEvents = 'auto';
+      }
     } finally {
       window._cancelInFlight.delete(tid);
     }
@@ -220,8 +236,8 @@
   };
 
   window.refreshQueueStatus = async function() {
-    // If SSE EventSource is active, disable HTTP GET polling loop to save bandwidth and server resources
-    if (window._tgEventSource && window._tgEventSource.readyState === EventSource.OPEN) {
+    // If SSE EventSource is active or connecting, skip HTTP GET polling loop to save bandwidth and server resources
+    if (window._tgEventSource && (window._tgEventSource.readyState === EventSource.OPEN || window._tgEventSource.readyState === EventSource.CONNECTING)) {
       if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
       return;
     }

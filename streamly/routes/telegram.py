@@ -341,11 +341,17 @@ async def _trigger_next_transfer_locked(app):
         args = _json.loads(raw_args)
         
         session_str = await rs.get("streamly:telegram_session")
-        api_id = app.state.config.telegram_api_id
-        api_hash = app.state.config.telegram_api_hash
+        api_id = getattr(app.state.config, "telegram_api_id", None)
+        api_hash = getattr(app.state.config, "telegram_api_hash", None)
+        bot_token = (
+            os.environ.get("TELEGRAM_BOT_TOKEN") or 
+            os.environ.get("TG_BOT_TOKEN") or 
+            os.environ.get("BOT_TOKEN") or
+            getattr(app.state.config, "telegram_bot_token", "")
+        )
         
-        if not session_str or not api_id or not api_hash:
-            log.error("Queue dispatch: missing credentials/session. Re-queueing task %s.", next_task_id)
+        if not bot_token and (not session_str or not api_id or not api_hash):
+            log.error("Queue dispatch: missing bot_token or credentials. Re-queueing task %s.", next_task_id)
             await rs._execute("LPUSH", "streamly:transfer_queue", next_task_id)
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
             return
@@ -1414,6 +1420,47 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     return {"success": True, "task_id": task_id}
 
 
+class BatchSendPayload(BaseModel):
+    items: list[SendFilePayload]
+
+
+@telegram_router.post("/api/telegram/send_batch")
+@rate_limited(cost=1.0)
+async def telegram_send_batch_transfer(request: Request, payload: BatchSendPayload, _csrf = Depends(verify_csrf)):
+    if not payload.items:
+        return {"success": True, "task_ids": []}
+    rs = request.app.state.rs
+    if not rs:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+        
+    sid = request.session.get("sid") or ensure_sid(request)
+    task_ids = []
+    
+    for item_payload in payload.items:
+        task_id = str(uuid.uuid4())
+        file_info = str(item_payload.file_info).strip()
+        filename = str(item_payload.filename).strip()
+        size = int(item_payload.size)
+        target_chat = item_payload.target_chat
+        seq_num = item_payload.seq_num
+        
+        task_args = {
+            "task_id": task_id,
+            "url": file_info,
+            "chat_id": target_chat,
+            "filename": filename,
+            "size": size,
+            "sid": sid,
+            "seq_num": seq_num
+        }
+        await rs.set(f"streamly:task_args:{task_id}", _json.dumps(task_args))
+        await rs._execute("RPUSH", "streamly:transfer_queue", task_id)
+        task_ids.append(task_id)
+
+    trigger_next_transfer(request.app)
+    return {"success": True, "task_ids": task_ids}
+
+
 @telegram_router.get("/api/telegram/task/{task_id}")
 @rate_limited(cost=0.5)
 async def telegram_task_status(request: Request, task_id: str):
@@ -1537,20 +1584,8 @@ async def sse_telegram_progress(request: Request):
             if await request.is_disconnected():
                 break
             try:
-                # 1. Fetch active items strictly from in-memory RAM dictionary (0 Redis calls!)
+                # 1. Fetch active items strictly from in-memory RAM dictionary (0 Redis calls, 0 stale keys!)
                 active_items = _live_get_all_active()
-                if not active_items and rs:
-                    active_task_id = await rs.get("streamly:active_transfer_global")
-                    if active_task_id:
-                        if isinstance(active_task_id, bytes):
-                            active_task_id = active_task_id.decode("utf-8")
-                        raw_status = await rs.get(f"streamly:transfer_status:{active_task_id}")
-                        if raw_status:
-                            if isinstance(raw_status, bytes):
-                                raw_status = raw_status.decode("utf-8")
-                            item = _json.loads(raw_status)
-                            item.setdefault("task_id", active_task_id)
-                            active_items = [item]
 
                 # 2. Query Redis queue list only once every 3.0 seconds (saves >80% Redis requests)
                 now_t = time.time()

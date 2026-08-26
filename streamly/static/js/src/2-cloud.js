@@ -897,8 +897,9 @@
     
     updateStatus($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
     
-    let successCount = 0;
     const isOffcloud = window.driveProvider === "offcloud";
+    const batchPayloads = [];
+
     for (const item of filesToSend) {
       try {
         let payload;
@@ -929,19 +930,29 @@
             payload.file_size = Math.floor(_sz);
           }
         }
-        
-        const data = await postJson("/api/telegram/send", payload);
-        if (data.success) {
-          successCount++;
-          if (data.warning) {
-            toast(data.warning);
-          }
-        }
+        batchPayloads.push(payload);
       } catch (err) {
-        console.warn("Telegram send failed for item:", err);
+        console.warn("Payload prep failed for item:", err);
       }
     }
     
+    let successCount = 0;
+    if (batchPayloads.length > 0) {
+      try {
+        if (batchPayloads.length === 1) {
+          const data = await postJson("/api/telegram/send", batchPayloads[0]);
+          if (data.success) successCount = 1;
+        } else {
+          const data = await postJson("/api/telegram/send_batch", { items: batchPayloads });
+          if (data.success && data.task_ids) {
+            successCount = data.task_ids.length;
+          }
+        }
+      } catch (bErr) {
+        console.warn("Telegram batch send failed:", bErr);
+      }
+    }
+
     if (successCount === filesToSend.length) {
       toast(`Queued ${successCount} file(s) for Telegram upload`);
       updateStatus($("cloudStatus"), `Queued ${successCount} file(s) for Telegram upload`, "ok");
