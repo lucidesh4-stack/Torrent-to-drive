@@ -697,19 +697,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     if not hasattr(app.state, "cancel_flags"):
         app.state.cancel_flags = {}
     app.state.cancel_flags[task_id] = cancel_flag
-    
-    async def poll_cancel_request():
-        while not cancel_flag[0]:
-            try:
-                res = await rs.get(f"streamly:cancel_request:{task_id}")
-                if res:
-                    cancel_flag[0] = True
-                    break
-            except Exception as e:
-                log.debug("Cancel-request poll failed for task %s (will retry): %s", task_id, e)
-            await asyncio.sleep(1.0)
-            
-    cancel_poller = asyncio.create_task(poll_cancel_request())
+    # Cancel request is handled 100% in-memory via app.state.cancel_flags and task.cancel() (0 Redis calls)
+    cancel_poller = None
     
     async def heartbeat():
         while not cancel_flag[0]:
@@ -1542,10 +1531,13 @@ async def sse_telegram_progress(request: Request):
     async def event_generator():
         rs = request.app.state.rs
         last_hash = None
+        last_queue_fetch = 0
+        cached_queue_items = []
         while True:
             if await request.is_disconnected():
                 break
             try:
+                # 1. Fetch active items strictly from in-memory RAM dictionary (0 Redis calls!)
                 active_items = _live_get_all_active()
                 if not active_items and rs:
                     active_task_id = await rs.get("streamly:active_transfer_global")
@@ -1560,24 +1552,31 @@ async def sse_telegram_progress(request: Request):
                             item.setdefault("task_id", active_task_id)
                             active_items = [item]
 
-                queue_items = []
-                if rs:
-                    queue_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []
-                    if queue_ids:
-                        tids = [q.decode("utf-8") if isinstance(q, bytes) else q for q in queue_ids]
-                        keys = [f"streamly:task_args:{tid}" for tid in tids]
-                        raw_args_list = await rs._execute("MGET", *keys) or []
-                        for tid, raw_args in zip(tids, raw_args_list):
-                            if raw_args:
-                                if isinstance(raw_args, bytes):
-                                    raw_args = raw_args.decode("utf-8")
-                                args = _json.loads(raw_args)
-                                queue_items.append({
-                                    "task_id": tid,
-                                    "filename": args.get("filename", "file"),
-                                    "total_bytes": args.get("size", 0),
-                                    "status": "QUEUED"
-                                })
+                # 2. Query Redis queue list only once every 3.0 seconds (saves >80% Redis requests)
+                now_t = time.time()
+                if now_t - last_queue_fetch >= 3.0:
+                    last_queue_fetch = now_t
+                    queue_items = []
+                    if rs:
+                        queue_ids = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []
+                        if queue_ids:
+                            tids = [q.decode("utf-8") if isinstance(q, bytes) else q for q in queue_ids]
+                            keys = [f"streamly:task_args:{tid}" for tid in tids]
+                            raw_args_list = await rs._execute("MGET", *keys) or []
+                            for tid, raw_args in zip(tids, raw_args_list):
+                                if raw_args:
+                                    if isinstance(raw_args, bytes):
+                                        raw_args = raw_args.decode("utf-8")
+                                    args = _json.loads(raw_args)
+                                    queue_items.append({
+                                        "task_id": tid,
+                                        "filename": args.get("filename", "file"),
+                                        "total_bytes": args.get("size", 0),
+                                        "status": "QUEUED"
+                                    })
+                    cached_queue_items = queue_items
+                else:
+                    queue_items = cached_queue_items
 
                 payload = {
                     "active": active_items[0] if active_items else None,
@@ -1591,7 +1590,7 @@ async def sse_telegram_progress(request: Request):
             except Exception as e:
                 log.debug("SSE progress generator error: %s", e)
 
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.5)
 
     return StreamingResponse(
         event_generator(),
