@@ -1426,38 +1426,19 @@ class BatchSendPayload(BaseModel):
 
 @telegram_router.post("/api/telegram/send_batch")
 @rate_limited(cost=1.0)
-async def telegram_send_batch_transfer(request: Request, payload: BatchSendPayload, _csrf = Depends(verify_csrf)):
+async def telegram_send_batch_transfer(request: Request, payload: BatchSendPayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
     if not payload.items:
         return {"success": True, "task_ids": []}
-    rs = request.app.state.rs
-    if not rs:
-        raise HTTPException(status_code=503, detail="Redis unavailable")
         
-    sid = request.session.get("sid") or ensure_sid(request)
     task_ids = []
-    
     for item_payload in payload.items:
-        task_id = str(uuid.uuid4())
-        file_info = str(item_payload.file_info).strip()
-        filename = str(item_payload.filename).strip()
-        size = int(item_payload.size)
-        target_chat = item_payload.target_chat
-        seq_num = item_payload.seq_num
-        
-        task_args = {
-            "task_id": task_id,
-            "url": file_info,
-            "chat_id": target_chat,
-            "filename": filename,
-            "size": size,
-            "sid": sid,
-            "seq_num": seq_num
-        }
-        await rs.set(f"streamly:task_args:{task_id}", _json.dumps(task_args))
-        await rs._execute("RPUSH", "streamly:transfer_queue", task_id)
-        task_ids.append(task_id)
+        try:
+            res = await telegram_send_file(request, item_payload, client=client, _csrf=_csrf)
+            if isinstance(res, dict) and res.get("task_id"):
+                task_ids.append(res["task_id"])
+        except Exception as e:
+            log.warning("Batch item send failed: %s", e)
 
-    trigger_next_transfer(request.app)
     return {"success": True, "task_ids": task_ids}
 
 
