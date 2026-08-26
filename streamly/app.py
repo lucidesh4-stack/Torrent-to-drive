@@ -530,6 +530,8 @@ def create_app(
                 async def _boot_all_daemons():
                     for p in [8081, 8082, 8083]:
                         await ensure_local_bot_api_daemon(port=p)
+                    from .routes.telegram import trigger_next_transfer
+                    trigger_next_transfer(app)
                 asyncio.create_task(_boot_all_daemons())
                 log.info("Local C++ TDLib Daemon pool boot task started (Ports 8081, 8082, 8083).")
                 
