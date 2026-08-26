@@ -315,7 +315,9 @@ async def _trigger_next_transfer_locked(app):
         if acquired != "OK":
             return
             
-        active_count = len([t for t in getattr(app.state, "active_tasks", {}).values() if not t.done()])
+        if hasattr(app.state, "active_tasks"):
+            app.state.active_tasks = {tid: t for tid, t in app.state.active_tasks.items() if not t.done()}
+        active_count = len(getattr(app.state, "active_tasks", {}))
         if active_count >= 3:
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
             return
@@ -1050,6 +1052,8 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     setattr(client, "_streamly_uploader_pool", None)
         except Exception as cl_err:
             log.warning("Redis cleanup failed for task %s: %s", task_id, cl_err)
+        if hasattr(app.state, "active_tasks"):
+            app.state.active_tasks.pop(task_id, None)
         trigger_next_transfer(app)
 
 
