@@ -218,29 +218,24 @@
     const queue = (data && data.queue) || [];
     const ids = queue.map((it) => it.task_id).filter(Boolean);
     if (ids.length === 0) return;
-    if (!confirm(`Cancel all ${ids.length} queued transfer(s)? The active transfer will keep running.`)) return;
+    if (!confirm(`Cancel all ${ids.length} queued transfer(s)? Active transfer(s) will keep running.`)) return;
 
     const btn = $("tgCancelAllBtn");
     if (btn) { btn.disabled = true; btn.textContent = "Cancelling…"; }
 
-    let ok = 0, fail = 0;
-    // Sequential to avoid hammering the API / rate limiter with a burst.
-    for (const tid of ids) {
-      if (window._cancelInFlight.has(tid)) continue;
-      window._cancelInFlight.add(tid);
-      try {
-        const res = await postJson("/api/telegram/cancel", { task_id: tid });
-        if (res && res.success) ok++; else fail++;
-      } catch (e) {
-        fail++;
-      } finally {
-        window._cancelInFlight.delete(tid);
+    try {
+      const res = await postJson("/api/telegram/cancel_all", { task_ids: ids });
+      if (res && res.success) {
+        toast(`Cancelled ${res.cancelled_count || ids.length} queued transfer(s).`);
+      } else {
+        toast("Failed to cancel queued transfers.");
       }
+    } catch (e) {
+      toast("Bulk cancellation failed: " + (e.message || "Network error"));
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Cancel All"; }
+      if (typeof refreshQueueStatus === "function") refreshQueueStatus();
     }
-
-    toast(fail === 0 ? `Cancelled ${ok} queued transfer(s).` : `Cancelled ${ok}, ${fail} failed.`);
-    if (btn) { btn.disabled = false; btn.textContent = "Cancel All"; }
-    if (typeof refreshQueueStatus === "function") refreshQueueStatus();
   };
 
   window.refreshQueueStatus = async function() {

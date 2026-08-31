@@ -1474,6 +1474,76 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
     raise HTTPException(status_code=404, detail="Task not found in active or queue state")
 
 
+class CancelAllPayload(BaseModel):
+    task_ids: Optional[list[str]] = None
+
+
+@telegram_router.post("/api/telegram/cancel_all")
+@rate_limited(cost=2.0)
+async def telegram_cancel_all_transfers(request: Request, payload: Optional[CancelAllPayload] = None, _csrf = Depends(verify_csrf)):
+    """Instantly cancels all (or a batch of) queued transfers in a single atomic Redis pipeline operation."""
+    rs = request.app.state.rs
+    if not rs:
+        raise HTTPException(status_code=503, detail="Redis unavailable")
+
+    target_ids = set(payload.task_ids) if (payload and payload.task_ids) else None
+    
+    # 1. Fetch entire transfer queue in one command
+    queue = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []
+    if not queue:
+        return {"success": True, "cancelled_count": 0, "message": "Queue is already empty."}
+
+    tids_to_cancel = []
+    for item in queue:
+        tid = item.decode("utf-8") if isinstance(item, bytes) else str(item)
+        if target_ids is None or tid in target_ids:
+            tids_to_cancel.append(tid)
+
+    if not tids_to_cancel:
+        return {"success": True, "cancelled_count": 0, "message": "No matching tasks found in queue."}
+
+    # 2. Batch fetch all task args using MGET to find sequence numbers to advance
+    args_keys = [f"streamly:task_args:{tid}" for tid in tids_to_cancel]
+    max_seq_found = 0
+    try:
+        raw_args_list = await rs._execute("MGET", *args_keys) or []
+        for raw in raw_args_list:
+            if raw:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                try:
+                    args = _json.loads(raw)
+                    q_seq = args.get("seq_num")
+                    if q_seq and int(q_seq) > max_seq_found:
+                        max_seq_found = int(q_seq)
+                except Exception:
+                    pass
+    except Exception as e:
+        log.warning("Failed to MGET task args during bulk cancel: %s", e)
+
+    # 3. Advance sequence turn if needed so workers don't stall
+    if max_seq_found > 0:
+        await advance_sequence_turn(request.app, rs, max_seq_found)
+
+    # 4. Pipeline all Redis deletions in a single atomic batch
+    del_pipeline = []
+    if target_ids is None or len(tids_to_cancel) == len(queue):
+        del_pipeline.append(["DEL", "streamly:transfer_queue"])
+    else:
+        for tid in tids_to_cancel:
+            del_pipeline.append(["LREM", "streamly:transfer_queue", "0", tid])
+
+    for tid in tids_to_cancel:
+        del_pipeline.append(["DEL", f"streamly:transfer_status:{tid}"])
+        del_pipeline.append(["DEL", f"streamly:task_args:{tid}"])
+
+    await rs.pipeline(*del_pipeline)
+    log.info("Bulk cancelled %d queued transfer(s) in a single pipeline operation.", len(tids_to_cancel))
+    
+    trigger_next_transfer(request.app)
+    return {"success": True, "cancelled_count": len(tids_to_cancel), "message": f"Cancelled {len(tids_to_cancel)} queued transfer(s)."}
+
+
 @telegram_router.post("/api/telegram/logout")
 @rate_limited(cost=1.0)
 async def telegram_logout(request: Request, _csrf = Depends(verify_csrf)):
