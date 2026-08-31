@@ -8,6 +8,11 @@
   window.folderStack = [];
   // Expose a deterministic "go up" the Up buttons can call.
   window.cloudGoUp = function () {
+    if (window.driveProvider === "temp") {
+      window.tempCloudCurrentFolder = null;
+      setDriveProvider("temp");
+      return;
+    }
     if (window.driveProvider === "offcloud") {
       setDriveProvider("offcloud");
       return;
@@ -23,6 +28,12 @@
   };
 
   window.cloudRefresh = async function() {
+    if (window.driveProvider === "temp") {
+      await updateTempCloudStorageHeader();
+      await loadTempCloudList();
+      await loadTempCloudListMobile();
+      return;
+    }
     if (window.driveProvider === "offcloud") {
       if (window.offcloudCurrentFolder) {
         let folderName = "Folder";
@@ -402,7 +413,11 @@
       const s1 = document.createElement("span");
       s1.textContent = item.size_str || "-";
       const s2 = document.createElement("span");
-      s2.textContent = fmtDate(item.last_update);
+      if (item.expiry_str) {
+        s2.innerHTML = `<span style="color:#f59e0b; font-weight:500;">⏱️ ${escapeHtml(item.expiry_str)}</span>`;
+      } else {
+        s2.textContent = fmtDate(item.last_update);
+      }
       meta.append(s1, s2);
       info.append(fn, meta);
 
@@ -853,11 +868,21 @@
       .filter(it => selectedKeys.has(it.key))
       .map(it => ({ type: it.type, id: it.id }));
     const msg = payload.length === 1
-      ? `Delete ${selected.type}: ${selected.name}?`
+      ? `Delete item: ${items.find(it => selectedKeys.has(it.key))?.name || 'file'}?`
       : `Delete ${payload.length} items? This cannot be undone.`;
     if (!confirm(msg)) return;
     updateStatus($("cloudStatus"), `Deleting ${payload.length} item(s)...`, "");
     try {
+      if (window.driveProvider === "temp") {
+        for (const item of payload) {
+          await postJson("/api/temp_cloud/delete", { item_id: item.id });
+        }
+        toast(`Deleted ${payload.length} item(s) from Temp Cloud`);
+        loadTempCloudList();
+        loadTempCloudListMobile();
+        updateTempCloudStorageHeader();
+        return;
+      }
       if (payload.length === 1) {
         await postJson("/api/delete", { type: payload[0].type, id: payload[0].id });
       } else {
@@ -903,7 +928,15 @@
     for (const item of filesToSend) {
       try {
         let payload;
-        if (isOffcloud) {
+        if (window.driveProvider === "temp") {
+          payload = {
+            file_id: item.id,
+            provider: "temp",
+            file_name: item.name,
+            file_size: item.size,
+            download_url: item.id
+          };
+        } else if (isOffcloud) {
           let dlUrl = item.download_url;
           if (!dlUrl) {
             const res = await fetch(`/api/offcloud/explore/${item.id}`, { credentials: "same-origin" });
@@ -1009,47 +1042,97 @@
   window.driveProvider = "seedr"; // "seedr" | "offcloud"
   window.offcloudCurrentFolder = null; // Stores request_id if exploring an Offcloud folder
 
-  window.setDriveProvider = function(provider) {
-    window.driveProvider = (provider === "offcloud") ? "offcloud" : "seedr";
+  window.tempCloudCurrentFolder = null;
+
+  const MAGNET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M5 14V8a7 7 0 0 1 14 0v6h-4V8a3 3 0 0 0-6 0v6H5z" fill="#f43f5e"/><rect x="5" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/><rect x="15" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/></svg>`;
+  const LINK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-link" style="color: var(--accent);"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`;
+
+  window.setDriveProvider = async function(provider) {
+    if (provider === "temp") {
+      window.driveProvider = "temp";
+    } else if (provider === "offcloud") {
+      window.driveProvider = "offcloud";
+    } else {
+      window.driveProvider = "seedr";
+    }
+    
+    const isSeedr = window.driveProvider === "seedr";
     const isOffcloud = window.driveProvider === "offcloud";
-    window.offcloudCurrentFolder = null; // reset folder state on switch
+    const isTemp = window.driveProvider === "temp";
+    
+    window.offcloudCurrentFolder = null;
+    window.tempCloudCurrentFolder = null;
 
     const seedrBtn = $("driveProviderSeedr");
     const offcloudBtn = $("driveProviderOffcloud");
+    const tempBtn = $("driveProviderTemp");
     const seedrBtnMobile = $("driveProviderSeedrMobile");
     const offcloudBtnMobile = $("driveProviderOffcloudMobile");
-    if (seedrBtn) seedrBtn.classList.toggle("active", !isOffcloud);
+    const tempBtnMobile = $("driveProviderTempMobile");
+
+    if (seedrBtn) seedrBtn.classList.toggle("active", isSeedr);
     if (offcloudBtn) offcloudBtn.classList.toggle("active", isOffcloud);
-    if (seedrBtnMobile) seedrBtnMobile.classList.toggle("active", !isOffcloud);
+    if (tempBtn) tempBtn.classList.toggle("active", isTemp);
+    if (seedrBtnMobile) seedrBtnMobile.classList.toggle("active", isSeedr);
     if (offcloudBtnMobile) offcloudBtnMobile.classList.toggle("active", isOffcloud);
+    if (tempBtnMobile) tempBtnMobile.classList.toggle("active", isTemp);
+
+    // Update Desktop and Mobile Magnet/Link Action Icons
+    const dIcon = $("desktopActionIcon") || ($("pasteMagnetBtn") ? $("pasteMagnetBtn").querySelector("svg") : null);
+    const mIcon = $("mobileActionIcon") || ($("cmMagnetBtn") ? $("cmMagnetBtn").querySelector("svg") : null);
+    const pBtn = $("pasteMagnetBtn");
+    const cmBtn = $("cmMagnetBtn");
+
+    if (isTemp) {
+      if (pBtn) { pBtn.innerHTML = LINK_SVG; pBtn.title = "Download direct link / archive to Temp Cloud"; }
+      if (cmBtn) { cmBtn.innerHTML = LINK_SVG; cmBtn.title = "Download direct link / archive to Temp Cloud"; }
+    } else {
+      if (pBtn) { pBtn.innerHTML = MAGNET_SVG; pBtn.title = "Paste & add magnet link from clipboard"; }
+      if (cmBtn) { cmBtn.innerHTML = MAGNET_SVG; cmBtn.title = "Paste magnet from clipboard"; }
+    }
 
     const upBtn = $("upBtn");
     const cmUpBtn = $("cmUpBtn");
     const subtitle = $("driveProviderSubtitle");
-    if (isOffcloud) {
-      if (upBtn) {
-        upBtn.classList.remove("hidden");
-        upBtn.disabled = (window.offcloudCurrentFolder == null);
-      }
-      if (cmUpBtn) {
-        cmUpBtn.classList.remove("hidden");
-        cmUpBtn.disabled = (window.offcloudCurrentFolder == null);
-      }
+
+    if (isTemp) {
+      if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.tempCloudCurrentFolder == null); }
+      if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.tempCloudCurrentFolder == null); }
+      if (subtitle) subtitle.textContent = "Temp Cloud (24-Hour High-Speed NVMe Storage)";
+      await updateTempCloudStorageHeader();
+      loadTempCloudList();
+      loadTempCloudListMobile();
+    } else if (isOffcloud) {
+      if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.offcloudCurrentFolder == null); }
+      if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.offcloudCurrentFolder == null); }
       if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
+      if (typeof window.renderStorage === "function") window.renderStorage();
       loadOffcloudList();
       loadOffcloudListMobile();
     } else {
-      if (upBtn) {
-        upBtn.classList.remove("hidden");
-        upBtn.disabled = (currentFolder || 0) == 0;
-      }
-      if (cmUpBtn) {
-        cmUpBtn.classList.remove("hidden");
-        cmUpBtn.disabled = (currentFolder || 0) == 0;
-      }
+      if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (currentFolder || 0) == 0; }
+      if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (currentFolder || 0) == 0; }
       if (subtitle) subtitle.textContent = "Browse your saved files and folders";
+      if (typeof window.renderStorage === "function") window.renderStorage();
       loadFolder(currentFolder || 0);
     }
+  };
+
+  async function updateTempCloudStorageHeader() {
+    try {
+      const res = await fetch("/api/temp_cloud/storage", { credentials: "same-origin" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const topText = $("topStorageText");
+      const accLabel = $("accountLabel");
+      const meter = $("topStorageMeter");
+      if (topText) topText.textContent = data.storage_metrics || "Unknown";
+      if (accLabel) accLabel.textContent = data.storage_subtext || "Auto-expires 24h";
+      if (meter) {
+        meter.style.width = `${data.percent || 0}%`;
+        meter.style.background = "linear-gradient(90deg, #06b6d4, #3b82f6)";
+      }
+    } catch (_) {}
   }
 
   function offcloudStatusLabel(status) {
@@ -1510,5 +1593,245 @@
       updateStatus($("cloudStatus"), errMsg, "error");
     }
   };
+
+  // ===== Temp Cloud (24h Ephemeral Drive) Loaders =====
+  window.loadTempCloudList = async function() {
+    const body = $("cloudBody");
+    const empty = $("cloudEmpty");
+    if (!body) return;
+    updateStatus($("cloudStatus"), "Loading Temp Cloud...", "");
+    try {
+      const folderParam = window.tempCloudCurrentFolder ? `?folder_id=${encodeURIComponent(window.tempCloudCurrentFolder)}` : "";
+      const res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      const data = await parseResponse(res);
+      if (window.driveProvider !== "temp") return;
+
+      body.textContent = "";
+      const allItems = [...(data.folders || []), ...(data.files || [])];
+      
+      window.items = allItems.map(item => ({
+        ...item,
+        key: `temp:${item.id}`,
+        last_update: item.created_at || Math.floor(Date.now() / 1000)
+      }));
+
+      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
+      selectedKeys.clear();
+      lastClickedKey = null;
+      updateSelection();
+
+      for (const item of window.items) {
+        const tr = document.createElement("tr");
+        tr.dataset.key = item.key;
+
+        const checkTd = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "row-check";
+        cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(item.key, true, false); });
+        checkTd.appendChild(cb);
+
+        const nameTd = document.createElement("td");
+        const nameCell = document.createElement("div");
+        nameCell.className = "name-cell";
+        const icon = document.createElement("span");
+        icon.className = "icon";
+        if (item.type === "folder") {
+          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else {
+          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>`;
+        }
+        const name = document.createElement("span");
+        name.className = "truncate";
+        name.textContent = item.name;
+        nameCell.append(icon, name);
+        nameTd.appendChild(nameCell);
+
+        const statusTd = document.createElement("td");
+        statusTd.className = "muted";
+        statusTd.textContent = item.type === "folder" ? `${item.items_count || 0} items` : "Ready";
+
+        const sizeTd = document.createElement("td");
+        sizeTd.className = "muted";
+        sizeTd.textContent = item.size_str || "-";
+
+        const dateTd = document.createElement("td");
+        dateTd.className = "muted";
+        dateTd.innerHTML = item.expiry_str ? `<span style="color:#f59e0b; font-weight:500;">⏱️ ${escapeHtml(item.expiry_str)}</span>` : fmtDate(item.last_update);
+
+        tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
+        tr.style.cursor = "pointer";
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest(".row-check")) return;
+          toggleKey(item.key, e.ctrlKey || e.metaKey, e.shiftKey);
+        });
+        tr.addEventListener("dblclick", () => openTempCloudItem(item));
+        body.appendChild(tr);
+      }
+      updateStatus($("cloudStatus"), "", "");
+    } catch (err) {
+      if (window.driveProvider !== "temp") return;
+      updateStatus($("cloudStatus"), err.message || "Failed to load Temp Cloud", "error");
+    }
+  };
+
+  window.loadTempCloudListMobile = async function() {
+    const list = $("cloudMobileList");
+    if (!list) return;
+    const cnt = $("cmCount");
+    const empty = $("cloudMobileEmpty");
+    try {
+      const folderParam = window.tempCloudCurrentFolder ? `?folder_id=${encodeURIComponent(window.tempCloudCurrentFolder)}` : "";
+      const res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      const data = await parseResponse(res);
+      if (window.driveProvider !== "temp") return;
+
+      list.textContent = "";
+      const allItems = [...(data.folders || []), ...(data.files || [])];
+      window.items = allItems.map(item => ({
+        ...item,
+        key: `temp:${item.id}`,
+        last_update: item.created_at || Math.floor(Date.now() / 1000)
+      }));
+
+      if (cnt) cnt.textContent = `${window.items.length} item${window.items.length === 1 ? "" : "s"}`;
+      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
+
+      for (const item of window.items) {
+        const row = document.createElement("div");
+        row.className = "cm-row";
+        row.dataset.key = item.key;
+
+        const tick = document.createElement("div");
+        tick.className = "cm-tick";
+        tick.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+        const ic = document.createElement("div");
+        ic.className = "cm-ic";
+        if (item.type === "folder") {
+          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else {
+          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
+        }
+
+        const info = document.createElement("div");
+        info.className = "cm-info";
+        const fn = document.createElement("div");
+        fn.className = "cm-fn";
+        fn.textContent = item.name;
+        const meta = document.createElement("div");
+        meta.className = "cm-meta";
+        const s1 = document.createElement("span");
+        s1.textContent = item.size_str || "-";
+        const s2 = document.createElement("span");
+        if (item.expiry_str) {
+          s2.innerHTML = `<span style="color:#f59e0b; font-weight:500;">⏱️ ${escapeHtml(item.expiry_str)}</span>`;
+        } else {
+          s2.textContent = fmtDate(item.last_update);
+        }
+        meta.append(s1, s2);
+        info.append(fn, meta);
+
+        row.append(tick, ic, info);
+        row.addEventListener("click", (e) => {
+          if (cmTapTimer) {
+            clearTimeout(cmTapTimer);
+            cmTapTimer = null;
+            openTempCloudItem(item);
+            return;
+          }
+          cmTapTimer = setTimeout(() => {
+            cmTapTimer = null;
+            toggleKey(item.key, true, false);
+          }, 250);
+        });
+        list.appendChild(row);
+      }
+    } catch (err) {
+      if (window.driveProvider !== "temp") return;
+      updateStatus($("cloudStatus"), err.message || "Failed to load Temp Cloud", "error");
+    }
+  };
+
+  window.openTempCloudItem = function(item) {
+    if (item.type === "folder") {
+      window.tempCloudCurrentFolder = item.id;
+      const subtitle = $("driveProviderSubtitle");
+      if (subtitle) subtitle.textContent = "Folder: " + item.name;
+      const upBtn = $("upBtn");
+      const cmUpBtn = $("cmUpBtn");
+      if (upBtn) upBtn.disabled = false;
+      if (cmUpBtn) cmUpBtn.disabled = false;
+      loadTempCloudList();
+      loadTempCloudListMobile();
+    }
+  };
+
+  // Hook provider buttons
+  document.addEventListener("DOMContentLoaded", () => {
+    const tempBtn = $("driveProviderTemp");
+    const tempBtnM = $("driveProviderTempMobile");
+    if (tempBtn) tempBtn.addEventListener("click", () => setDriveProvider("temp"));
+    if (tempBtnM) tempBtnM.addEventListener("click", () => setDriveProvider("temp"));
+
+    // Intercept magnet buttons when in Temp Cloud mode to open Paste Link Modal
+    const handleActionBtnClick = (e) => {
+      if (window.driveProvider === "temp") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const modal = $("pasteLinkModal");
+        if (modal) {
+          modal.classList.remove("hidden");
+          const input = $("tempDownloadUrl");
+          if (input) { input.value = ""; input.focus(); }
+        }
+      }
+    };
+
+    const pBtn = $("pasteMagnetBtn");
+    const cmBtn = $("cmMagnetBtn");
+    if (pBtn) pBtn.addEventListener("click", handleActionBtnClick, true);
+    if (cmBtn) cmBtn.addEventListener("click", handleActionBtnClick, true);
+
+    // Paste Link Modal handlers
+    const closePasteBtn = $("closePasteLinkBtn");
+    const cancelPasteBtn = $("cancelPasteLinkBtn");
+    const startDownloadBtn = $("startTempDownloadBtn");
+    const modal = $("pasteLinkModal");
+
+    const closeModal = () => { if (modal) modal.classList.add("hidden"); };
+    if (closePasteBtn) closePasteBtn.addEventListener("click", closeModal);
+    if (cancelPasteBtn) cancelPasteBtn.addEventListener("click", closeModal);
+
+    if (startDownloadBtn) {
+      startDownloadBtn.addEventListener("click", async () => {
+        const input = $("tempDownloadUrl");
+        const autoUnzipCb = $("tempAutoUnzip");
+        const url = (input ? input.value : "").trim();
+        if (!url) {
+          toast("Please enter a valid URL");
+          return;
+        }
+        closeModal();
+        toast("⚡ 1DM Engine: Download started in background...");
+        try {
+          await postJson("/api/temp_cloud/download", {
+            url: url,
+            auto_unzip: autoUnzipCb ? autoUnzipCb.checked : true
+          });
+          setTimeout(() => {
+            if (window.driveProvider === "temp") {
+              loadTempCloudList();
+              loadTempCloudListMobile();
+              updateTempCloudStorageHeader();
+            }
+          }, 2500);
+        } catch (err) {
+          toast("Download failed: " + (err.message || "Error"));
+        }
+      });
+    }
+  });
+
 
 

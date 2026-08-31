@@ -602,44 +602,52 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             temp_dir = os.path.join(os.getcwd(), "temp_downloads")
             os.makedirs(temp_dir, exist_ok=True)
 
-        task_temp_dir = os.path.join(temp_dir, task_id)
-        os.makedirs(task_temp_dir, exist_ok=True)
-        temp_path = os.path.join(task_temp_dir, filename)
+        is_local_temp_file = os.path.isabs(download_url) and os.path.exists(download_url) and not download_url.startswith(("http://", "https://"))
+        if is_local_temp_file:
+            temp_path = download_url
+            task_temp_dir = os.path.dirname(temp_path)
+        else:
+            task_temp_dir = os.path.join(temp_dir, task_id)
+            os.makedirs(task_temp_dir, exist_ok=True)
+            temp_path = os.path.join(task_temp_dir, filename)
 
         for attempt in range(1, max_attempts + 1):
             log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
             cancel_flag[0] = False
             
-            if os.path.exists(temp_path):
+            if not is_local_temp_file and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception as e:
                     log.debug("Could not remove stale temp file %s before retry: %s", temp_path, e)
 
             try:
-                # Phase 1: High-speed range-based download to disk + simultaneous TCP pre-connection
-                tracker.phase = "download"
-                tracker.last_pct = 0.0
-                tracker.last_write_bytes = 0
-                
-                def download_progress(bytes_downloaded, speed_mbps):
-                    if cancel_flag[0]:
-                        raise ValueError("Cancelled by user")
-                    tracker.last_speed_mb = speed_mbps / 8.0
-                    tracker(bytes_downloaded, exact_size)
+                if not is_local_temp_file:
+                    # Phase 1: High-speed range-based download to disk + simultaneous TCP pre-connection
+                    tracker.phase = "download"
+                    tracker.last_pct = 0.0
+                    tracker.last_write_bytes = 0
+                    
+                    def download_progress(bytes_downloaded, speed_mbps):
+                        if cancel_flag[0]:
+                            raise ValueError("Cancelled by user")
+                        tracker.last_speed_mb = speed_mbps / 8.0
+                        tracker(bytes_downloaded, exact_size)
 
-                log.info("Starting high-speed multi-connection Seedr download to disk")
-                downloader = SeedrDownloader(
-                    worker_url=app.state.config.cloudflare_worker_proxy,
-                    temp_dir=task_temp_dir
-                )
-                await downloader.download(download_url, filename=filename, progress_callback=download_progress)
+                    log.info("Starting high-speed multi-connection Seedr download to disk")
+                    downloader = SeedrDownloader(
+                        worker_url=app.state.config.cloudflare_worker_proxy,
+                        temp_dir=task_temp_dir
+                    )
+                    await downloader.download(download_url, filename=filename, progress_callback=download_progress)
 
-                if not os.path.exists(temp_path):
-                    raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
-                actual_downloaded_size = os.path.getsize(temp_path)
-                if actual_downloaded_size != exact_size:
-                    raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
+                    if not os.path.exists(temp_path):
+                        raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
+                    actual_downloaded_size = os.path.getsize(temp_path)
+                    if actual_downloaded_size != exact_size:
+                        raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
+                else:
+                    log.info("Zero-copy bypass: file %s is already on local disk (%d bytes)", temp_path, exact_size)
 
                 tracker.phase = "upload"
                 tracker.last_pct = 50.0
@@ -827,7 +835,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             app.state.cancel_flags.pop(task_id, None)
         if not transfer_succeeded and seq_num is not None:
             await advance_sequence_turn(app, rs, seq_num)
-        if temp_path:
+        if temp_path and not locals().get("is_local_temp_file", False):
             task_dir = os.path.dirname(temp_path)
             if os.path.exists(task_dir):
                 try:
@@ -1083,6 +1091,16 @@ async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, cli
         file_info = payload.download_url
         filename = payload.file_name or file_info.split("/")[-1].split("?")[0] or "file"
         size = payload.file_size or 0
+    elif provider == "temp":
+        from .temp_cloud import get_user_temp_dir
+        user_dir = get_user_temp_dir(sid)
+        rel_id = (payload.download_url or payload.file_name or "").strip()
+        local_path = os.path.realpath(os.path.join(user_dir, rel_id.lstrip("/\\")))
+        if not local_path.startswith(os.path.realpath(user_dir)) or not os.path.exists(local_path):
+            raise HTTPException(status_code=404, detail="File not found in Temp Cloud")
+        file_info = local_path
+        filename = payload.file_name or os.path.basename(local_path)
+        size = payload.file_size or os.path.getsize(local_path)
     else:
         try:
             f_id = validate_positive_int(payload.file_id, name="file_id", maximum=config.max_file_id)
