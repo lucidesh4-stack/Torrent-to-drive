@@ -69,6 +69,7 @@ class TelegramClientManager:
             app_version="5.2.0",
             lang_code="en",
             system_lang_code="en-US",
+            receive_updates=False,
             flood_sleep_threshold=FLOOD_SLEEP_THRESHOLD,
         )
         self.stats.created += 1

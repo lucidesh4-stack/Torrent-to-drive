@@ -317,31 +317,13 @@ async def _trigger_next_transfer_locked(app):
             
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks = {tid: t for tid, t in app.state.active_tasks.items() if not t.done()}
-        active_count = len(getattr(app.state, "active_tasks", {}))
+        else:
+            app.state.active_tasks = {}
+            
+        active_count = len(app.state.active_tasks)
         if active_count >= 3:
-            await rs._execute("DEL", _DISPATCH_LOCK_KEY)
             return
-            
-        next_task_id = await rs._execute("LPOP", "streamly:transfer_queue")
-        if not next_task_id:
-            await rs._execute("DEL", _DISPATCH_LOCK_KEY)
-            return
-            
-        if isinstance(next_task_id, bytes):
-            next_task_id = next_task_id.decode("utf-8")
-            
-        raw_args = await rs.get(f"streamly:task_args:{next_task_id}")
-        if not raw_args:
-            log.warning("Queue dispatch: task args missing for task %s. Skipping.", next_task_id)
-            await rs._execute("DEL", _DISPATCH_LOCK_KEY)
-            trigger_next_transfer(app)
-            return
-            
-        if isinstance(raw_args, bytes):
-            raw_args = raw_args.decode("utf-8")
-            
-        args = _json.loads(raw_args)
-        
+
         session_str = await rs.get("streamly:telegram_session")
         api_id = getattr(app.state.config, "telegram_api_id", None)
         api_hash = getattr(app.state.config, "telegram_api_hash", None)
@@ -351,49 +333,59 @@ async def _trigger_next_transfer_locked(app):
             os.environ.get("BOT_TOKEN") or
             getattr(app.state.config, "telegram_bot_token", "")
         )
-        
-        if not bot_token and (not session_str or not api_id or not api_hash):
-            log.error("Queue dispatch: missing bot_token or credentials. Re-queueing task %s.", next_task_id)
-            await rs._execute("LPUSH", "streamly:transfer_queue", next_task_id)
-            await rs._execute("DEL", _DISPATCH_LOCK_KEY)
-            return
+
+        while active_count < 3:
+            next_task_id = await rs._execute("LPOP", "streamly:transfer_queue")
+            if not next_task_id:
+                # Queue is completely drained! Exit cleanly (0 background polling).
+                break
+                
+            if isinstance(next_task_id, bytes):
+                next_task_id = next_task_id.decode("utf-8")
+                
+            raw_args = await rs.get(f"streamly:task_args:{next_task_id}")
+            if not raw_args:
+                log.warning("Queue dispatch: task args missing for task %s. Skipping.", next_task_id)
+                continue
+                
+            if isinstance(raw_args, bytes):
+                raw_args = raw_args.decode("utf-8")
+                
+            args = _json.loads(raw_args)
             
-        file_url = args.get("url")
-        chat_id = args.get("chat_id")
-        filename = args.get("filename")
-        size = int(args.get("size", 0))
-        sid = args.get("sid")
-        seq_num = args.get("seq_num")
-        
-        task_id = next_task_id
-        await rs.pipeline(
-            ["SET", "streamly:active_transfer_global", task_id, "EX", str(_ACTIVE_TTL_SECONDS)],  # active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS
-            ["SET", f"streamly:active_transfer:{sid}", task_id, "EX", "3600"],
-            ["DEL", _DISPATCH_LOCK_KEY],
-        )
-        
-        # Start async task
-        task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid, seq_num=seq_num))
-        if not hasattr(app.state, "active_tasks"):
-            app.state.active_tasks = {}
-        app.state.active_tasks[next_task_id] = task
-        app.state.background_tasks.add(task)
-        task.add_done_callback(app.state.background_tasks.discard)
-        log.info("Queue check: started transfer background task for %s", next_task_id)
-        
-        # Immediately trigger additional workers if capacity available (< 3)
-        active_count = len([t for t in getattr(app.state, "active_tasks", {}).values() if not t.done()])
-        if active_count < 3:
-            trigger_next_transfer(app)
-        
+            if not bot_token and (not session_str or not api_id or not api_hash):
+                log.error("Queue dispatch: missing bot_token or credentials. Re-queueing task %s.", next_task_id)
+                await rs._execute("LPUSH", "streamly:transfer_queue", next_task_id)
+                break
+                
+            file_url = args.get("url")
+            chat_id = args.get("chat_id")
+            filename = args.get("filename")
+            size = int(args.get("size", 0))
+            sid = args.get("sid")
+            seq_num = args.get("seq_num")
+            
+            task_id = next_task_id
+            await rs.pipeline(
+                ["SET", "streamly:active_transfer_global", task_id, "EX", str(_ACTIVE_TTL_SECONDS)],  # active_transfer_global", task_id, ex=_ACTIVE_TTL_SECONDS
+                ["SET", f"streamly:active_transfer:{sid}", task_id, "EX", "3600"],
+            )
+            
+            # Start async task
+            task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid, seq_num=seq_num))
+            app.state.active_tasks[next_task_id] = task
+            app.state.background_tasks.add(task)
+            task.add_done_callback(app.state.background_tasks.discard)
+            active_count += 1
+            log.info("Queue check: started transfer background task for %s (active workers: %d/3)", next_task_id, active_count)
+            
     except Exception as e:
         log.exception("Error in queue dispatch trigger: %s", e)
+    finally:
         try:
             await rs._execute("DEL", _DISPATCH_LOCK_KEY)
         except Exception as del_err:
-            # Not fatal (the lock has a TTL and will expire on its own), but this
-            # delays the next dispatch attempt, so it's worth a trace.
-            log.warning("Failed to release dispatch lock after dispatch error: %s", del_err)
+            log.warning("Failed to release dispatch lock after dispatch: %s", del_err)
 
 
 class UploadSender:
