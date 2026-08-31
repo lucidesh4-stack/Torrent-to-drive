@@ -69,7 +69,7 @@ def _live_get(task_id: str) -> dict | None:
 
 def _live_get_active() -> dict | None:
     for tid, v in _LIVE_PROGRESS.items():
-        if v.get("status") in ("UPLOADING", "QUEUED"):
+        if v.get("status") in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN"):
             out = dict(v)
             out.setdefault("task_id", tid)
             return out
@@ -79,7 +79,7 @@ def _live_get_active() -> dict | None:
 def _live_get_all_active() -> list[dict]:
     items = []
     for tid, v in list(_LIVE_PROGRESS.items()):
-        if v.get("status") in ("UPLOADING", "QUEUED"):
+        if v.get("status") in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN"):
             out = dict(v)
             out.setdefault("task_id", tid)
             items.append(out)
@@ -887,7 +887,27 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                             daemon_port = 8081 + (abs(hash(task_id)) % 3)
                         
                         log.info("Task seq #%s starting Local C++ TDLib daemon upload on port %d for chat %s", str(seq_num), daemon_port, chat_id_val)
+                        _live_set(task_id, {
+                            "progress": 50.0,
+                            "status": "WAITING TURN",
+                            "filename": filename,
+                            "sent_bytes": 0,
+                            "total_bytes": exact_size,
+                            "error": None,
+                            "sid": sid,
+                            "seq_num": seq_num,
+                        })
                         await wait_for_sequence_turn(app, rs, seq_num, cancel_flag=cancel_flag)
+                        _live_set(task_id, {
+                            "progress": 50.0,
+                            "status": "UPLOADING",
+                            "filename": filename,
+                            "sent_bytes": 0,
+                            "total_bytes": exact_size,
+                            "error": None,
+                            "sid": sid,
+                            "seq_num": seq_num,
+                        })
                         upload_start = time.time()
                         try:
                             res = await upload_via_local_bot_api(bot_token, chat_id_val, temp_path, filename, progress_callback=upload_progress_sync, port=daemon_port)
@@ -898,6 +918,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                                 exact_size / (1024 * 1024), upload_elapsed, upload_speed_mbps,
                             )
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
+                            _live_clear(task_id)
                             await advance_sequence_turn(app, rs, seq_num)
                             break
                         except Exception as bot_err:
@@ -1490,25 +1511,7 @@ async def get_telegram_queue(request: Request):
     limit_gb = float(os.getenv("TELEGRAM_BANDWIDTH_LIMIT_GB", "9999.0"))
     
     active_item = _live_get_active()
-    
-    if not active_item:
-        active_task_id = await rs.get("streamly:active_transfer_global")
-        if active_task_id:
-            if isinstance(active_task_id, bytes):
-                active_task_id = active_task_id.decode("utf-8")
-            raw_status = await rs.get(f"streamly:transfer_status:{active_task_id}")
-            if raw_status:
-                try:
-                    if isinstance(raw_status, bytes):
-                        raw_status = raw_status.decode("utf-8")
-                    active_item = _json.loads(raw_status)
-                    active_item.setdefault("task_id", active_task_id)
-                except Exception as e:
-                    # A corrupted status blob here means the active transfer will
-                    # simply not appear in the /api/telegram/queue response -- from
-                    # the user's side that looks like "my transfer just vanished",
-                    # so this is worth a trace.
-                    log.warning("Corrupted transfer_status blob for active task %s: %s", active_task_id, e)
+    active_items = _live_get_all_active()
 
     # Read queue items
     queue_items = []
@@ -1541,6 +1544,7 @@ async def get_telegram_queue(request: Request):
     return {
         "success": True,
         "active": active_item,
+        "active_items": active_items,
         "queue": queue_items,
         "bandwidth_usage_gb": bw_bytes / (1024**3),
         "bandwidth_projected_gb": projected_bytes / (1024**3),

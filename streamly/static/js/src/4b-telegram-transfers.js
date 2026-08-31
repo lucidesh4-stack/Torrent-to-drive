@@ -99,7 +99,8 @@
 
     // 2. Render Active Transfers (Multi-Parallel Support)
     const activeCard = $("tgActiveTransferCard");
-    const activeItems = data.active_items || (data.active ? [data.active] : []);
+    const rawActive = data.active_items || (data.active ? [data.active] : []);
+    const activeItems = rawActive.filter(a => a && a.status !== "COMPLETED" && a.status !== "FAILED");
     activeItems.sort((a, b) => {
       if (a.seq_num !== undefined && b.seq_num !== undefined && a.seq_num !== b.seq_num) {
         return a.seq_num - b.seq_num;
@@ -115,11 +116,18 @@
         const sentFormatted = formatBytes(active.sent_bytes || 0);
         const totalFormatted = formatBytes(active.total_bytes || 0);
         
+        let badgeStyle = "background: rgba(59,130,246,0.15); color: #60a5fa;";
+        if (active.status === "WAITING TURN") {
+          badgeStyle = "background: rgba(245,158,11,0.15); color: #fbbf24;";
+        } else if (active.status === "DOWNLOADING") {
+          badgeStyle = "background: rgba(16,185,129,0.15); color: #34d399;";
+        }
+        
         return `
         <div style="margin-bottom: 8px; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 6px;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
             <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-              <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.15); color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">${fstatus}</span>
+              <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; ${badgeStyle} text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0;">${fstatus}</span>
               <strong style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text);" title="${fname}">${fname}</strong>
             </div>
             ${ftask ? `<button onclick="cancelTelegramTransfer('${ftask}', event)" style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); color: #f87171; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 12px; font-weight: 600; flex-shrink: 0; line-height: 1; transition: all 0.2s;" title="Cancel Upload" aria-label="Cancel Upload">✕</button>` : ''}
