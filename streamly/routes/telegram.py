@@ -32,7 +32,7 @@ from ..security import (
 )
 from ..core.http_client import SeedrDownloader
 from .telegram_client import manager as tg_manager, safe_disconnect, get_telegram_client
-from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel
+from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel, stop_local_bot_api_daemon
 from ..cloud_service import format_size
 
 log = logging.getLogger(__name__)
@@ -953,9 +953,9 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 raise
             except (FilePartMissingError, FloodWaitError, RPCError, httpx.HTTPError, Exception) as e:
                 user_cancelled = cancel_flag[0] or (isinstance(e, ValueError) and str(e) == "Cancelled by user")
-                cancel_flag[0] = True
                 
                 if user_cancelled:
+                    cancel_flag[0] = True
                     log.info("Transfer cancelled by user. Aborting upload retry loop.")
                     raise e
 
@@ -1666,11 +1666,20 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
             task.cancel()
             seq = getattr(task, "_seq_num", None)
             if seq:
+                daemon_port = 8081 + ((seq - 1) % 3)
+                await stop_local_bot_api_daemon(daemon_port)
                 await advance_sequence_turn(request.app, rs, seq)
             log.info("Cancelled running task %s directly via task.cancel() (seq: %s)", task_id, str(seq))
+        
+        _live_clear(task_id)
         await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=30)
+        await rs.pipeline(
+            ["DEL", "streamly:active_transfer_global"],
+            ["DEL", f"streamly:cancel_request:{task_id}"],
+            ["DEL", f"streamly:task_args:{task_id}"]
+        )
         trigger_next_transfer(request.app)
-        return {"success": True, "message": "Cancellation request sent to active task."}
+        return {"success": True, "message": "Active transfer cancelled immediately."}
         
     # 2. Check if it's in the queue
     queue = await rs._execute("LRANGE", "streamly:transfer_queue", "0", "-1") or []

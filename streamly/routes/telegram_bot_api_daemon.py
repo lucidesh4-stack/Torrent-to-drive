@@ -174,6 +174,18 @@ async def ensure_local_bot_api_daemon(port: int = 8081) -> bool:
         return False
 
 
+async def stop_local_bot_api_daemon(port: int):
+    """Terminate local daemon process on specified port (used on user cancel or cleanup)."""
+    proc = _daemon_processes.pop(port, None)
+    if proc:
+        try:
+            proc.terminate()
+            proc.kill()
+            log.info("Terminated local C++ TDLib daemon on port %d", port)
+        except Exception as e:
+            log.debug("Error terminating daemon on port %d: %s", port, e)
+
+
 async def upload_via_local_bot_api(
     bot_token: str,
     chat_id: str,
@@ -187,7 +199,6 @@ async def upload_via_local_bot_api(
     """
     local_base_url = get_local_bot_api_url(port)
     local_url = f"{local_base_url}/bot{bot_token}/sendDocument"
-    cloud_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     file_size = os.path.getsize(file_path)
 
     log.info("Starting high-speed Bot API upload for file %s (%.2f MB) via daemon port %d", filename, file_size / (1024 * 1024), port)
@@ -232,13 +243,24 @@ async def upload_via_local_bot_api(
                     speed_mbps = (file_size / (1024 * 1024) / elapsed) * 8 if elapsed > 0 else 0.0
                     log.info("Local C++ TDLib Bot API upload on port %d succeeded: %.2f MB in %.1fs (%.2f Mbps average)", port, file_size / (1024 * 1024), elapsed, speed_mbps)
                     return resp.json()
+                elif resp.status_code == 429:
+                    err_json = {}
+                    try:
+                        err_json = resp.json()
+                    except Exception:
+                        pass
+                    retry_after = err_json.get("parameters", {}).get("retry_after", 60)
+                    log.error("Telegram Bot Rate Limit on port %d (HTTP 429): retry after %s seconds", port, retry_after)
+                    raise ValueError(f"Telegram Bot Rate Limit: Too Many Requests (retry after {retry_after}s). Please wait before sending more files.")
                 else:
                     log.warning("Local C++ TDLib daemon port %d returned HTTP %d: %s", port, resp.status_code, resp.text[:500])
+                    raise ValueError(f"Local daemon upload returned HTTP {resp.status_code}: {resp.text[:200]}")
             except (asyncio.CancelledError, ValueError) as cancel_err:
-                log.info("Local daemon send on port %d cancelled: %s", port, cancel_err)
+                log.info("Local daemon send on port %d aborted: %s", port, cancel_err)
                 raise cancel_err
             except Exception as local_err:
                 log.warning("Local daemon send on port %d failed: %s", port, local_err)
+                raise local_err
             finally:
                 done[0] = True
                 ticker_task.cancel()
