@@ -645,40 +645,18 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
         return
 
     current = await get_current_post_seq(app, rs)
-
-    # Auto-align current_post_seq if no active tasks have a lower sequence number
-    active_seqs = [
-        getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
-    ]
-    lower_active = [s for s in active_seqs if s is not None and s < seq_num]
-    if not lower_active:
-        await set_current_post_seq(app, rs, seq_num)
-        return
-
     if current >= seq_num:
         return
 
     log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, current)
-    wait_counter = 0
     try:
         while current < seq_num:
             if cancel_flag and cancel_flag[0]:
                 log.info("Task seq #%d cancelled while waiting at sequence gate; advancing turn", seq_num)
                 await advance_sequence_turn(app, rs, seq_num)
                 raise asyncio.CancelledError("Cancelled by user while waiting for sequence turn")
-            await asyncio.sleep(0.2)
-            wait_counter += 1
+            await asyncio.sleep(0.3)
             current = await get_current_post_seq(app, rs)
-            
-            # Re-check active tasks dynamically
-            active_seqs = [
-                getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
-            ]
-            lower_active = [s for s in active_seqs if s is not None and s < seq_num]
-            if not lower_active or wait_counter > 50:
-                log.info("Task seq #%d no longer has lower sequence blockers; unblocking turn immediately", seq_num)
-                await set_current_post_seq(app, rs, seq_num)
-                break
     except asyncio.CancelledError:
         log.info("Task seq #%d received CancelledError at sequence gate; advancing sequence turn", seq_num)
         await advance_sequence_turn(app, rs, seq_num)
@@ -728,6 +706,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
     client = None
     temp_path = None
     exact_size = size
+    transfer_succeeded = False
     try:
         client = await tg_manager.get_persistent_client(session_str, api_id=api_id, api_hash=api_hash, app=app)
         
@@ -931,6 +910,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                             )
                             log.info("Upload and send completed successfully via Local C++ TDLib Daemon on attempt %d", attempt)
                             _live_clear(task_id)
+                            transfer_succeeded = True
                             await advance_sequence_turn(app, rs, seq_num)
                             break
                         except Exception as bot_err:
@@ -1053,7 +1033,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             app.state.active_tasks.pop(task_id, None)
         if hasattr(app.state, "cancel_flags"):
             app.state.cancel_flags.pop(task_id, None)
-        if seq_num is not None:
+        if (transfer_succeeded or (cancel_flag and cancel_flag[0])) and seq_num is not None:
             await advance_sequence_turn(app, rs, seq_num)
         if temp_path:
             task_dir = os.path.dirname(temp_path)
@@ -1310,9 +1290,7 @@ async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_de
     return False
 
 
-@telegram_router.post("/api/telegram/send")
-@rate_limited(cost=3.0)
-async def telegram_send_file(request: Request, payload: SendFilePayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
+async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, client: Any) -> dict:
     config = request.app.state.config
     rs = request.app.state.rs
     cloud = request.app.state.cloud
@@ -1453,6 +1431,12 @@ async def telegram_send_file(request: Request, payload: SendFilePayload, client 
     return {"success": True, "task_id": task_id}
 
 
+@telegram_router.post("/api/telegram/send")
+@rate_limited(cost=3.0)
+async def telegram_send_file(request: Request, payload: SendFilePayload, client = Depends(current_client), _csrf = Depends(verify_csrf)):
+    return await _enqueue_telegram_item(request, payload, client)
+
+
 class BatchSendPayload(BaseModel):
     items: list[SendFilePayload]
 
@@ -1466,7 +1450,7 @@ async def telegram_send_batch_transfer(request: Request, payload: BatchSendPaylo
     task_ids = []
     for item_payload in payload.items:
         try:
-            res = await telegram_send_file(request, item_payload, client=client, _csrf=_csrf)
+            res = await _enqueue_telegram_item(request, item_payload, client=client)
             if isinstance(res, dict) and res.get("task_id"):
                 task_ids.append(res["task_id"])
         except Exception as e:
