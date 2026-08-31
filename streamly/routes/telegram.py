@@ -1043,14 +1043,18 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         )
     finally:
         cancel_flag[0] = True
-        if "heartbeat_poller" in locals() and not heartbeat_poller.done():
-            heartbeat_poller.cancel()
-        if "cancel_poller" in locals() and not cancel_poller.done():
-            cancel_poller.cancel()
+        hb_p = locals().get("heartbeat_poller")
+        if hb_p and hasattr(hb_p, "done") and not hb_p.done():
+            hb_p.cancel()
+        c_p = locals().get("cancel_poller")
+        if c_p and hasattr(c_p, "done") and not c_p.done():
+            c_p.cancel()
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks.pop(task_id, None)
         if hasattr(app.state, "cancel_flags"):
             app.state.cancel_flags.pop(task_id, None)
+        if seq_num is not None:
+            await advance_sequence_turn(app, rs, seq_num)
         if temp_path:
             task_dir = os.path.dirname(temp_path)
             if os.path.exists(task_dir):
