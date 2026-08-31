@@ -143,6 +143,8 @@ async def delete_item(request: Request, payload: DeleteItemPayload, client = Dep
     cloud = request.app.state.cloud
     try:
         await cloud.delete_item(client, item_type, item_id)
+        from .queue import trigger_seedr_queue
+        trigger_seedr_queue(request.app)
     except Exception as e:
         log.warning("Provider error on delete: %s", e)
         raise HTTPException(status_code=502, detail="Provider rejected the request or is unavailable")
@@ -195,6 +197,8 @@ async def delete_bulk(request: Request, payload: BulkDeletePayload, client = Dep
                 return {"id": item.id, "type": item.type, "ok": False, "error": "Provider error"}
 
     results = await asyncio.gather(*[_delete_one(item) for item in items])
+    from .queue import trigger_seedr_queue
+    trigger_seedr_queue(request.app)
     return {"success": True, "results": list(results)}
 
 
@@ -367,12 +371,16 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
                 "time": int(time.time())
             }
             await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+            from .queue import trigger_seedr_queue
+            trigger_seedr_queue(request.app)
             return {"success": True, "queued": True}
         else:
             raise HTTPException(status_code=503, detail="Redis is required for queue storage")
             
     try:
         await cloud.add_magnet(client, magnet)
+        from .queue import trigger_seedr_queue
+        trigger_seedr_queue(request.app)
     except Exception as e:
         log.warning("Direct Seedr addition failed for '%s': %s. Falling back to local queue.", name, e)
         if rs:
@@ -384,6 +392,8 @@ async def add_magnet(request: Request, payload: AddMagnetPayload, client = Depen
                 "time": int(time.time())
             }
             await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+            from .queue import trigger_seedr_queue
+            trigger_seedr_queue(request.app)
             try:
                 await rs._execute("DEL", "streamly:seedr_adding_lock")
             except Exception as e:

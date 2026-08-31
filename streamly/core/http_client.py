@@ -91,7 +91,9 @@ async def managed_http_client(max_connections: int = 10, timeout: float = 30.0):
 
 
 class OptimizedDownloader:
-    """High-speed downloader using Cloudflare Worker proxy."""
+    """High-speed downloader using direct CDN connections with optional Cloudflare Worker proxy."""
+    _worker_blocked_globally: bool = os.environ.get("ENABLE_WORKER_PROXY", "false").lower() != "true"
+
     def __init__(
         self,
         worker_url: str = "https://streamly-proxy.lucidesh.workers.dev/",
@@ -99,10 +101,10 @@ class OptimizedDownloader:
         timeout: float = 600.0,
         **kwargs
     ):
-        self.worker_url = worker_url.rstrip("/") + "/"
+        self.worker_url = worker_url.rstrip("/") + "/" if worker_url else ""
         self.temp_dir = temp_dir or os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
         self.timeout = timeout
-        self._worker_blocked = os.environ.get("ENABLE_WORKER_PROXY", "false").lower() != "true"
+        self._worker_blocked = OptimizedDownloader._worker_blocked_globally
         self._ssl_ctx = create_ssl_context()
         self._download_client: httpx.AsyncClient | None = None
         self._stats = {
@@ -145,6 +147,7 @@ class OptimizedDownloader:
 
         async with client.stream("GET", url) as response:
             if response.status_code == 403 and method_label == 'Worker':
+                OptimizedDownloader._worker_blocked_globally = True
                 self._worker_blocked = True
                 return None
             response.raise_for_status()
@@ -212,7 +215,7 @@ class OptimizedDownloader:
         
         dest_path = Path(self.temp_dir) / filename
         
-        if not self._worker_blocked:
+        if not OptimizedDownloader._worker_blocked_globally and self.worker_url:
             try:
                 result = await self._download_via_worker(url, dest_path, progress_callback)
                 if result:
@@ -222,9 +225,11 @@ class OptimizedDownloader:
                         result["method"], result["size"] / (1024 * 1024), result["time_s"], result["speed_mbps"],
                     )
                     return result
+                OptimizedDownloader._worker_blocked_globally = True
                 log.warning("Worker proxy returned 403 (blocked); falling back to direct download for this and future transfers.")
             except Exception as e:
-                log.warning("Worker proxy download failed (%s: %s); falling back to direct download.", type(e).__name__, e)
+                OptimizedDownloader._worker_blocked_globally = True
+                log.warning("Worker proxy download failed (%s: %s); falling back to direct download for all future transfers.", type(e).__name__, e)
         
         result = await self._download_via_direct(url, dest_path, progress_callback)
         self._update_stats(result)

@@ -84,14 +84,43 @@ async def get_daemon_client(app):
     return None
 
 
+def trigger_seedr_queue(app):
+    """Signals the Seedr queue daemon to wake up immediately (e.g. after add, delete, or cancel)."""
+    try:
+        ev = getattr(app.state, "seedr_queue_event", None)
+        if ev is None:
+            app.state.seedr_queue_event = asyncio.Event()
+            ev = app.state.seedr_queue_event
+        ev.set()
+
+        # Ensure background daemon loop is running
+        daemon_task = getattr(app.state, "seedr_queue_task", None)
+        if daemon_task is None or daemon_task.done():
+            task = asyncio.create_task(seedr_queue_daemon_loop(app))
+            app.state.seedr_queue_task = task
+            app.state.background_tasks.add(task)
+            task.add_done_callback(app.state.background_tasks.discard)
+    except Exception as err:
+        log.debug("Error triggering seedr queue daemon: %s", err)
+
+
 async def seedr_queue_daemon_loop(app):
-    idle_cycles = 0
+    """Event-driven daemon that processes Seedr queue and monitors active Seedr downloads.
+    When the queue is empty and no transfers are active on Seedr, enters a zero-CPU dormant sleep.
+    """
+    log.info("Seedr Queue Daemon initialized (event-driven mode).")
+    consecutive_storage_full_count = 0
+    
     while True:
-        # Adaptive sleep using async sleep
-        await asyncio.sleep(60 if idle_cycles >= 3 else 15)
+        ev = getattr(app.state, "seedr_queue_event", None)
+        if ev is None:
+            app.state.seedr_queue_event = asyncio.Event()
+            ev = app.state.seedr_queue_event
+
         rs = getattr(app.state, "rs", None)
         cloud = getattr(app.state, "cloud", None)
         if not rs or not cloud:
+            await asyncio.sleep(5.0)
             continue
             
         try:
@@ -107,20 +136,26 @@ async def seedr_queue_daemon_loop(app):
             except Exception:
                 active_marker = None
 
+        # DORMANT STATE: If queue is 0 and no active transfers, sleep indefinitely until next add/event!
         if not has_queue and not active_marker:
-            idle_cycles += 1
+            consecutive_storage_full_count = 0
+            ev.clear()
+            log.debug("Seedr queue is empty and no active transfers. Sleeping until next add/event.")
+            await ev.wait()
+            ev.clear()
             continue
-        idle_cycles = 0
 
         lock_held = False
         try:
             acquired = await rs._execute("SET", "streamly:seedr_queue_daemon_lock", "1", "EX", "20", "NX")
             if acquired != "OK":
+                await asyncio.sleep(5.0)
                 continue
             lock_held = True
             
             client = await get_daemon_client(app)
             if not client:
+                await asyncio.sleep(15.0)
                 continue
                 
             storage = await cloud.list_items(client, 0)
@@ -221,7 +256,7 @@ async def seedr_queue_daemon_loop(app):
                                                         break
                                         except Exception as he:
                                             log.debug("Failed to find magnet in history: %s", he)
-                                            
+                                    
                                     if magnet:
                                         await rs._execute("DEL", stuck_key)
                                         try:
@@ -257,11 +292,34 @@ async def seedr_queue_daemon_loop(app):
                 used = max(0, _safe_int(storage.get("used")))
                 maximum = max(1, _safe_int(storage.get("max")))
                 
+            # If active downloads are running on Seedr, wait for them to finish before adding more
             if len(transfers) > 0:
+                ev.clear()
+                try:
+                    await asyncio.wait_for(ev.wait(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    pass
                 continue
                 
             queue_len = await rs._execute("LLEN", "streamly:seedr_queue")
-            if not queue_len or int(queue_len) == 0:
+            total_in_queue = int(queue_len) if queue_len and str(queue_len).isdigit() else 0
+            if total_in_queue == 0:
+                continue
+
+            # Check if all items in queue are blocked due to storage full
+            if consecutive_storage_full_count >= total_in_queue and total_in_queue > 0:
+                log.warning(
+                    "Seedr storage full for all %d queued item(s) (%s/%s used). "
+                    "Pausing queue processing until files are deleted or new items added.",
+                    total_in_queue, format_size(used), format_size(maximum)
+                )
+                ev.clear()
+                consecutive_storage_full_count = 0
+                try:
+                    # Sleep for up to 5 minutes or wake up instantly on file deletion / add
+                    await asyncio.wait_for(ev.wait(), timeout=300.0)
+                except asyncio.TimeoutError:
+                    pass
                 continue
                 
             raw_item = await rs._execute("LINDEX", "streamly:seedr_queue", "0")
@@ -284,6 +342,7 @@ async def seedr_queue_daemon_loop(app):
             if already_active:
                 await rs._execute("LPOP", "streamly:seedr_queue")
                 log.warning("Queued item '%s' is already active on Seedr. Removing from queue.", item_name)
+                consecutive_storage_full_count = 0
                 continue
             
             item_size = _safe_int(item.get("size"))
@@ -291,10 +350,15 @@ async def seedr_queue_daemon_loop(app):
                 if item_size > 4.5 * 1024 * 1024 * 1024:
                     await rs._execute("LPOP", "streamly:seedr_queue")
                     log.warning("Discarded queued item '%s' because size %s > 4.5 GB", item_name, item_size)
+                    consecutive_storage_full_count = 0
                     continue
                     
                 free_space = maximum - used
                 if item_size > free_space:
+                    # Item too large for currently available space: move to back and increment storage-full counter
+                    await rs._execute("LPOP", "streamly:seedr_queue")
+                    await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(item))
+                    consecutive_storage_full_count += 1
                     continue
                     
             await rs._execute("LPOP", "streamly:seedr_queue")
@@ -307,30 +371,20 @@ async def seedr_queue_daemon_loop(app):
                 except Exception as hm_err:
                     log.warning("Failed to store magnet mapping in daemon: %s", hm_err)
                 await cloud.add_magnet(client, item.get("magnet"))
+                consecutive_storage_full_count = 0
             except Exception as e:
                 log.error("Failed to add magnet popped from queue: %s", e)
                 err_msg = str(e).lower()
                 is_storage_full = "too large" in err_msg or "space" in err_msg or "413" in err_msg or "storage" in err_msg
                 
                 if is_storage_full:
-                    # Move to BACK of queue (RPUSH). Not subject to the retry cap: this
-                    # path only re-blocks once every OTHER queued item has been tried
-                    # first, so it can't create a permanent head-of-line-blocking loop
-                    # the way an immediate front-of-queue retry could.
+                    consecutive_storage_full_count += 1
                     try:
                         await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(item))
                         log.warning("STORAGE_FULL error! Re-queued torrent at BACK of queue: %s", item_name)
                     except Exception as re_err:
                         log.error("Failed to re-queue torrent to back of queue: %s", re_err)
                 else:
-                    # Other (non-storage) errors: these might be transient (a momentary
-                    # Seedr API hiccup) or permanent (a malformed/dead torrent Seedr will
-                    # reject identically forever). Re-queuing at the FRONT unconditionally
-                    # previously created an unbounded infinite retry loop for the
-                    # permanent-failure case: the same poisoned item would be popped again
-                    # on every daemon cycle (15-60s), forever, blocking every item queued
-                    # behind it and continuously hammering the Seedr API. Cap retries and
-                    # drop the item instead of retrying forever once the cap is hit.
                     retries = _safe_int(item.get("retries", 0)) + 1
                     if retries > _MAX_NON_STORAGE_RETRIES:
                         log.error(
@@ -338,8 +392,6 @@ async def seedr_queue_daemon_loop(app):
                             "Dropping from queue instead of retrying forever.",
                             item_name, retries - 1, e,
                         )
-                        # Item is already removed from the queue (LPOP'd above) -- simply
-                        # do not re-queue it. Falls through to the next daemon cycle.
                     else:
                         item["retries"] = retries
                         try:
@@ -355,18 +407,9 @@ async def seedr_queue_daemon_loop(app):
                 try:
                     await rs._execute("DEL", "streamly:seedr_queue_daemon_lock")
                 except Exception as e:
-                    # Not fatal (the lock carries a 20s TTL and will expire on its own),
-                    # but worth knowing about since it delays the next daemon cycle.
                     log.warning("Failed to release seedr_queue_daemon_lock: %s", e)
-
-
-def trigger_seedr_queue(app):
-    async def run():
-        await seedr_queue_daemon_loop(app)
-    # Track task in app.state.background_tasks
-    task = asyncio.create_task(run())
-    app.state.background_tasks.add(task)
-    task.add_done_callback(app.state.background_tasks.discard)
+        
+        await asyncio.sleep(5.0)
 
 
 @queue_router.get("/api/queue")
@@ -421,6 +464,7 @@ async def cancel_queued_item(request: Request, payload: CancelQueuePayload, _csr
  
         if removed_item and removed_raw is not None:
             await rs._execute("LREM", "streamly:seedr_queue", "0", removed_raw)
+            trigger_seedr_queue(request.app)
             return {"success": True, "message": f"Cancelled queued item: {removed_item.get('name', 'torrent')}"}
  
         raise HTTPException(status_code=404, detail="Queued item not found")

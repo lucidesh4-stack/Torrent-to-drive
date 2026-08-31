@@ -924,9 +924,12 @@
           };
         } else {
           payload = { file_id: item.id, provider: "seedr" };
-          const _sz = Number(item.size);
-          if (item.name && Number.isFinite(_sz) && _sz > 0) {
+          const rawSz = item.size ?? item.size_bytes ?? item.file_size;
+          const _sz = Number(rawSz);
+          if (item.name) {
             payload.file_name = item.name;
+          }
+          if (Number.isFinite(_sz) && _sz > 0) {
             payload.file_size = Math.floor(_sz);
           }
         }
