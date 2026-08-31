@@ -310,11 +310,20 @@ async def _trigger_next_transfer_locked(app):
     if not rs:
         return
         
+    acquired = None
+    for _ in range(10):
+        try:
+            acquired = await rs._execute("SET", _DISPATCH_LOCK_KEY, "1", "EX", str(_DISPATCH_LOCK_TTL), "NX")
+            if acquired == "OK":
+                break
+        except Exception:
+            pass
+        await asyncio.sleep(0.25)
+        
+    if acquired != "OK":
+        return
+        
     try:
-        acquired = await rs._execute("SET", _DISPATCH_LOCK_KEY, "1", "EX", str(_DISPATCH_LOCK_TTL), "NX")
-        if acquired != "OK":
-            return
-            
         if hasattr(app.state, "active_tasks"):
             app.state.active_tasks = {tid: t for tid, t in app.state.active_tasks.items() if not t.done()}
         else:
@@ -1544,6 +1553,9 @@ async def get_telegram_queue(request: Request):
 
     dest = os.getenv("TELEGRAM_CHAT_ID", "-1004247146382")
 
+    if queue_items and len(active_items) < 3:
+        trigger_next_transfer(request.app)
+
     return {
         "success": True,
         "active": active_item,
@@ -1593,6 +1605,8 @@ async def sse_telegram_progress(request: Request):
                                         "total_bytes": args.get("size", 0),
                                         "status": "QUEUED"
                                     })
+                            if queue_items and len(active_items) < 3:
+                                trigger_next_transfer(request.app)
                     cached_queue_items = queue_items
                 else:
                     queue_items = cached_queue_items
