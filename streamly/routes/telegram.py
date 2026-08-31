@@ -3,23 +3,19 @@
 import logging
 import os
 import time
+import shutil
 import uuid
 import json as _json
 import asyncio
 import httpx
-import secrets
 import datetime
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from typing import Any, Optional
-from telethon import TelegramClient, functions, types
-from telethon.network import MTProtoSender
+from telethon import TelegramClient
 from telethon.errors import FilePartMissingError, FloodWaitError, RPCError
 from telethon.tl.types import Channel, Chat
-from telethon.tl.alltlobjects import LAYER
-from telethon.tl.functions import InvokeWithLayerRequest
-from telethon.tl.functions.auth import ExportAuthorizationRequest, ImportAuthorizationRequest
 
 from .auth import verify_csrf
 from ..auth_utils import current_client, ensure_sid
@@ -32,7 +28,7 @@ from ..security import (
 )
 from ..core.http_client import SeedrDownloader
 from .telegram_client import manager as tg_manager, safe_disconnect, get_telegram_client
-from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel, stop_local_bot_api_daemon
+from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel
 from ..cloud_service import format_size
 
 log = logging.getLogger(__name__)
@@ -54,7 +50,6 @@ _DEFAULT_SPEEDTEST_URL = "https://speed.cloudflare.com/__down?bytes=10485760"
 
 # EFF-17: Track which bandwidth keys already have TTL set
 _BW_KEYS_WITH_TTL: set[str] = set()
-_TELETHON_MTPROTO_LOCK = asyncio.Lock()
 
 
 # EFF-16: These are sync — no lock needed in single-threaded asyncio for dict ops
@@ -398,220 +393,6 @@ async def _trigger_next_transfer_locked(app):
             log.warning("Failed to release dispatch lock after dispatch: %s", del_err)
 
 
-class UploadSender:
-    def __init__(self, uploader, client, sender, loop):
-        self.uploader = uploader
-        self.client = client
-        self.sender = sender
-        self.loop = loop
-        self.file_id = None
-        self.part_count = 0
-        self.big = False
-        self.previous = None
-        self.exception = None
-
-    def prepare_file(self, file_id: int, part_count: int, big: bool):
-        self.file_id = file_id
-        self.part_count = part_count
-        self.big = big
-        self.previous = None
-        self.exception = None
-
-    async def start_upload(self, part_index: int, data: bytes) -> None:
-        if self.exception:
-            raise self.exception
-        if self.previous:
-            await self.previous
-        self.previous = self.loop.create_task(self._next(part_index, data))
-
-    async def _next(self, part_index: int, data: bytes) -> None:
-        try:
-            if self.big:
-                request = functions.upload.SaveBigFilePartRequest(
-                    file_id=self.file_id,
-                    file_part=part_index,
-                    file_total_parts=self.part_count,
-                    bytes=data
-                )
-            else:
-                request = functions.upload.SaveFilePartRequest(
-                    file_id=self.file_id,
-                    file_part=part_index,
-                    bytes=data
-                )
-            await self.client._call(self.sender, request)
-            self.uploader.update_progress(len(data))
-            await asyncio.sleep(0.045)
-        except Exception as e:
-            self.exception = e
-            raise e
-
-    async def flush(self) -> None:
-        if self.previous:
-            await self.previous
-        if self.exception:
-            raise self.exception
-
-    async def disconnect(self) -> None:
-        if self.previous:
-            try:
-                await self.previous
-            except Exception:
-                pass
-        try:
-            await self.sender.disconnect()
-        except Exception:
-            pass
-
-
-class ParallelUploader:
-    def __init__(self, client, dc_id=None):
-        self.client = client
-        self.loop = client.loop
-        self.dc_id = dc_id or client.session.dc_id
-        self.auth_key = (None if dc_id and client.session.dc_id != dc_id
-                         else client.session.auth_key)
-        self.senders = []
-        self.progress_callback = None
-        self.file_size = 0
-        self.uploaded_bytes = 0
-        self._last_send_time = 0.0
-        self._send_lock = asyncio.Lock()
-
-    def update_progress(self, sent):
-        self.uploaded_bytes += sent
-        if self.progress_callback:
-            self.progress_callback(self.uploaded_bytes, self.file_size)
-
-    async def _create_sender(self) -> MTProtoSender:
-        dc = await self.client._get_dc(self.dc_id)
-        sender = MTProtoSender(self.auth_key, loggers=self.client._log)
-        await sender.connect(self.client._connection(
-            dc.ip_address,
-            dc.port,
-            dc.id,
-            loggers=self.client._log,
-            proxy=self.client._proxy
-        ))
-        if not self.auth_key:
-            log.info("Exporting auth key to DC %d", self.dc_id)
-            auth = await self.client(ExportAuthorizationRequest(self.dc_id))
-            self.client._init_request.query = ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
-            req = InvokeWithLayerRequest(LAYER, self.client._init_request)
-            await sender.send(req)
-            self.auth_key = sender.auth_key
-        return sender
-
-    async def ensure_senders(self, connections: int) -> None:
-        active_senders = []
-        for sender in self.senders:
-            if sender.sender and sender.sender.is_connected():
-                active_senders.append(sender)
-            else:
-                try:
-                    await sender.disconnect()
-                except Exception:
-                    pass
-
-        needed = connections - len(active_senders)
-        if needed > 0:
-            log.info("Spawning %d persistent parallel MTProtoSender worker connections", needed)
-            new_senders = await asyncio.gather(*[self._create_sender() for _ in range(needed)])
-            for s_conn in new_senders:
-                active_senders.append(UploadSender(self, self.client, s_conn, loop=self.loop))
-
-        self.senders = active_senders
-
-    async def prepare_for_file(self, file_id: int, file_size: int, part_size: int, connections: int, progress_callback=None) -> None:
-        part_count = (file_size + part_size - 1) // part_size
-        big = file_size > 10 * 1024 * 1024
-        self.file_size = file_size
-        self.uploaded_bytes = 0
-        self.progress_callback = progress_callback
-        self._last_send_time = 0.0
-
-        await self.ensure_senders(connections)
-        for sender in self.senders:
-            sender.prepare_file(file_id, part_count, big)
-
-    async def upload(self, part_index: int, part: bytes) -> None:
-        # Enforce 15ms dispatch stagger across 4 worker sockets to achieve 6+ MB/s speed
-        now = time.time()
-        elapsed = now - self._last_send_time
-        if elapsed < 0.015:
-            await asyncio.sleep(0.015 - elapsed)
-        self._last_send_time = time.time()
-
-        idle_sender = None
-        for sender in self.senders:
-            if sender.previous is None or sender.previous.done():
-                idle_sender = sender
-                break
-
-        if idle_sender is None:
-            busy_tasks = {
-                sender.previous: sender 
-                for sender in self.senders 
-                if sender.previous and not sender.previous.done()
-            }
-            if busy_tasks:
-                done, pending = await asyncio.wait(list(busy_tasks.keys()), return_when=asyncio.FIRST_COMPLETED)
-                finished_task = done.pop()
-                idle_sender = busy_tasks[finished_task]
-
-        await idle_sender.start_upload(part_index, part)
-
-    async def finish_file(self) -> None:
-        if self.senders:
-            await asyncio.gather(*[sender.flush() for sender in self.senders if sender.previous])
-
-    async def close(self) -> None:
-        if self.senders:
-            log.info("Queue complete. Closing persistent parallel MTProtoSender worker pool.")
-            await asyncio.gather(*[sender.disconnect() for sender in self.senders])
-            self.senders = []
-
-
-async def parallel_upload_local_file(client, file_path, file_size, filename, progress_callback, uploader=None):
-    part_size = 512 * 1024
-    parts_count = (file_size + part_size - 1) // part_size
-    file_id = secrets.randbits(63)
-    is_big = file_size > 10 * 1024 * 1024
-
-    large_file_connections = int(os.environ.get("TG_UPLOAD_CONNECTIONS_LARGE", "4"))
-    connections = large_file_connections if file_size > 10 * 1024 * 1024 else 2
-    connections = min(connections, parts_count)
-
-    if uploader is None:
-        uploader = ParallelUploader(client)
-
-    await uploader.prepare_for_file(file_id, file_size, part_size, connections, progress_callback=progress_callback)
-
-    try:
-        with open(file_path, "rb") as f:
-            for part_index in range(parts_count):
-                for sender in uploader.senders:
-                    if sender.exception:
-                        raise sender.exception
-
-                chunk = await asyncio.to_thread(f.read, part_size)
-                if not chunk:
-                    break
-                await uploader.upload(part_index, chunk)
-        await uploader.finish_file()
-    except BaseException as e:
-        try:
-            await uploader.finish_file()
-        except Exception:
-            pass
-        raise
-
-    if is_big:
-        return types.InputFileBig(id=file_id, parts=parts_count, name=filename)
-    else:
-        return types.InputFile(id=file_id, parts=parts_count, name=filename, md5_checksum="")
-
-
 async def get_current_post_seq(app, rs) -> int:
     """Fetch current posting sequence turn from memory (or Redis once on initial boot)."""
     current = getattr(app.state, "current_post_seq", None)
@@ -808,7 +589,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
         backoff = 5.0
         uploaded = None
 
-        import os
         temp_dir = os.environ.get('TEMP_DIR', '/tmp/streamly_downloads')
         try:
             os.makedirs(temp_dir, exist_ok=True)
@@ -937,10 +717,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 else:
                     raise ValueError("TELEGRAM_BOT_TOKEN is not configured on server.")
 
-                uploaded_parts = getattr(temp_path, 'parts', 0)
-                actual_parts = uploaded_parts
-                # parts=actual_parts
-
                 break
             except asyncio.CancelledError:
                 cancel_flag[0] = True
@@ -1048,13 +824,12 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             app.state.active_tasks.pop(task_id, None)
         if hasattr(app.state, "cancel_flags"):
             app.state.cancel_flags.pop(task_id, None)
-        if (transfer_succeeded or (cancel_flag and cancel_flag[0])) and seq_num is not None:
+        if not transfer_succeeded and seq_num is not None:
             await advance_sequence_turn(app, rs, seq_num)
         if temp_path:
             task_dir = os.path.dirname(temp_path)
             if os.path.exists(task_dir):
                 try:
-                    import shutil
                     shutil.rmtree(task_dir, ignore_errors=True)
                 except Exception as ce:
                     log.warning("Failed to clean up temp dir %s: %s", task_dir, ce)
@@ -1068,12 +843,6 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 ["DEL", f"streamly:cancel_request:{task_id}"],
                 ["DEL", f"streamly:task_args:{task_id}"]
             )
-            queue_len = await rs._execute("LLEN", "streamly:transfer_queue") or 0
-            if queue_len == 0 and client:
-                uploader = getattr(client, "_streamly_uploader_pool", None)
-                if uploader:
-                    await uploader.close()
-                    setattr(client, "_streamly_uploader_pool", None)
         except Exception as cl_err:
             log.warning("Redis cleanup failed for task %s: %s", task_id, cl_err)
         if hasattr(app.state, "active_tasks"):
@@ -1296,13 +1065,6 @@ class SendFilePayload(BaseModel):
         return "" if v is None else str(v)
 
 
-async def acquire_redis_lock(rs, lock_key, ttl_seconds, max_retries=10, retry_delay=0.1):
-    for _ in range(max_retries):
-        ok = await rs._execute("SET", lock_key, "1", "EX", str(ttl_seconds), "NX")
-        if ok == "OK":
-            return True
-        await asyncio.sleep(retry_delay)
-    return False
 
 
 async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, client: Any) -> dict:
@@ -1669,8 +1431,6 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
             task.cancel()
             seq = getattr(task, "_seq_num", None)
             if seq:
-                daemon_port = 8081 + ((seq - 1) % 3)
-                await stop_local_bot_api_daemon(daemon_port)
                 await advance_sequence_turn(request.app, rs, seq)
             log.info("Cancelled running task %s directly via task.cancel() (seq: %s)", task_id, str(seq))
         

@@ -178,7 +178,7 @@
     }
 
     // 4. Update tab badge count
-    const activeCount = (data.active && (data.active.status === "UPLOADING" || data.active.status === "QUEUED")) ? 1 : 0;
+    const activeCount = (data.active_items || []).filter(a => a && a.status !== "COMPLETED" && a.status !== "FAILED").length;
     const queueCount = data.queue ? data.queue.length : 0;
     const totalCount = activeCount + queueCount;
     

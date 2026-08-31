@@ -16,11 +16,6 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 LOCAL_BOT_API_URL = os.environ.get("LOCAL_BOT_API_URL", "http://127.0.0.1:8081")
-_daemon_process: Optional[subprocess.Popen] = None
-
-
-def get_local_bot_api_url() -> str:
-    return LOCAL_BOT_API_URL.rstrip("/")
 
 
 async def _download_telegram_bot_api_binary() -> Optional[str]:
@@ -266,7 +261,8 @@ async def upload_via_local_bot_api(
                 ticker_task.cancel()
 
         # Stream directly to official Telegram Cloud Bot API (https://api.telegram.org)
-        log.info("Streaming file directly to Telegram Cloud Bot API (https://api.telegram.org)")
+        cloud_url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
+        log.info("Streaming file directly to Telegram Cloud Bot API (%s)", cloud_url)
         
         class _ProgressFileReader:
             def __init__(self, fpath, p_cb):
