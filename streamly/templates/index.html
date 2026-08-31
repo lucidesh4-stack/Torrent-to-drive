@@ -305,27 +305,12 @@
       <div class="panel-head" style="flex-shrink: 0; border-radius: 14px 14px 0 0; padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
         <div>
           <h2 style="margin: 0; font-size: 1.25rem;">Telegram Exports</h2>
-          <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">Export Queue & Limit Status</div>
+          <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">Active Transfers & Queue</div>
         </div>
         <button id="closeTelegramTransfersBtn" class="ghost" type="button" aria-label="Close transfers" style="font-size: 20px; padding: 0; line-height: 1;">×</button>
       </div>
       
       <div style="padding: 20px; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 20px;">
-        <!-- Limit / Target Card -->
-        <div class="panel" style="flex-shrink: 0; padding: 16px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel-2);">
-          <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px;">
-            <span>Monthly Server Limit</span>
-            <span id="tgTransfersLimitText">0.00 GB / 99.0 GB</span>
-          </div>
-          <div style="width: 100%; height: 10px; background: var(--panel-1); border-radius: 5px; overflow: hidden; margin-bottom: 12px; border: 1px solid var(--line);">
-            <div id="tgTransfersLimitBar" style="width: 0%; height: 100%; background: var(--accent); transition: width 0.3s;"></div>
-          </div>
-          <div style="font-size: 12px; display: flex; justify-content: space-between;" class="muted">
-            <span>Limit remaining resets monthly</span>
-            <span>Target Chat: <strong id="tgTransfersTargetText" style="color: var(--text);">me</strong></span>
-          </div>
-        </div>
-        
         <!-- Active Transfer Section -->
         <div style="flex-shrink: 0;">
           <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;" class="muted">Active Export</h4>

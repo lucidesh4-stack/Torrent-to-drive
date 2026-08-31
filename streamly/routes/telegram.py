@@ -54,6 +54,7 @@ _BW_KEYS_WITH_TTL: set[str] = set()
 
 # EFF-16: These are sync — no lock needed in single-threaded asyncio for dict ops
 def _live_set(task_id: str, data: dict) -> None:
+    data.setdefault("task_id", task_id)
     _LIVE_PROGRESS[task_id] = data
 
 
