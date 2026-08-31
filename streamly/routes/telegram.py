@@ -373,11 +373,12 @@ async def _trigger_next_transfer_locked(app):
             
             # Start async task
             task = asyncio.create_task(run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, next_task_id, sid, seq_num=seq_num))
+            setattr(task, "_seq_num", seq_num)
             app.state.active_tasks[next_task_id] = task
             app.state.background_tasks.add(task)
             task.add_done_callback(app.state.background_tasks.discard)
             active_count += 1
-            log.info("Queue check: started transfer background task for %s (active workers: %d/3)", next_task_id, active_count)
+            log.info("Queue check: started transfer background task for %s (seq #%s, active workers: %d/3)", next_task_id, str(seq_num), active_count)
             
     except Exception as e:
         log.exception("Error in queue dispatch trigger: %s", e)
@@ -636,18 +637,14 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
 
     current = await get_current_post_seq(app, rs)
 
-    # Auto-align current_post_seq ONLY if it lags behind ALL active tasks
-    if current < seq_num:
-        active_seqs = [
-            getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
-        ]
-        active_seqs = [s for s in active_seqs if s is not None]
-        if active_seqs:
-            min_seq = min(active_seqs)
-            if current < min_seq:
-                log.info("Auto-aligning current_post_seq from %d to min active task seq %d", current, min_seq)
-                await set_current_post_seq(app, rs, min_seq)
-                current = min_seq
+    # Auto-align current_post_seq if no active tasks have a lower sequence number
+    active_seqs = [
+        getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
+    ]
+    lower_active = [s for s in active_seqs if s is not None and s < seq_num]
+    if not lower_active:
+        await set_current_post_seq(app, rs, seq_num)
+        return
 
     if current >= seq_num:
         return
@@ -660,11 +657,17 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
                 log.info("Task seq #%d cancelled while waiting at sequence gate; advancing turn", seq_num)
                 await advance_sequence_turn(app, rs, seq_num)
                 raise asyncio.CancelledError("Cancelled by user while waiting for sequence turn")
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.2)
             wait_counter += 1
             current = await get_current_post_seq(app, rs)
-            if wait_counter > 1200:
-                log.warning("Sequence turn timeout for seq #%d; forcing sequence turn advancement", seq_num)
+            
+            # Re-check active tasks dynamically
+            active_seqs = [
+                getattr(t, "_seq_num", None) for t in getattr(app.state, "active_tasks", {}).values() if not t.done()
+            ]
+            lower_active = [s for s in active_seqs if s is not None and s < seq_num]
+            if not lower_active or wait_counter > 50:
+                log.info("Task seq #%d no longer has lower sequence blockers; unblocking turn immediately", seq_num)
                 await set_current_post_seq(app, rs, seq_num)
                 break
     except asyncio.CancelledError:
@@ -1647,8 +1650,12 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
         if is_memory_active:
             task = request.app.state.active_tasks[task_id]
             task.cancel()
-            log.info("Cancelled running task %s directly via task.cancel()", task_id)
+            seq = getattr(task, "_seq_num", None)
+            if seq:
+                await advance_sequence_turn(request.app, rs, seq)
+            log.info("Cancelled running task %s directly via task.cancel() (seq: %s)", task_id, str(seq))
         await rs.set(f"streamly:cancel_request:{task_id}", "1", ex=30)
+        trigger_next_transfer(request.app)
         return {"success": True, "message": "Cancellation request sent to active task."}
         
     # 2. Check if it's in the queue
@@ -1657,10 +1664,22 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
     for item in queue:
         decoded = item.decode("utf-8") if isinstance(item, bytes) else item
         if decoded == task_id:
+            raw_args = await rs.get(f"streamly:task_args:{task_id}")
+            if raw_args:
+                try:
+                    if isinstance(raw_args, bytes):
+                        raw_args = raw_args.decode("utf-8")
+                    args = _json.loads(raw_args)
+                    q_seq = args.get("seq_num")
+                    if q_seq:
+                        await advance_sequence_turn(request.app, rs, q_seq)
+                except Exception:
+                    pass
             await rs._execute("LREM", "streamly:transfer_queue", "0", item)
             await rs._execute("DEL", f"streamly:transfer_status:{task_id}")
             await rs._execute("DEL", f"streamly:task_args:{task_id}")
             found = True
+            trigger_next_transfer(request.app)
             break
             
     if found:
