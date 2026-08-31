@@ -613,8 +613,10 @@ async def parallel_upload_local_file(client, file_path, file_size, filename, pro
 
 
 async def get_current_post_seq(app, rs) -> int:
-    """Fetch the current active posting sequence turn from Redis and memory."""
+    """Fetch current posting sequence turn from memory (or Redis once on initial boot)."""
     current = getattr(app.state, "current_post_seq", None)
+    if current is not None:
+        return current
     if rs:
         try:
             val = await rs._execute("GET", "streamly:current_channel_post_seq")
@@ -624,20 +626,23 @@ async def get_current_post_seq(app, rs) -> int:
                 return redis_seq
         except Exception as e:
             log.warning("Failed to fetch current_channel_post_seq from Redis: %s", e)
-    if current is None:
-        current = 1
-        app.state.current_post_seq = 1
-    return current
+    app.state.current_post_seq = 1
+    return 1
 
 
 async def set_current_post_seq(app, rs, seq_num: int):
-    """Update current active posting sequence turn in Redis and memory."""
+    """Update current active posting sequence turn in memory and persist once to Redis."""
     app.state.current_post_seq = seq_num
     if rs:
         try:
             await rs._execute("SET", "streamly:current_channel_post_seq", str(seq_num))
         except Exception as e:
             log.warning("Failed to set current_channel_post_seq in Redis: %s", e)
+    # Notify any in-memory waiting tasks immediately (0 Redis operations)
+    cond = getattr(app.state, "seq_turn_condition", None)
+    if cond:
+        async with cond:
+            cond.notify_all()
 
 
 async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: Optional[list] = None):
@@ -649,14 +654,24 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
         return
 
     log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, current)
+    cond = getattr(app.state, "seq_turn_condition", None)
+    if cond is None:
+        cond = asyncio.Condition()
+        app.state.seq_turn_condition = cond
+
     try:
         while current < seq_num:
             if cancel_flag and cancel_flag[0]:
                 log.info("Task seq #%d cancelled while waiting at sequence gate; advancing turn", seq_num)
                 await advance_sequence_turn(app, rs, seq_num)
                 raise asyncio.CancelledError("Cancelled by user while waiting for sequence turn")
-            await asyncio.sleep(0.3)
-            current = await get_current_post_seq(app, rs)
+            
+            async with cond:
+                try:
+                    await asyncio.wait_for(cond.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    pass
+            current = getattr(app.state, "current_post_seq", current)
     except asyncio.CancelledError:
         log.info("Task seq #%d received CancelledError at sequence gate; advancing sequence turn", seq_num)
         await advance_sequence_turn(app, rs, seq_num)
@@ -699,7 +714,7 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 )
             except Exception as h_err:
                 log.debug("Active transfer heartbeat failed for task %s: %s", task_id, h_err)
-            await asyncio.sleep(10.0)
+            await asyncio.sleep(30.0)
 
     heartbeat_poller = asyncio.create_task(heartbeat())
     
