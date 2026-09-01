@@ -51,18 +51,24 @@ class MediaResolver:
                 log.error("yt-dlp not available: %s", ie)
                 return None
 
-            # Clean options with Android player client to bypass YouTube datacenter wall
             base_opts = {
                 'quiet': True,
                 'no_warnings': True,
                 'skip_download': True,
                 'extract_flat': False,
-                'socket_timeout': 20,
+                'socket_timeout': 30,
                 'noplaylist': True,
+                'nocheckcertificate': True,
+                'geo_bypass': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'web'],
+                        'player_client': ['ios', 'android', 'mweb', 'web'],
                     }
+                },
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
                 }
             }
 
