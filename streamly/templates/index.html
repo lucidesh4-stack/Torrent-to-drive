@@ -383,29 +383,51 @@
     </div>
   </section>
 
-  <!-- Temp Cloud Direct URL Ingest Modal -->
+  <!-- Temp Cloud Direct URL & Universal Media Ingest Modal -->
   <section id="pasteLinkModal" class="overlay hidden">
-    <div class="player-box" style="max-width: 440px; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 14px;">
+    <div class="player-box" style="max-width: 480px; padding: 20px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 14px; max-height: 90vh; overflow-y: auto;">
       <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h3 style="margin: 0; font-size: 1.15rem; display: flex; items-center: center; gap: 8px;">
-          <span>🔗</span> Download Direct Link
+        <h3 style="margin: 0; font-size: 1.15rem; display: flex; align-items: center; gap: 8px;">
+          <span>🔗</span> Download Media / Direct Link
         </h3>
         <button id="closePasteLinkBtn" class="ghost" type="button" aria-label="Close" style="font-size: 20px; padding: 0; line-height: 1;">×</button>
       </div>
       <p class="muted" style="margin: 0; font-size: 0.85rem;">
-        Paste any direct HTTP/DDL/Zip URL to download at maximum speed via 1DM Turbo Engine (16 range threads) directly into Temp Cloud.
+        Paste any direct file, archive (Zip/Rar), YouTube, or web video link. Cloudflow inspects all formats so you can choose the exact resolution.
       </p>
+      
       <div style="display: grid; gap: 8px;">
-        <label for="tempDownloadUrl" style="font-size: 12px; font-weight: 600;" class="muted">DIRECT FILE OR ARCHIVE URL</label>
-        <input id="tempDownloadUrl" type="url" placeholder="https://example.com/file.zip or .mkv" style="width: 100%; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 10px; border-radius: var(--radius-sm); font-size: 13px; font-family: monospace;">
+        <label for="tempDownloadUrl" style="font-size: 12px; font-weight: 600;" class="muted">LINK URL</label>
+        <div style="display: flex; gap: 6px;">
+          <input id="tempDownloadUrl" type="url" placeholder="https://youtube.com/... or .mkv / .zip" style="flex: 1; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 10px; border-radius: var(--radius-sm); font-size: 13px; font-family: monospace;">
+          <button id="inspectMediaBtn" class="secondary" type="button" style="padding: 0 14px; font-size: 12px; white-space: nowrap; font-weight: 600;">⚡ Fetch Formats</button>
+        </div>
       </div>
+
+      <!-- Dynamic Media Discovery Card (Hidden until probed) -->
+      <div id="mediaProbeCard" class="hidden" style="background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px;">
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <img id="probeThumbnail" src="" style="width: 70px; height: 45px; object-fit: cover; border-radius: 6px; display: none;" alt="Thumbnail">
+          <div style="min-width: 0; flex: 1;">
+            <div id="probeTitle" style="font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Media Title</div>
+            <div id="probeMeta" class="muted" style="font-size: 11px; margin-top: 2px;">Duration • Uploader</div>
+          </div>
+        </div>
+
+        <div style="font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Select Quality / Format:</div>
+        <div id="probeFormatsList" style="display: grid; gap: 6px; max-height: 180px; overflow-y: auto;">
+          <!-- Format radio cards inserted via JS -->
+        </div>
+      </div>
+
       <div style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
         <input type="checkbox" id="tempAutoUnzip" checked style="cursor: pointer;">
         <label for="tempAutoUnzip" style="cursor: pointer;">Auto-extract <code>.zip / .rar / .7z</code> archives</label>
       </div>
+
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px;">
         <button id="cancelPasteLinkBtn" class="secondary" type="button" style="padding: 8px 16px;">Cancel</button>
-        <button id="startTempDownloadBtn" class="primary" type="button" style="padding: 8px 18px;">Start Download</button>
+        <button id="startTempDownloadBtn" class="primary" type="button" style="padding: 8px 18px;">Download to Cloud</button>
       </div>
       <div id="pasteLinkStatus" class="status hidden" style="margin: 0;"></div>
     </div>
