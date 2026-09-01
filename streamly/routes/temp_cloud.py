@@ -20,6 +20,7 @@ from ..auth_utils import ensure_sid
 from ..security import rate_limited, validate_public_url
 from ..core.direct_downloader import Direct1DMDownloader
 from ..core.archive_extractor import is_archive, safe_extract_archive
+from ..core.bunkr_engine import is_bunkr_url, BunkrSequentialDownloader
 
 log = logging.getLogger(__name__)
 temp_cloud_router = APIRouter()
@@ -244,6 +245,21 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
             status_code=400,
             detail=f"Temp Cloud quota full ({user_used / (1024**3):.1f} / {TEMP_STORAGE_QUOTA_GB:.1f} GB). Please delete files first."
         )
+
+    # Check if URL is a Bunkr album / file
+    if is_bunkr_url(payload.url):
+        async def _run_bunkr_download():
+            try:
+                bunkr_downloader = BunkrSequentialDownloader(target_base_dir=user_dir)
+                await bunkr_downloader.download_album(payload.url)
+            except Exception as e:
+                log.error("Bunkr album sequential download failed for %s: %s", payload.url, e)
+
+        asyncio.create_task(_run_bunkr_download())
+        return {
+            "success": True,
+            "message": "Bunkr Album detected! Downloading files sequentially into dedicated Temp Cloud folder..."
+        }
 
     async def _run_download_and_extract():
         try:
