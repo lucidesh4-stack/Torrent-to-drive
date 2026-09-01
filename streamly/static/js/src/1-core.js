@@ -85,6 +85,14 @@
     return data;
   };
 
+  window.getJson = async function(url) {
+    return window.parseResponse(await fetch(url, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store"
+    }));
+  };
+
   window.postJson = async function(url, body) {
     if (!window.csrfToken) {
       const data = await window.parseResponse(await fetch("/api/csrf", { credentials: "same-origin" }));

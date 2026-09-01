@@ -162,8 +162,9 @@ class BunkrSequentialDownloader:
         total_items = len(items)
         completed_items = 0
 
-        # 3. Strictly Sequential Download Loop (Concurrency = 1)
-        async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=60.0, follow_redirects=True) as client:
+        # 3. Strictly Sequential Download Loop (Concurrency = 1) with Range Resume
+        timeout_cfg = httpx.Timeout(180.0, connect=30.0, read=90.0, write=60.0)
+        async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=timeout_cfg, follow_redirects=True, http2=False) as client:
             for idx, item in enumerate(items, 1):
                 if self._cancel_flag and self._cancel_flag[0]:
                     log.info("Bunkr album download cancelled by user")
@@ -179,67 +180,128 @@ class BunkrSequentialDownloader:
 
                 log.info("[Bunkr %d/%d] Downloading: %s", idx, total_items, target_filename)
 
-                try:
-                    # Stream directly to disk
-                    async with client.stream("GET", media_url) as resp:
-                        if resp.status_code >= 400:
-                            log.warning("[Bunkr %d/%d] Skipping %s: HTTP %d", idx, total_items, target_filename, resp.status_code)
-                            continue
+                # Announce item start to UI immediately
+                if progress_callback:
+                    progress_callback(0, 0, 0.0, idx, total_items, target_filename, album_title)
 
-                        file_total = int(resp.headers.get("content-length", 0))
+                file_downloaded = 0
+                file_total = 0
+                max_retries = 5
+                download_success = False
+
+                for attempt in range(1, max_retries + 1):
+                    if self._cancel_flag and self._cancel_flag[0]:
+                        raise asyncio.CancelledError("Download cancelled")
+                    if self._pause_event and not self._pause_event.is_set():
+                        await self._pause_event.wait()
+                        if self._cancel_flag and self._cancel_flag[0]:
+                            raise asyncio.CancelledError("Download cancelled")
+
+                    # Check for partial file on disk to resume
+                    if os.path.exists(target_path):
+                        file_downloaded = os.path.getsize(target_path)
+                    else:
                         file_downloaded = 0
-                        last_progress_time = time.time()
-                        last_downloaded = 0
 
-                        with open(target_path, "wb") as f:
-                            async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                                if self._cancel_flag and self._cancel_flag[0]:
-                                    raise asyncio.CancelledError("Download cancelled")
-                                if self._pause_event and not self._pause_event.is_set():
-                                    await self._pause_event.wait()
+                    req_headers = dict(DEFAULT_HEADERS)
+                    req_headers["Referer"] = media_url
+                    if file_downloaded > 0:
+                        req_headers["Range"] = f"bytes={file_downloaded}-"
+
+                    try:
+                        async with client.stream("GET", media_url, headers=req_headers) as resp:
+                            if resp.status_code == 429:
+                                backoff = 3.0 * attempt
+                                log.warning("[Bunkr %d/%d] Rate limited (HTTP 429) on %s. Backing off for %.1fs (attempt %d/%d)...", idx, total_items, target_filename, backoff, attempt, max_retries)
+                                await asyncio.sleep(backoff)
+                                continue
+
+                            if resp.status_code in (403, 404, 410):
+                                log.warning("[Bunkr %d/%d] Skipping %s: HTTP %d (File unavailable)", idx, total_items, target_filename, resp.status_code)
+                                break
+
+                            if resp.status_code not in (200, 206):
+                                log.warning("[Bunkr %d/%d] HTTP %d on %s (attempt %d/%d)", idx, total_items, target_filename, resp.status_code, attempt, max_retries)
+                                await asyncio.sleep(2.0 * attempt)
+                                continue
+
+                            # Parse total size
+                            if resp.status_code == 206:
+                                crange = resp.headers.get("content-range", "")
+                                if "/" in crange:
+                                    try:
+                                        file_total = int(crange.split("/")[-1])
+                                    except Exception:
+                                        file_total = file_downloaded + int(resp.headers.get("content-length", 0))
+                                else:
+                                    file_total = file_downloaded + int(resp.headers.get("content-length", 0))
+                            else:
+                                file_total = int(resp.headers.get("content-length", 0))
+                                file_downloaded = 0  # Full file stream
+
+                            mode = "ab" if (file_downloaded > 0 and resp.status_code == 206) else "wb"
+                            last_progress_time = time.time()
+                            last_downloaded = file_downloaded
+
+                            if progress_callback:
+                                progress_callback(file_downloaded, file_total, 0.0, idx, total_items, target_filename, album_title)
+
+                            with open(target_path, mode) as f:
+                                async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
                                     if self._cancel_flag and self._cancel_flag[0]:
                                         raise asyncio.CancelledError("Download cancelled")
-                                f.write(chunk)
-                                file_downloaded += len(chunk)
+                                    if self._pause_event and not self._pause_event.is_set():
+                                        await self._pause_event.wait()
+                                        if self._cancel_flag and self._cancel_flag[0]:
+                                            raise asyncio.CancelledError("Download cancelled")
 
-                                now = time.time()
-                                if now - last_progress_time >= 0.4:
-                                    elapsed = now - last_progress_time
-                                    diff = file_downloaded - last_downloaded
-                                    speed_mbps = (diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
-                                    last_progress_time = now
-                                    last_downloaded = file_downloaded
-                                    if progress_callback:
-                                        progress_callback(file_downloaded, file_total, speed_mbps, idx, total_items, target_filename, album_title)
+                                    f.write(chunk)
+                                    file_downloaded += len(chunk)
 
-                    # Stamp current ingestion time so auto-prune preserves file for 24h
+                                    now = time.time()
+                                    if now - last_progress_time >= 0.4:
+                                        elapsed = now - last_progress_time
+                                        diff = file_downloaded - last_downloaded
+                                        speed_mbps = (diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
+                                        last_progress_time = now
+                                        last_downloaded = file_downloaded
+                                        if progress_callback:
+                                            progress_callback(file_downloaded, file_total, speed_mbps, idx, total_items, target_filename, album_title)
+
+                            if file_total == 0 or file_downloaded >= file_total:
+                                download_success = True
+                                break
+
+                    except asyncio.CancelledError:
+                        log.info("Bunkr download cancelled while downloading %s", target_filename)
+                        if os.path.exists(target_path):
+                            try:
+                                os.remove(target_path)
+                            except Exception:
+                                pass
+                        return None
+                    except Exception as err:
+                        log.warning("[Bunkr %d/%d] Chunk error on %s (attempt %d/%d, downloaded %d/%d bytes): %s", idx, total_items, target_filename, attempt, max_retries, file_downloaded, file_total, err)
+                        await asyncio.sleep(1.5 * attempt)
+
+                if download_success or (os.path.exists(target_path) and os.path.getsize(target_path) > 0):
+                    completed_items += 1
                     try:
                         os.utime(target_path, (time.time(), time.time()))
                     except Exception:
                         pass
-
-                    completed_items += 1
                     if progress_callback:
                         progress_callback(file_downloaded, file_total, 0.0, completed_items, total_items, target_filename, album_title)
-
-                    # Polite CDN Cooldown (0.5s pause) to keep Bunkr CDN connection healthy
-                    await asyncio.sleep(0.5)
-
-                except asyncio.CancelledError:
-                    log.info("Bunkr download cancelled while downloading %s", target_filename)
-                    if os.path.exists(target_path):
-                        try:
-                            os.remove(target_path)
-                        except Exception:
-                            pass
-                    return None
-                except Exception as dl_err:
-                    log.warning("[Bunkr %d/%d] Failed to download %s: %s", idx, total_items, target_filename, dl_err)
+                else:
+                    log.warning("[Bunkr %d/%d] Giving up on %s after %d failed attempts", idx, total_items, target_filename, max_retries)
                     if os.path.exists(target_path) and os.path.getsize(target_path) == 0:
                         try:
                             os.remove(target_path)
                         except Exception:
                             pass
+
+                # Polite pause between Bunkr files
+                await asyncio.sleep(0.8)
 
         if self._cancel_flag and self._cancel_flag[0]:
             return None
