@@ -16,7 +16,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, field_validator
 
 from .auth import verify_csrf
-from ..auth_utils import ensure_sid
+from ..auth_utils import ensure_sid, current_client
 from ..security import rate_limited, validate_public_url
 from ..core.direct_downloader import Direct1DMDownloader
 from ..core.archive_extractor import is_archive, safe_extract_archive
@@ -95,7 +95,7 @@ def _compute_used_size(user_dir: str) -> int:
 
 @temp_cloud_router.get("/api/temp_cloud/storage")
 @rate_limited(cost=0.5)
-async def temp_cloud_storage(request: Request):
+async def temp_cloud_storage(request: Request, _client = Depends(current_client)):
     """Returns NVMe / local disk storage metrics for the top storage bar."""
     user_dir = get_user_temp_dir()
     
@@ -120,7 +120,7 @@ async def temp_cloud_storage(request: Request):
 
 @temp_cloud_router.get("/api/temp_cloud/list")
 @rate_limited(cost=1.0)
-async def temp_cloud_list(request: Request, folder_id: Optional[str] = None):
+async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _client = Depends(current_client)):
     """Lists files and folders inside Temp Cloud matching Seedr schema."""
     sid = request.session.get("sid") or ensure_sid(request)
     user_dir = get_user_temp_dir(sid)
@@ -232,7 +232,7 @@ from ..core.download_manager import DownloadManager
 
 @temp_cloud_router.post("/api/temp_cloud/download")
 @rate_limited(cost=1.0)
-async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf = Depends(verify_csrf)):
+async def temp_cloud_download(request: Request, payload: DownloadPayload, _client = Depends(current_client), _csrf = Depends(verify_csrf)):
     """Enqueues download into the Central DownloadManager with live progress tracking & controls."""
     await validate_public_url(payload.url)
     user_dir = get_user_temp_dir()
@@ -444,7 +444,7 @@ class DeletePayload(BaseModel):
 
 @temp_cloud_router.post("/api/temp_cloud/delete")
 @rate_limited(cost=1.0)
-async def temp_cloud_delete(request: Request, payload: DeletePayload, _csrf = Depends(verify_csrf)):
+async def temp_cloud_delete(request: Request, payload: DeletePayload, _client = Depends(current_client), _csrf = Depends(verify_csrf)):
     """Deletes a file or directory from user's Temp Cloud."""
     sid = request.session.get("sid") or ensure_sid(request)
     user_dir = get_user_temp_dir(sid)

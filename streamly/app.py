@@ -284,14 +284,16 @@ def create_app(
         # Site protection check
         if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
             site_password = _SITE_PASSWORD
-            is_authed = bool(request.session.get("site_auth") or request.session.get("username"))
-            if site_password and not is_authed:
-                if path.startswith("/api/") or path.startswith("/fs/"):
-                    return JSONResponse(
-                        status_code=401,
-                        content={"success": False, "error": {"code": "site_auth_required", "message": "Site password required"}}
-                    )
-                return HTMLResponse(content=_SITE_LOGIN_TEMPLATE.render(error=None))
+            if site_password:
+                sid = request.session.get("sid")
+                is_authed = bool(
+                    request.session.get("site_auth") 
+                    or request.session.get("username")
+                    or (sid and store and sid in store)
+                )
+                if not is_authed:
+                    if not (path.startswith("/api/") or path.startswith("/fs/")):
+                        return HTMLResponse(content=_SITE_LOGIN_TEMPLATE.render(error=None))
                 
         response = await call_next(request)
         

@@ -49,7 +49,10 @@ async def current_client(request: Request):
         sid = ensure_sid(request)
         
     try:
-        return store.get(sid)
+        c = store.get(sid)
+        if c:
+            request.session.setdefault("site_auth", True)
+        return c
     except NotAuthenticated:
         try:
             if not rs:
@@ -64,6 +67,7 @@ async def current_client(request: Request):
                 raise NotAuthenticated("Refresh token invalid")
             store.put(sid, client)
             request.session["username"] = username
+            request.session["site_auth"] = True
             new_rt = cloud.serialize_token(client)
             if new_rt:
                 await rs.set_refresh_token(new_rt)
@@ -80,6 +84,7 @@ async def current_client(request: Request):
                 client, username = await cloud.login(seedr_email, seedr_password)
                 store.put(sid, client)
                 request.session["username"] = username
+                request.session["site_auth"] = True
                 if rs:
                     rt = cloud.serialize_token(client)
                     if rt:
