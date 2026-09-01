@@ -1,4 +1,4 @@
-﻿"""
+"""
 Universal Media & Direct Link Resolver Engine
 Extracts video resolutions, formats, audio streams, and direct file metadata
 using yt-dlp with seamless fallback to 1DM Direct Downloader.
@@ -51,7 +51,8 @@ class MediaResolver:
                     'no_warnings': True,
                     'skip_download': True,
                     'extract_flat': False,
-                    'socket_timeout': 10,
+                    'socket_timeout': 15,
+                    'impersonate': 'chrome',
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -182,6 +183,7 @@ class MediaResolver:
                     'quiet': True,
                     'no_warnings': True,
                     'socket_timeout': 30,
+                    'impersonate': 'chrome',
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
