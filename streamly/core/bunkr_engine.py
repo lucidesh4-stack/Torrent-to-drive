@@ -212,6 +212,12 @@ class BunkrSequentialDownloader:
                                     if progress_callback:
                                         progress_callback(file_downloaded, file_total, speed_mbps, idx, total_items, target_filename, album_title)
 
+                    # Stamp current ingestion time so auto-prune preserves file for 24h
+                    try:
+                        os.utime(target_path, (time.time(), time.time()))
+                    except Exception:
+                        pass
+
                     completed_items += 1
                     if progress_callback:
                         progress_callback(file_downloaded, file_total, 0.0, completed_items, total_items, target_filename, album_title)

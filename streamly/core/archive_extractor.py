@@ -107,4 +107,18 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
         except Exception as e:
             log.debug("Could not remove archive container: %s", e)
 
+    # Touch all extracted files to current ingestion time
+    now = time.time()
+    for root, dirs, files in os.walk(dest_dir):
+        for f in files:
+            try:
+                os.utime(os.path.join(root, f), (now, now))
+            except Exception:
+                pass
+        for d in dirs:
+            try:
+                os.utime(os.path.join(root, d), (now, now))
+            except Exception:
+                pass
+
     return dest_dir

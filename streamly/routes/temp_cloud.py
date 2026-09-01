@@ -25,7 +25,7 @@ from ..core.bunkr_engine import is_bunkr_url, BunkrSequentialDownloader
 log = logging.getLogger(__name__)
 temp_cloud_router = APIRouter()
 
-TEMP_CLOUD_ROOT = os.environ.get("TEMP_CLOUD_DIR", "/tmp/streamly_temp_cloud/storage")
+TEMP_CLOUD_ROOT = os.environ.get("TEMP_CLOUD_DIR", os.path.abspath(os.path.join(os.getcwd(), "storage", "temp_cloud")))
 DEFAULT_EXPIRY_SECONDS = 86400 # 24 hours
 TEMP_STORAGE_QUOTA_GB = 50.0
 
@@ -46,7 +46,7 @@ def _format_size(size_bytes: int) -> str:
 
 def _format_expiry(expiry_sec: int) -> str:
     if expiry_sec <= 0:
-        return "Expired"
+        return "Expires soon"
     hours = expiry_sec // 3600
     minutes = (expiry_sec % 3600) // 60
     if hours > 0:
@@ -62,15 +62,19 @@ async def auto_prune_expired_files(user_dir: str):
                 fpath = os.path.join(root, fname)
                 try:
                     stat = os.stat(fpath)
-                    if now - stat.st_mtime > DEFAULT_EXPIRY_SECONDS:
+                    # Use st_ctime (or most recent time) to avoid deleting files with old archive/remote mtimes
+                    file_age = now - max(stat.st_ctime, stat.st_mtime)
+                    if file_age > DEFAULT_EXPIRY_SECONDS:
                         os.remove(fpath)
-                        log.info("Auto-pruned expired temp file: %s", fpath)
+                        log.info("Auto-pruned expired temp file: %s (age: %.1f hours)", fpath, file_age / 3600.0)
                 except Exception:
                     pass
             for dname in dirs:
                 dpath = os.path.join(root, dname)
                 try:
-                    if not os.listdir(dpath): # Clean up empty extracted directories
+                    d_stat = os.stat(dpath)
+                    # Only clean empty folders if they are at least 1 hour old to avoid race conditions with active downloads
+                    if not os.listdir(dpath) and (now - d_stat.st_ctime > 3600):
                         os.rmdir(dpath)
                 except Exception:
                     pass
@@ -145,7 +149,7 @@ async def temp_cloud_list(request: Request, folder_id: Optional[str] = None):
                 rel_path = os.path.relpath(entry.path, user_dir).replace("\\", "/")
                 try:
                     stat = entry.stat()
-                    created_at = stat.st_mtime
+                    created_at = max(stat.st_ctime, stat.st_mtime)
                     age = now - created_at
                     expiry_sec = max(0, int(DEFAULT_EXPIRY_SECONDS - age))
                     expiry_str = _format_expiry(expiry_sec)

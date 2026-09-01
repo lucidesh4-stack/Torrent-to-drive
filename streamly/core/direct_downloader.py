@@ -252,6 +252,11 @@ class Direct1DMDownloader:
             if progress_callback:
                 progress_callback(downloaded_bytes, total_size or downloaded_bytes, avg_speed_mbps)
 
+            try:
+                os.utime(target_path, (time.time(), time.time()))
+            except Exception:
+                pass
+
             return target_path
 
         finally:

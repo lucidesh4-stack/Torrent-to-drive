@@ -1064,6 +1064,9 @@
     } else {
       window.driveProvider = "seedr";
     }
+    try {
+      localStorage.setItem("streamly:drive_provider", window.driveProvider);
+    } catch (_) {}
     
     const isSeedr = window.driveProvider === "seedr";
     const isOffcloud = window.driveProvider === "offcloud";
@@ -1793,6 +1796,14 @@
     const tempBtnM = $("driveProviderTempMobile");
     if (tempBtn) tempBtn.addEventListener("click", () => setDriveProvider("temp"));
     if (tempBtnM) tempBtnM.addEventListener("click", () => setDriveProvider("temp"));
+
+    // Restore saved provider on load
+    try {
+      const savedProvider = localStorage.getItem("streamly:drive_provider");
+      if (savedProvider && ["temp", "offcloud"].includes(savedProvider)) {
+        setDriveProvider(savedProvider);
+      }
+    } catch (_) {}
 
     // Intercept magnet buttons when in Temp Cloud mode to open Unified Cloud Downloader Modal
     const handleActionBtnClick = (e) => {
