@@ -346,6 +346,9 @@ def create_app(
 
     @app.exception_handler(PermissionError)
     async def handle_permission(request: Request, exc: PermissionError):
+        if isinstance(exc, OSError) and getattr(exc, "errno", None) is not None:
+            log.exception("Filesystem permission error on %s: %s", request.url.path, exc)
+            return JSONResponse(status_code=500, content={"success": False, "error": {"code": "fs_permission_error", "message": "Filesystem permission error"}})
         return JSONResponse(status_code=401, content={"success": False, "error": {"code": "authentication_failed", "message": "Authentication failed or provider unavailable"}})
 
     @app.exception_handler(HTTPException)

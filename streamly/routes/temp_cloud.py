@@ -25,14 +25,29 @@ from ..core.bunkr_engine import is_bunkr_url, BunkrSequentialDownloader
 log = logging.getLogger(__name__)
 temp_cloud_router = APIRouter()
 
-TEMP_CLOUD_ROOT = os.environ.get("TEMP_CLOUD_DIR", os.path.abspath(os.path.join(os.getcwd(), "storage", "temp_cloud")))
+def _resolve_temp_cloud_root() -> str:
+    env_dir = os.environ.get("TEMP_CLOUD_DIR")
+    if env_dir:
+        return os.path.abspath(env_dir)
+    # Prefer /tmp/streamly_temp_cloud on Linux/Docker environments for guaranteed 100% write permissions
+    if os.name != "nt" and os.path.exists("/tmp"):
+        return "/tmp/streamly_temp_cloud"
+    return os.path.abspath(os.path.join(os.getcwd(), "storage", "temp_cloud"))
+
+TEMP_CLOUD_ROOT = _resolve_temp_cloud_root()
 DEFAULT_EXPIRY_SECONDS = 86400 # 24 hours
 TEMP_STORAGE_QUOTA_GB = 50.0
 
 def get_user_temp_dir(sid: str = "") -> str:
     """Unified instance temp cloud storage root so files persist across browser sessions for 24h."""
-    os.makedirs(TEMP_CLOUD_ROOT, exist_ok=True)
-    return TEMP_CLOUD_ROOT
+    try:
+        os.makedirs(TEMP_CLOUD_ROOT, exist_ok=True)
+        return TEMP_CLOUD_ROOT
+    except Exception as e:
+        log.warning("Primary temp cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", TEMP_CLOUD_ROOT, e)
+        fallback = "/tmp/streamly_temp_cloud" if os.name != "nt" else os.path.abspath(os.path.join(os.getcwd(), "temp_cloud_data"))
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
 
 def _format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
