@@ -1130,9 +1130,15 @@
     }
   };
 
-  async function updateTempCloudStorageHeader() {
+  async function updateTempCloudStorageHeader(retryCount = 0) {
     try {
-      const res = await fetch("/api/temp_cloud/storage", { credentials: "same-origin" });
+      let res = await fetch("/api/temp_cloud/storage", { credentials: "same-origin" });
+      if (res.status === 401 && retryCount === 0) {
+        const relogged = await window.attemptSilentRelogin();
+        if (relogged) {
+          return updateTempCloudStorageHeader(1);
+        }
+      }
       if (!res.ok) return;
       const data = await res.json();
       const topText = $("topStorageText");
@@ -1607,14 +1613,20 @@
   };
 
   // ===== Temp Cloud (24h Ephemeral Drive) Loaders =====
-  window.loadTempCloudList = async function() {
+  window.loadTempCloudList = async function(retryCount = 0) {
     const body = $("cloudBody");
     const empty = $("cloudEmpty");
     if (!body) return;
     updateStatus($("cloudStatus"), "Loading Temp Cloud...", "");
     try {
       const folderParam = window.tempCloudCurrentFolder ? `?folder_id=${encodeURIComponent(window.tempCloudCurrentFolder)}` : "";
-      const res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      let res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      if (res.status === 401 && retryCount === 0) {
+        const relogged = await window.attemptSilentRelogin();
+        if (relogged) {
+          return window.loadTempCloudList(1);
+        }
+      }
       const data = await parseResponse(res);
       if (window.driveProvider !== "temp") return;
 
@@ -1687,14 +1699,20 @@
     }
   };
 
-  window.loadTempCloudListMobile = async function() {
+  window.loadTempCloudListMobile = async function(retryCount = 0) {
     const list = $("cloudMobileList");
     if (!list) return;
     const cnt = $("cmCount");
     const empty = $("cloudMobileEmpty");
     try {
       const folderParam = window.tempCloudCurrentFolder ? `?folder_id=${encodeURIComponent(window.tempCloudCurrentFolder)}` : "";
-      const res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      let res = await fetch(`/api/temp_cloud/list${folderParam}`, { credentials: "same-origin", cache: "no-store" });
+      if (res.status === 401 && retryCount === 0) {
+        const relogged = await window.attemptSilentRelogin();
+        if (relogged) {
+          return window.loadTempCloudListMobile(1);
+        }
+      }
       const data = await parseResponse(res);
       if (window.driveProvider !== "temp") return;
 
