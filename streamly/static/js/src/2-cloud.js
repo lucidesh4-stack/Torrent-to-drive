@@ -1794,16 +1794,13 @@
     if (tempBtn) tempBtn.addEventListener("click", () => setDriveProvider("temp"));
     if (tempBtnM) tempBtnM.addEventListener("click", () => setDriveProvider("temp"));
 
-    // Intercept magnet buttons when in Temp Cloud mode to open Paste Link Modal
+    // Intercept magnet buttons when in Temp Cloud mode to open Unified Cloud Downloader Modal
     const handleActionBtnClick = (e) => {
       if (window.driveProvider === "temp") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        const modal = $("pasteLinkModal");
-        if (modal) {
-          modal.classList.remove("hidden");
-          const input = $("tempDownloadUrl");
-          if (input) { input.value = ""; input.focus(); }
+        if (window.openCloudDownloadsModal) {
+          window.openCloudDownloadsModal();
         }
       }
     };
@@ -1812,46 +1809,6 @@
     const cmBtn = $("cmMagnetBtn");
     if (pBtn) pBtn.addEventListener("click", handleActionBtnClick, true);
     if (cmBtn) cmBtn.addEventListener("click", handleActionBtnClick, true);
-
-    // Paste Link Modal handlers
-    const closePasteBtn = $("closePasteLinkBtn");
-    const cancelPasteBtn = $("cancelPasteLinkBtn");
-    const startDownloadBtn = $("startTempDownloadBtn");
-    const modal = $("pasteLinkModal");
-
-    const closeModal = () => {
-      if (modal) modal.classList.add("hidden");
-    };
-
-    if (closePasteBtn) closePasteBtn.addEventListener("click", closeModal);
-    if (cancelPasteBtn) cancelPasteBtn.addEventListener("click", closeModal);
-
-    if (startDownloadBtn) {
-      startDownloadBtn.addEventListener("click", async () => {
-        const input = $("tempDownloadUrl");
-        const autoUnzipCb = $("tempAutoUnzip");
-        const url = (input ? input.value : "").trim();
-        if (!url) {
-          toast("Please enter a valid direct URL");
-          return;
-        }
-        closeModal();
-        try {
-          const res = await postJson("/api/temp_cloud/download", {
-            url: url,
-            auto_unzip: autoUnzipCb ? autoUnzipCb.checked : true
-          });
-          if (res && res.success) {
-            toast(res.message || "Download started!");
-            if (window.openCloudDownloadsModal) {
-              window.openCloudDownloadsModal();
-            }
-          }
-        } catch (err) {
-          toast("Download failed: " + (err.message || "Error"));
-        }
-      });
-    }
   });
 
 

@@ -25,7 +25,10 @@
     window.isDownloadsOverlayOpen = true;
     const overlay = document.getElementById("cloudDownloadsOverlay");
     if (overlay) overlay.classList.remove("hidden");
+    const input = document.getElementById("tempDownloadUrl");
+    if (input) { input.focus(); }
     initDownloadsSSE();
+    fetchDownloadsState();
   };
 
   window.closeCloudDownloadsModal = function() {
@@ -246,6 +249,45 @@
     document.getElementById("cloudDownloadsBtn")?.addEventListener("click", window.openCloudDownloadsModal);
     document.getElementById("cmDownloadsBtn")?.addEventListener("click", window.openCloudDownloadsModal);
     document.getElementById("closeCloudDownloadsBtn")?.addEventListener("click", window.closeCloudDownloadsModal);
+
+    // Add Download submit handler
+    const startDownloadBtn = document.getElementById("startTempDownloadBtn");
+    const downloadInput = document.getElementById("tempDownloadUrl");
+    const autoUnzipCb = document.getElementById("tempAutoUnzip");
+
+    const handleStartDownload = async () => {
+      const url = (downloadInput ? downloadInput.value : "").trim();
+      if (!url) {
+        if (window.toast) window.toast("Please paste a valid URL or Bunkr link");
+        return;
+      }
+      if (downloadInput) downloadInput.value = "";
+
+      try {
+        const res = await window.postJson("/api/temp_cloud/download", {
+          url: url,
+          auto_unzip: autoUnzipCb ? autoUnzipCb.checked : true
+        });
+        if (res && res.success) {
+          if (window.toast) window.toast(res.message || "Download queued!");
+          fetchDownloadsState();
+        } else {
+          if (window.toast) window.toast(res?.error || "Failed to start download");
+        }
+      } catch (err) {
+        if (window.toast) window.toast("Download error: " + (err.message || "Failed"));
+      }
+    };
+
+    if (startDownloadBtn) startDownloadBtn.addEventListener("click", handleStartDownload);
+    if (downloadInput) {
+      downloadInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          handleStartDownload();
+        }
+      });
+    }
 
     // Click outside overlay to close
     document.getElementById("cloudDownloadsOverlay")?.addEventListener("click", (e) => {
