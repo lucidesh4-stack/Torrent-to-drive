@@ -55,6 +55,10 @@
       }
     }
 
+    if (p === "temp") {
+      return `/api/temp_cloud/stream?file_id=${encodeURIComponent(itemId)}`;
+    }
+
     if (p === "telegram") {
       return `/api/telegram/download/${encodeURIComponent(itemId)}`;
     }

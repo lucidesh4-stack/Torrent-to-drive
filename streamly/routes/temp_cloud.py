@@ -1,4 +1,4 @@
-﻿"""
+"""
 Streamly Temp Cloud (24h Ephemeral Drive) Routes
 Provides high-speed local disk cloud storage with 24-hour auto-pruning,
 1DM direct URL multi-threaded downloads, and archive extraction.
@@ -217,7 +217,8 @@ class DownloadPayload(BaseModel):
     @field_validator("url")
     def validate_url(cls, v: str) -> str:
         v = v.strip()
-        validate_public_url(v)
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
         return v
 
 
@@ -225,6 +226,7 @@ class DownloadPayload(BaseModel):
 @rate_limited(cost=1.0)
 async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf = Depends(verify_csrf)):
     """Spawns 1DM multi-part engine to download URL directly into user's Temp Cloud directory."""
+    await validate_public_url(payload.url)
     sid = request.session.get("sid") or ensure_sid(request)
     user_dir = get_user_temp_dir(sid)
 
@@ -245,6 +247,27 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
         "success": True,
         "message": "1DM Download started in background. File will appear in Temp Cloud upon completion."
     }
+
+
+from fastapi.responses import FileResponse
+
+@temp_cloud_router.get("/api/temp_cloud/stream")
+@temp_cloud_router.get("/api/temp_cloud/file")
+async def temp_cloud_stream(request: Request, file_id: str):
+    """Streams or serves a file stored in Temp Cloud for browser playback and direct download."""
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+
+    target_path = os.path.realpath(os.path.join(user_dir, file_id.lstrip("/\\")))
+    if not target_path.startswith(os.path.realpath(user_dir)) or not os.path.exists(target_path) or os.path.isdir(target_path):
+        raise HTTPException(status_code=404, detail="File not found in Temp Cloud")
+
+    filename = os.path.basename(target_path)
+    return FileResponse(
+        target_path,
+        filename=filename,
+        content_disposition_type="inline"
+    )
 
 
 class DeletePayload(BaseModel):

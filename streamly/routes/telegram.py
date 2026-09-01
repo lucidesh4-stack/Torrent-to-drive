@@ -1080,6 +1080,7 @@ async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, cli
     config = request.app.state.config
     rs = request.app.state.rs
     cloud = request.app.state.cloud
+    sid = request.session.get("sid") or ensure_sid(request)
     
     if not rs:
         raise HTTPException(status_code=503, detail="Redis unavailable")

@@ -653,6 +653,9 @@
     if (typeof item.id === "string" && (item.id.startsWith("http://") || item.id.startsWith("https://"))) {
       return item.id;
     }
+    if (window.driveProvider === "temp" || (item.key && item.key.startsWith("temp:"))) {
+      return `/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}`;
+    }
     const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
     if (!data.url) throw new Error("No download/stream URL returned");
     return data.url;
@@ -735,13 +738,19 @@
 
   window.openItem = async function(item = selected) {
     if (!item) return toast("Select an item first");
-    if (item.type === "folder") return window.cloudOpenFolder(item.id);
+    if (item.type === "folder") {
+      if (window.driveProvider === "temp") {
+        return window.openTempCloudItem(item);
+      }
+      return window.cloudOpenFolder(item.id);
+    }
     try {
       const url = await getFileUrl(item);
       const ext = String(item.name || "").split(".").pop().toLowerCase();
+      const currentProv = window.driveProvider || (item.key && item.key.startsWith("temp:") ? "temp" : "seedr");
       if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts"].includes(ext)) {
         if (typeof window.openVideoPlayerModal === "function") {
-          window.openVideoPlayerModal("seedr", item.id, item.name || "Video Stream", formatBytes(item.size || 0));
+          window.openVideoPlayerModal(currentProv, item.id, item.name || "Video Stream", formatBytes(item.size || 0));
           return;
         }
         window.open(url, "_blank", "noopener,noreferrer");
