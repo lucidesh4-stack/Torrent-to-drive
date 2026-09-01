@@ -142,6 +142,9 @@ class BunkrSequentialDownloader:
         log.info("Starting Bunkr Sequential Album Downloader for: %s", url)
 
         # 1. Resolve Album Metadata via gallery-dl with fallback
+        if progress_callback:
+            progress_callback(0, 0, 0.0, 0, 1, "Resolving album metadata...", "Bunkr Album")
+
         album_title, items = await asyncio.to_thread(resolve_bunkr_via_gallery_dl, url)
         if not items:
             album_title, items = await resolve_bunkr_fallback(url)
@@ -161,6 +164,9 @@ class BunkrSequentialDownloader:
 
         total_items = len(items)
         completed_items = 0
+
+        if progress_callback:
+            progress_callback(0, 0, 0.0, 0, total_items, f"Found {total_items} items in {album_title}", album_title)
 
         # 3. Strictly Sequential Download Loop (Concurrency = 1) with Range Resume
         timeout_cfg = httpx.Timeout(180.0, connect=30.0, read=90.0, write=60.0)

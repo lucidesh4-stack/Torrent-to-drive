@@ -43,17 +43,29 @@
       event.stopPropagation();
     }
     const tid = String(taskId || "").trim();
-    if (!tid || window._dlCancelInFlight.has(tid)) return;
+    if (!tid) return;
 
+    // 1. Instant Optimistic UI Removal
+    const els = document.querySelectorAll(`[data-task-id="${tid}"]`);
+    els.forEach(el => el.remove());
+    const banner = document.getElementById("cloudActiveDownloadBanner");
+    const modalCard = document.getElementById("cloudActiveDownloadsCard");
+    if (banner && !banner.querySelector('[data-task-id]')) {
+      banner.classList.add("hidden");
+      banner.innerHTML = "";
+    }
+    if (modalCard && !modalCard.querySelector('[data-task-id]')) {
+      modalCard.innerHTML = `<div class="empty" style="padding: 12px; margin: 0; font-size: 13px;">No active downloads running.</div>`;
+    }
+
+    if (window._dlCancelInFlight.has(tid)) return;
     window._dlCancelInFlight.add(tid);
+
     console.log("[CloudDownloads] Requesting cancellation for task:", tid);
     try {
-      if (window.toast) window.toast("Cancelling download...");
+      if (window.toast) window.toast("Download cancelled");
       const res = await window.postJson("/api/temp_cloud/downloads/cancel", { task_id: tid });
       console.log("[CloudDownloads] Cancel response:", res);
-      if (res && res.success) {
-        if (window.toast) window.toast("Download cancelled");
-      }
       await fetchDownloadsState();
     } catch (e) {
       console.error("Cancel download failed:", e);
@@ -67,14 +79,27 @@
     if (event) { event.preventDefault(); event.stopPropagation(); }
     const tid = String(taskId || "").trim();
     if (!tid) return;
+
+    // Instant optimistic pause update
+    const els = document.querySelectorAll(`[data-task-id="${tid}"]`);
+    els.forEach(el => {
+      const badge = el.querySelector(".dl-status-badge");
+      if (badge) {
+        badge.textContent = "PAUSED";
+        badge.style.background = "rgba(239,68,68,0.2)";
+        badge.style.color = "#f87171";
+      }
+      const pauseBtn = el.querySelector(".dl-pause-btn");
+      if (pauseBtn) {
+        pauseBtn.outerHTML = `<button type="button" class="dl-resume-btn" onclick="window.resumeCloudDownload('${tid}', event)" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">▶ Resume</button>`;
+      }
+    });
+
     console.log("[CloudDownloads] Requesting pause for task:", tid);
     try {
-      if (window.toast) window.toast("Pausing download...");
+      if (window.toast) window.toast("Download paused");
       const res = await window.postJson("/api/temp_cloud/downloads/pause", { task_id: tid });
       console.log("[CloudDownloads] Pause response:", res);
-      if (res && res.success) {
-        if (window.toast) window.toast("Download paused");
-      }
       await fetchDownloadsState();
     } catch (e) {
       console.error("Pause download failed:", e);
@@ -86,14 +111,27 @@
     if (event) { event.preventDefault(); event.stopPropagation(); }
     const tid = String(taskId || "").trim();
     if (!tid) return;
+
+    // Instant optimistic resume update
+    const els = document.querySelectorAll(`[data-task-id="${tid}"]`);
+    els.forEach(el => {
+      const badge = el.querySelector(".dl-status-badge");
+      if (badge) {
+        badge.textContent = "DOWNLOADING";
+        badge.style.background = "rgba(59,130,246,0.2)";
+        badge.style.color = "#60a5fa";
+      }
+      const resumeBtn = el.querySelector(".dl-resume-btn");
+      if (resumeBtn) {
+        resumeBtn.outerHTML = `<button type="button" class="dl-pause-btn" onclick="window.pauseCloudDownload('${tid}', event)" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">⏸ Pause</button>`;
+      }
+    });
+
     console.log("[CloudDownloads] Requesting resume for task:", tid);
     try {
-      if (window.toast) window.toast("Resuming download...");
+      if (window.toast) window.toast("Download resumed");
       const res = await window.postJson("/api/temp_cloud/downloads/resume", { task_id: tid });
       console.log("[CloudDownloads] Resume response:", res);
-      if (res && res.success) {
-        if (window.toast) window.toast("Download resumed");
-      }
       await fetchDownloadsState();
     } catch (e) {
       console.error("Resume download failed:", e);
@@ -138,10 +176,10 @@
           const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (item.type === "bunkr" ? "BUNKR ALBUM" : "1DM TURBO"));
 
           return `
-          <div style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;">
+          <div data-task-id="${item.task_id}" style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
               <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
-                <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.2); color: #60a5fa; text-transform: uppercase; flex-shrink: 0;">${statusText}</span>
+                <span class="dl-status-badge" style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.2); color: #60a5fa; text-transform: uppercase; flex-shrink: 0;">${statusText}</span>
                 <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
@@ -181,16 +219,16 @@
           const statusBadge = item.status === "EXTRACTING" ? "background: rgba(245,158,11,0.2); color: #fbbf24;" : (isPaused ? "background: rgba(239,68,68,0.2); color: #f87171;" : "background: rgba(59,130,246,0.2); color: #60a5fa;");
 
           return `
-          <div style="padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
+          <div data-task-id="${item.task_id}" style="padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
               <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
-                <span style="font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 4px; ${statusBadge} text-transform: uppercase; flex-shrink: 0;">${item.status}</span>
+                <span class="dl-status-badge" style="font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 4px; ${statusBadge} text-transform: uppercase; flex-shrink: 0;">${item.status}</span>
                 <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                 ${isPaused ? 
-                  `<button type="button" onclick="window.resumeCloudDownload('${item.task_id}', event)" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">▶ Resume</button>` :
-                  `<button type="button" onclick="window.pauseCloudDownload('${item.task_id}', event)" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">⏸ Pause</button>`
+                  `<button type="button" class="dl-resume-btn" onclick="window.resumeCloudDownload('${item.task_id}', event)" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">▶ Resume</button>` :
+                  `<button type="button" class="dl-pause-btn" onclick="window.pauseCloudDownload('${item.task_id}', event)" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">⏸ Pause</button>`
                 }
                 <button type="button" onclick="window.cancelCloudDownload('${item.task_id}', event)" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 700; white-space: nowrap;" title="Cancel">✕</button>
               </div>
