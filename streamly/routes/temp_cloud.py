@@ -206,36 +206,8 @@ async def temp_cloud_list(request: Request, folder_id: Optional[str] = None):
     }
 
 
-from ..core.media_resolver import MediaResolver
-
-
-class ProbePayload(BaseModel):
-    url: str
-
-    @field_validator("url")
-    def validate_url(cls, v: str) -> str:
-        v = v.strip()
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
-        return v
-
-
-@temp_cloud_router.post("/api/temp_cloud/probe")
-@rate_limited(cost=1.0)
-async def temp_cloud_probe(request: Request, payload: ProbePayload, _csrf = Depends(verify_csrf)):
-    """Probes a URL to discover media title, thumbnail, duration, and available format resolutions."""
-    await validate_public_url(payload.url)
-    try:
-        data = await MediaResolver.probe_url(payload.url)
-        return {"success": True, "data": data}
-    except Exception as e:
-        log.error("Probe failed for URL %s: %s", payload.url, e)
-        raise HTTPException(status_code=400, detail=str(e))
-
-
 class DownloadPayload(BaseModel):
     url: str
-    format_id: Optional[str] = None
     auto_unzip: bool = True
 
     @field_validator("url")
@@ -249,18 +221,14 @@ class DownloadPayload(BaseModel):
 @temp_cloud_router.post("/api/temp_cloud/download")
 @rate_limited(cost=1.0)
 async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf = Depends(verify_csrf)):
-    """Downloads URL/Media with selected format into user's Temp Cloud directory."""
+    """Downloads direct URL/file via 1DM turbo multi-threaded engine into Temp Cloud."""
     await validate_public_url(payload.url)
-    sid = request.session.get("sid") or ensure_sid(request)
-    user_dir = get_user_temp_dir(sid)
+    user_dir = get_user_temp_dir()
 
     async def _run_download_and_extract():
         try:
-            downloaded_file = await MediaResolver.download_media(
-                url=payload.url,
-                target_dir=user_dir,
-                format_id=payload.format_id
-            )
+            downloader = Direct1DMDownloader(target_dir=user_dir, num_connections=16)
+            downloaded_file = await downloader.download(payload.url)
             if payload.auto_unzip and downloaded_file and is_archive(downloaded_file):
                 log.info("Auto-extracting downloaded archive: %s", downloaded_file)
                 await asyncio.to_thread(safe_extract_archive, downloaded_file, user_dir, delete_archive=True)
@@ -271,7 +239,7 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
 
     return {
         "success": True,
-        "message": "Download started in background. File will appear in Temp Cloud upon completion."
+        "message": "1DM High-Speed download started. File will appear in Temp Cloud upon completion."
     }
 
 

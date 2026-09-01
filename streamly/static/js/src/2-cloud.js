@@ -1816,120 +1816,15 @@
     // Paste Link Modal handlers
     const closePasteBtn = $("closePasteLinkBtn");
     const cancelPasteBtn = $("cancelPasteLinkBtn");
-    const inspectMediaBtn = $("inspectMediaBtn");
     const startDownloadBtn = $("startTempDownloadBtn");
     const modal = $("pasteLinkModal");
-    let selectedFormatId = null;
-
-    const resetModalState = () => {
-      selectedFormatId = null;
-      const card = $("mediaProbeCard");
-      if (card) card.classList.add("hidden");
-      const list = $("probeFormatsList");
-      if (list) list.innerHTML = "";
-      const status = $("pasteLinkStatus");
-      if (status) { status.classList.add("hidden"); status.textContent = ""; }
-    };
 
     const closeModal = () => {
       if (modal) modal.classList.add("hidden");
-      resetModalState();
     };
 
     if (closePasteBtn) closePasteBtn.addEventListener("click", closeModal);
     if (cancelPasteBtn) cancelPasteBtn.addEventListener("click", closeModal);
-
-    const handleProbeUrl = async () => {
-      const input = $("tempDownloadUrl");
-      const url = (input ? input.value : "").trim();
-      if (!url) {
-        toast("Please enter a link URL first");
-        return;
-      }
-
-      const inspectBtn = $("inspectMediaBtn");
-      if (inspectBtn) {
-        inspectBtn.disabled = true;
-        inspectBtn.textContent = "⌛ Inspecting...";
-      }
-      resetModalState();
-
-      try {
-        const res = await postJson("/api/temp_cloud/probe", { url: url });
-        if (!res || !res.data) throw new Error("Could not inspect URL");
-
-        const data = res.data;
-        const card = $("mediaProbeCard");
-        const titleEl = $("probeTitle");
-        const metaEl = $("probeMeta");
-        const thumbEl = $("probeThumbnail");
-        const formatsList = $("probeFormatsList");
-
-        if (card) card.classList.remove("hidden");
-        if (titleEl) titleEl.textContent = data.title || "Direct Media File";
-        
-        let metaText = [];
-        if (data.duration) metaText.push(data.duration);
-        if (data.uploader) metaText.push(data.uploader);
-        if (metaEl) metaEl.textContent = metaText.join(" • ") || (data.is_media ? "Media Stream" : "Direct Link");
-
-        if (thumbEl) {
-          if (data.thumbnail) {
-            thumbEl.src = data.thumbnail;
-            thumbEl.style.display = "block";
-          } else {
-            thumbEl.style.display = "none";
-          }
-        }
-
-        if (formatsList && data.formats && data.formats.length > 0) {
-          formatsList.innerHTML = "";
-          data.formats.forEach((fmt, idx) => {
-            const row = document.createElement("label");
-            row.style.display = "flex";
-            row.style.alignItems = "center";
-            row.style.justifyContent = "space-between";
-            row.style.gap = "8px";
-            row.style.padding = "8px 12px";
-            row.style.background = "rgba(255, 255, 255, 0.04)";
-            row.style.border = "1px solid var(--line)";
-            row.style.borderRadius = "8px";
-            row.style.cursor = "pointer";
-            row.style.fontSize = "12px";
-            row.className = "hover:border-cyan-500 transition-colors";
-
-            const isDefault = idx === 0;
-            if (isDefault) selectedFormatId = fmt.format_id;
-
-            row.innerHTML = `
-              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-                <input type="radio" name="probeFormatRadio" value="${escapeHtml(fmt.format_id)}" ${isDefault ? 'checked' : ''} style="cursor: pointer;">
-                <div>
-                  <span style="font-weight: 600; color: var(--text);">${escapeHtml(fmt.label)}</span>
-                  <span class="muted" style="font-size: 11px; margin-left: 4px;">(${escapeHtml(fmt.note)})</span>
-                </div>
-              </div>
-              <span style="font-weight: 600; color: #06b6d4; font-family: monospace;">${escapeHtml(fmt.filesize_str || "")}</span>
-            `;
-
-            row.querySelector("input").addEventListener("change", (e) => {
-              if (e.target.checked) selectedFormatId = fmt.format_id;
-            });
-
-            formatsList.appendChild(row);
-          });
-        }
-      } catch (err) {
-        toast("Inspection failed: " + (err.message || "Unknown error"));
-      } finally {
-        if (inspectBtn) {
-          inspectBtn.disabled = false;
-          inspectBtn.textContent = "⚡ Fetch Formats";
-        }
-      }
-    };
-
-    if (inspectMediaBtn) inspectMediaBtn.addEventListener("click", handleProbeUrl);
 
     if (startDownloadBtn) {
       startDownloadBtn.addEventListener("click", async () => {
@@ -1937,15 +1832,14 @@
         const autoUnzipCb = $("tempAutoUnzip");
         const url = (input ? input.value : "").trim();
         if (!url) {
-          toast("Please enter a valid URL");
+          toast("Please enter a valid direct URL");
           return;
         }
         closeModal();
-        toast("⚡ Download started in background...");
+        toast("⚡ 1DM Turbo Download started in background...");
         try {
           await postJson("/api/temp_cloud/download", {
             url: url,
-            format_id: selectedFormatId,
             auto_unzip: autoUnzipCb ? autoUnzipCb.checked : true
           });
           setTimeout(() => {
@@ -1954,7 +1848,7 @@
               loadTempCloudListMobile();
               updateTempCloudStorageHeader();
             }
-          }, 2500);
+          }, 2000);
         } catch (err) {
           toast("Download failed: " + (err.message || "Error"));
         }
