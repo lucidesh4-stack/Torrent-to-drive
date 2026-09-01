@@ -1,4 +1,4 @@
-﻿"""
+"""
 1DM-Style High-Speed Multi-Threaded Range Downloader Engine
 Supports dynamic 16-32 chunk range splitting, direct sparse-file disk allocation,
 and automatic fallback for servers that do not support range headers.
@@ -113,8 +113,8 @@ class Direct1DMDownloader:
         progress_callback: Optional[Callable[[int, int, float], None]] = None
     ) -> str:
         """
-        Executes 1DM-style multi-connection download.
-        progress_callback(downloaded_bytes, total_bytes, speed_mbps)
+        Executes 1DM-style multi-connection high-speed download with dynamic scaling,
+        persistent file descriptor writing, and automatic failure cleanup.
         """
         probe_info = await self.probe(url)
         final_filename = filename or probe_info["filename"]
@@ -122,12 +122,24 @@ class Direct1DMDownloader:
         total_size = probe_info["content_length"]
         supports_ranges = probe_info["supports_ranges"] and total_size > 2 * 1024 * 1024
 
+        # Pre-check NVMe physical disk space
+        if total_size > 0:
+            import shutil
+            free_disk = shutil.disk_usage(self.target_dir).free
+            if free_disk < (total_size + 50 * 1024 * 1024):
+                raise ValueError(
+                    f"Insufficient disk space: {free_disk / (1024**3):.2f} GB free, {total_size / (1024**3):.2f} GB required."
+                )
+
+        # Dynamically scale parallel connections (e.g. 1 conn per 2MB minimum)
+        active_connections = min(self.num_connections, max(1, total_size // (2 * 1024 * 1024))) if (supports_ranges and total_size > 0) else 1
+
         log.info(
-            "1DM Engine: Downloading %s (Size: %s, Range Support: %s, Connections: %d)",
+            "1DM Engine: Downloading %s (Size: %s, Range Support: %s, Parallel Streams: %d)",
             final_filename,
             f"{total_size / (1024*1024):.2f} MB" if total_size else "Unknown",
             supports_ranges,
-            self.num_connections if supports_ranges else 1
+            active_connections
         )
 
         start_time = time.time()
@@ -135,88 +147,106 @@ class Direct1DMDownloader:
         last_progress_time = start_time
         last_downloaded_bytes = 0
         file_lock = asyncio.Lock()
+        download_succeeded = False
 
-        # Allocate file size on disk
+        # Allocate file size on disk for sparse writing
         if total_size > 0:
             with open(target_path, "wb") as f:
                 f.seek(total_size - 1)
                 f.write(b"\0")
 
-        if supports_ranges and total_size > 0:
-            part_size = math.ceil(total_size / self.num_connections)
-            tasks = []
+        out_file = None
+        try:
+            if supports_ranges and total_size > 0:
+                out_file = open(target_path, "r+b", buffering=0)
+                part_size = math.ceil(total_size / active_connections)
+                tasks = []
 
-            async def _download_slice(slice_idx: int, start_byte: int, end_byte: int):
-                nonlocal downloaded_bytes, last_progress_time, last_downloaded_bytes
-                slice_headers = {**DEFAULT_HEADERS, "Range": f"bytes={start_byte}-{end_byte}"}
-                
-                async with httpx.AsyncClient(headers=slice_headers, timeout=self.timeout, follow_redirects=True) as client:
+                async def _download_slice(slice_idx: int, start_byte: int, end_byte: int):
+                    nonlocal downloaded_bytes, last_progress_time, last_downloaded_bytes
+                    slice_headers = {**DEFAULT_HEADERS, "Range": f"bytes={start_byte}-{end_byte}"}
+                    
+                    async with httpx.AsyncClient(headers=slice_headers, timeout=self.timeout, follow_redirects=True) as client:
+                        async with client.stream("GET", probe_info["redirected_url"]) as resp:
+                            resp.raise_for_status()
+                            current_offset = start_byte
+                            async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
+                                if self._cancel_flag[0]:
+                                    raise asyncio.CancelledError("Download cancelled by user")
+                                
+                                chunk_len = len(chunk)
+                                async with file_lock:
+                                    out_file.seek(current_offset)
+                                    out_file.write(chunk)
+                                
+                                current_offset += chunk_len
+                                downloaded_bytes += chunk_len
+
+                                now = time.time()
+                                if now - last_progress_time >= 0.5:
+                                    elapsed = now - last_progress_time
+                                    bytes_diff = downloaded_bytes - last_downloaded_bytes
+                                    speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
+                                    last_progress_time = now
+                                    last_downloaded_bytes = downloaded_bytes
+                                    if progress_callback:
+                                        progress_callback(downloaded_bytes, total_size, speed_mbps)
+
+                for i in range(active_connections):
+                    s_byte = i * part_size
+                    e_byte = min(total_size - 1, (i + 1) * part_size - 1)
+                    if s_byte <= e_byte:
+                        tasks.append(_download_slice(i, s_byte, e_byte))
+
+                await asyncio.gather(*tasks)
+
+            else:
+                async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=self.timeout, follow_redirects=True) as client:
                     async with client.stream("GET", probe_info["redirected_url"]) as resp:
                         resp.raise_for_status()
-                        current_offset = start_byte
-                        async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                            if self._cancel_flag[0]:
-                                raise asyncio.CancelledError("Download cancelled by user")
-                            
-                            chunk_len = len(chunk)
-                            async with file_lock:
-                                with open(target_path, "r+b") as f:
-                                    f.seek(current_offset)
-                                    f.write(chunk)
-                            
-                            current_offset += chunk_len
-                            downloaded_bytes += chunk_len
+                        with open(target_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
+                                if self._cancel_flag[0]:
+                                    raise asyncio.CancelledError("Download cancelled by user")
+                                f.write(chunk)
+                                downloaded_bytes += len(chunk)
 
-                            now = time.time()
-                            if now - last_progress_time >= 0.5:
-                                elapsed = now - last_progress_time
-                                bytes_diff = downloaded_bytes - last_downloaded_bytes
-                                speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
-                                last_progress_time = now
-                                last_downloaded_bytes = downloaded_bytes
-                                if progress_callback:
-                                    progress_callback(downloaded_bytes, total_size, speed_mbps)
+                                now = time.time()
+                                if now - last_progress_time >= 0.5:
+                                    elapsed = now - last_progress_time
+                                    bytes_diff = downloaded_bytes - last_downloaded_bytes
+                                    speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
+                                    last_progress_time = now
+                                    last_downloaded_bytes = downloaded_bytes
+                                    if progress_callback:
+                                        progress_callback(downloaded_bytes, total_size or downloaded_bytes, speed_mbps)
 
-            for i in range(self.num_connections):
-                s_byte = i * part_size
-                e_byte = min(total_size - 1, (i + 1) * part_size - 1)
-                if s_byte <= e_byte:
-                    tasks.append(_download_slice(i, s_byte, e_byte))
+            download_succeeded = True
+            elapsed_total = time.time() - start_time
+            avg_speed_mbps = (downloaded_bytes / (1024 * 1024) / elapsed_total) * 8.0 if elapsed_total > 0 else 0.0
+            log.info(
+                "1DM Download Complete: %s (%.2f MB in %.1fs, %.2f Mbps avg)",
+                final_filename,
+                downloaded_bytes / (1024 * 1024),
+                elapsed_total,
+                avg_speed_mbps
+            )
 
-            await asyncio.gather(*tasks)
+            if progress_callback:
+                progress_callback(downloaded_bytes, total_size or downloaded_bytes, avg_speed_mbps)
 
-        else:
-            async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=self.timeout, follow_redirects=True) as client:
-                async with client.stream("GET", probe_info["redirected_url"]) as resp:
-                    resp.raise_for_status()
-                    with open(target_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                            if self._cancel_flag[0]:
-                                raise asyncio.CancelledError("Download cancelled by user")
-                            f.write(chunk)
-                            downloaded_bytes += len(chunk)
+            return target_path
 
-                            now = time.time()
-                            if now - last_progress_time >= 0.5:
-                                elapsed = now - last_progress_time
-                                bytes_diff = downloaded_bytes - last_downloaded_bytes
-                                speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
-                                last_progress_time = now
-                                last_downloaded_bytes = downloaded_bytes
-                                if progress_callback:
-                                    progress_callback(downloaded_bytes, total_size or downloaded_bytes, speed_mbps)
-
-        elapsed_total = time.time() - start_time
-        avg_speed_mbps = (downloaded_bytes / (1024 * 1024) / elapsed_total) * 8.0 if elapsed_total > 0 else 0.0
-        log.info(
-            "1DM Download Complete: %s (%.2f MB in %.1fs, %.2f Mbps avg)",
-            final_filename,
-            downloaded_bytes / (1024 * 1024),
-            elapsed_total,
-            avg_speed_mbps
-        )
-
-        if progress_callback:
-            progress_callback(downloaded_bytes, total_size or downloaded_bytes, avg_speed_mbps)
-
-        return target_path
+        finally:
+            if out_file:
+                try:
+                    out_file.close()
+                except Exception:
+                    pass
+            # Cleanup incomplete file if download failed or cancelled
+            if not download_succeeded and os.path.exists(target_path):
+                try:
+                    os.remove(target_path)
+                    log.info("Cleaned up incomplete 1DM download: %s", target_path)
+                except Exception:
+                    pass

@@ -225,6 +225,21 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
     await validate_public_url(payload.url)
     user_dir = get_user_temp_dir()
 
+    # Pre-check Temp Cloud quota before dispatching
+    user_used = 0
+    for root, _, files in os.walk(user_dir):
+        for f in files:
+            try:
+                user_used += os.path.getsize(os.path.join(root, f))
+            except Exception:
+                pass
+    quota_bytes = int(TEMP_STORAGE_QUOTA_GB * (1024 ** 3))
+    if user_used >= quota_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Temp Cloud quota full ({user_used / (1024**3):.1f} / {TEMP_STORAGE_QUOTA_GB:.1f} GB). Please delete files first."
+        )
+
     async def _run_download_and_extract():
         try:
             downloader = Direct1DMDownloader(target_dir=user_dir, num_connections=16)
@@ -299,13 +314,26 @@ async def temp_cloud_stream(request: Request, file_id: str):
         }
         return StreamingResponse(_iter_file(), headers=headers, status_code=200)
 
-    # Parse Range: bytes=start-end
+    # Standard RFC 7233 Range parser: bytes=start-end, bytes=start-, or bytes=-suffix_len
     try:
         range_val = range_header.strip().lower().replace("bytes=", "")
-        parts = range_val.split("-")
-        start = int(parts[0]) if parts[0] else 0
-        end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+        if range_val.startswith("-"):
+            # Suffix range (e.g. bytes=-500 -> last 500 bytes)
+            suffix_len = int(range_val[1:])
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+        elif "-" in range_val:
+            parts = range_val.split("-", 1)
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+        else:
+            start = int(range_val)
+            end = file_size - 1
+
         if end >= file_size:
+            end = file_size - 1
+        if start < 0 or start > end:
+            start = 0
             end = file_size - 1
         length = end - start + 1
     except Exception:

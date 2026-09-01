@@ -45,52 +45,60 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
 
     log.info("Extracting archive %s -> %s", filename, dest_dir)
 
-    if filename_lower.endswith(".zip"):
-        with zipfile.ZipFile(archive_path, 'r') as zf:
-            for member in zf.infolist():
-                # Prevent Zip-Slip directory traversal attack
-                target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
-                if not target_file_path.startswith(dest_dir_real):
-                    log.warning("Zip-Slip security attempt detected for member: %s. Skipping.", member.filename)
-                    continue
-                zf.extract(member, dest_dir)
-
-    elif filename_lower.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2")):
-        mode = "r:*"
-        with tarfile.open(archive_path, mode) as tf:
-            for member in tf.getmembers():
-                target_file_path = os.path.realpath(os.path.join(dest_dir, member.name))
-                if not target_file_path.startswith(dest_dir_real):
-                    log.warning("Tar-Slip security attempt detected for member: %s. Skipping.", member.name)
-                    continue
-                tf.extract(member, dest_dir)
-
-    elif filename_lower.endswith(".7z"):
-        try:
-            import py7zr
-            with py7zr.SevenZipFile(archive_path, mode='r') as szf:
-                szf.extractall(path=dest_dir)
-        except ImportError:
-            log.warning("py7zr not installed; trying 7z system cli")
-            import subprocess
-            subprocess.run(["7z", "x", archive_path, f"-o{dest_dir}", "-y"], check=True)
-
-    elif filename_lower.endswith(".rar"):
-        try:
-            import rarfile
-            with rarfile.RarFile(archive_path) as rf:
-                for member in rf.infolist():
+    try:
+        if filename_lower.endswith(".zip"):
+            with zipfile.ZipFile(archive_path, 'r') as zf:
+                for member in zf.infolist():
+                    # Prevent Zip-Slip directory traversal attack
                     target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
                     if not target_file_path.startswith(dest_dir_real):
+                        log.warning("Zip-Slip security attempt detected for member: %s. Skipping.", member.filename)
                         continue
-                    rf.extract(member, dest_dir)
-        except Exception as re:
-            log.warning("rarfile extraction failed: %s; trying unrar system cli", re)
-            import subprocess
-            subprocess.run(["unrar", "x", "-o+", archive_path, dest_dir], check=True)
+                    zf.extract(member, dest_dir)
 
-    else:
-        raise ValueError(f"Unsupported archive format: {filename}")
+        elif filename_lower.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2")):
+            mode = "r:*"
+            with tarfile.open(archive_path, mode) as tf:
+                for member in tf.getmembers():
+                    target_file_path = os.path.realpath(os.path.join(dest_dir, member.name))
+                    if not target_file_path.startswith(dest_dir_real):
+                        log.warning("Tar-Slip security attempt detected for member: %s. Skipping.", member.name)
+                        continue
+                    tf.extract(member, dest_dir)
+
+        elif filename_lower.endswith(".7z"):
+            try:
+                import py7zr
+                with py7zr.SevenZipFile(archive_path, mode='r') as szf:
+                    szf.extractall(path=dest_dir)
+            except ImportError:
+                log.warning("py7zr not installed; trying 7z system cli")
+                import subprocess
+                subprocess.run(["7z", "x", archive_path, f"-o{dest_dir}", "-y"], check=True)
+
+        elif filename_lower.endswith(".rar"):
+            try:
+                import rarfile
+                with rarfile.RarFile(archive_path) as rf:
+                    for member in rf.infolist():
+                        target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
+                        if not target_file_path.startswith(dest_dir_real):
+                            continue
+                        rf.extract(member, dest_dir)
+            except Exception as re:
+                log.warning("rarfile extraction failed: %s; trying unrar system cli", re)
+                import subprocess
+                subprocess.run(["unrar", "x", "-o+", archive_path, dest_dir], check=True)
+
+        else:
+            raise ValueError(f"Unsupported archive format: {filename}")
+
+    except Exception as extract_err:
+        log.error("Archive extraction failed for %s: %s", archive_path, extract_err)
+        # Rollback partial extraction
+        if os.path.exists(dest_dir):
+            shutil.rmtree(dest_dir, ignore_errors=True)
+        raise extract_err
 
     if delete_archive and os.path.exists(archive_path):
         try:
