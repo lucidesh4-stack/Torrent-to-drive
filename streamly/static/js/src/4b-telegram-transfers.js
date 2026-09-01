@@ -79,7 +79,7 @@
     const activeCard = $("tgActiveTransferCard");
     if (activeCard) {
       const rawActive = data.active_items || (data.active ? [data.active] : []);
-      const activeItems = rawActive.filter(a => a && a.status !== "COMPLETED" && a.status !== "FAILED");
+      const activeItems = rawActive.filter(a => a && a.status !== "COMPLETED" && a.status !== "FAILED" && a.status !== "CANCELLED" && !String(a.status).includes("CANCEL"));
       activeItems.sort((a, b) => {
         if (a.seq_num !== undefined && b.seq_num !== undefined && a.seq_num !== b.seq_num) {
           return a.seq_num - b.seq_num;

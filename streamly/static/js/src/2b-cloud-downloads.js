@@ -123,31 +123,33 @@
         banner.innerHTML = active.map(item => {
           const fname = escapeHtml(item.filename || "file");
           const pct = Math.min(100, Math.max(0, item.progress || 0)).toFixed(1);
-          const speed = item.speed_mb ? `${item.speed_mb.toFixed(2)} MB/s` : (item.speed_mbps ? `${item.speed_mbps.toFixed(1)} Mbps` : "0.0 MB/s");
+          const speed = (item.speed_mb !== undefined && item.speed_mb !== null && item.speed_mb > 0) 
+            ? `${item.speed_mb.toFixed(2)} MB/s` 
+            : ((item.speed_mbps && item.speed_mbps > 0) ? `${(item.speed_mbps / 8.0).toFixed(2)} MB/s` : "0.00 MB/s");
           const sent = formatBytes(item.downloaded_bytes || 0);
           const total = formatBytes(item.total_bytes || 0);
           const isPaused = item.status === "PAUSED";
-          const statusText = item.status === "EXTRACTING" ? "EXTRACTING ARCHIVE..." : (isPaused ? "PAUSED" : (item.type === "bunkr" ? "BUNKR ALBUM" : "1DM TURBO"));
+          const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (item.type === "bunkr" ? "BUNKR ALBUM" : "1DM TURBO"));
 
           return `
-          <div style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.2); color: #60a5fa; text-transform: uppercase;">${statusText}</span>
-                <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${fname}">${fname}</strong>
+          <div style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
+                <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.2); color: #60a5fa; text-transform: uppercase; flex-shrink: 0;">${statusText}</span>
+                <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                <button onclick="window.openCloudDownloadsModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 11px; font-weight: 600;">Details</button>
-                <button onclick="window.cancelCloudDownload('${item.task_id}', event)" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 4px; cursor: pointer; padding: 3px 8px; font-size: 11px; font-weight: 700;" title="Cancel">✕</button>
+                <button type="button" onclick="window.openCloudDownloadsModal()" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); color: #cbd5e1; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">Details</button>
+                <button type="button" onclick="window.cancelCloudDownload('${item.task_id}', event)" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 700; white-space: nowrap;" title="Cancel">✕</button>
               </div>
             </div>
             <!-- Progress Bar -->
             <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden;">
               <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 999px; transition: width 0.3s ease;"></div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;" class="muted">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; width: 100%; min-width: 0;" class="muted">
               <span>${sent} / ${total} (${pct}%)</span>
-              <span style="font-family: monospace; font-weight: 600; color: #60a5fa;">${speed}</span>
+              <span style="font-family: monospace; font-weight: 600; color: #60a5fa; font-size: 12px;">${speed}</span>
             </div>
           </div>`;
         }).join('');
@@ -164,33 +166,35 @@
         modalActiveCard.innerHTML = active.map(item => {
           const fname = escapeHtml(item.filename || "file");
           const pct = Math.min(100, Math.max(0, item.progress || 0)).toFixed(1);
-          const speed = item.speed_mb ? `${item.speed_mb.toFixed(2)} MB/s` : (item.speed_mbps ? `${item.speed_mbps.toFixed(1)} Mbps` : "0.0 MB/s");
+          const speed = (item.speed_mb !== undefined && item.speed_mb !== null && item.speed_mb > 0) 
+            ? `${item.speed_mb.toFixed(2)} MB/s` 
+            : ((item.speed_mbps && item.speed_mbps > 0) ? `${(item.speed_mbps / 8.0).toFixed(2)} MB/s` : "0.00 MB/s");
           const sent = formatBytes(item.downloaded_bytes || 0);
           const total = formatBytes(item.total_bytes || 0);
           const isPaused = item.status === "PAUSED";
           const statusBadge = item.status === "EXTRACTING" ? "background: rgba(245,158,11,0.2); color: #fbbf24;" : (isPaused ? "background: rgba(239,68,68,0.2); color: #f87171;" : "background: rgba(59,130,246,0.2); color: #60a5fa;");
 
           return `
-          <div style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;">
-                <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; ${statusBadge} text-transform: uppercase;">${item.status}</span>
-                <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${fname}">${fname}</strong>
+          <div style="padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
+                <span style="font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 4px; ${statusBadge} text-transform: uppercase; flex-shrink: 0;">${item.status}</span>
+                <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                 ${isPaused ? 
-                  `<button onclick="window.resumeCloudDownload('${item.task_id}', event)" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 11px; font-weight: 600;">▶ Resume</button>` :
-                  `<button onclick="window.pauseCloudDownload('${item.task_id}', event)" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 11px; font-weight: 600;">⏸ Pause</button>`
+                  `<button type="button" onclick="window.resumeCloudDownload('${item.task_id}', event)" style="background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #34d399; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">▶ Resume</button>` :
+                  `<button type="button" onclick="window.pauseCloudDownload('${item.task_id}', event)" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 600; white-space: nowrap;">⏸ Pause</button>`
                 }
-                <button onclick="window.cancelCloudDownload('${item.task_id}', event)" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 11px; font-weight: 700;" title="Cancel">✕</button>
+                <button type="button" onclick="window.cancelCloudDownload('${item.task_id}', event)" style="background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; border-radius: 4px; cursor: pointer; padding: 4px 10px; font-size: 11px; font-weight: 700; white-space: nowrap;" title="Cancel">✕</button>
               </div>
             </div>
             <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden;">
               <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #3b82f6, #60a5fa); border-radius: 999px; transition: width 0.3s ease;"></div>
             </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px;" class="muted">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; width: 100%; min-width: 0;" class="muted">
               <span>${sent} / ${total} (${pct}%)</span>
-              <span style="font-family: monospace; font-weight: 600; color: var(--accent);">${speed}</span>
+              <span style="font-family: monospace; font-weight: 600; color: #60a5fa; font-size: 12px;">${speed}</span>
             </div>
           </div>`;
         }).join('');

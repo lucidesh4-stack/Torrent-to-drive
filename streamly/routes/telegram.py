@@ -632,9 +632,16 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             os.makedirs(task_temp_dir, exist_ok=True)
             temp_path = os.path.join(task_temp_dir, filename)
 
+        if cancel_flag[0]:
+            log.info("Task %s was cancelled before upload started. Aborting.", task_id)
+            raise asyncio.CancelledError("Cancelled by user")
+
         for attempt in range(1, max_attempts + 1):
+            if cancel_flag[0]:
+                log.info("Task %s cancelled before attempt %d. Aborting.", task_id, attempt)
+                raise asyncio.CancelledError("Cancelled by user")
+
             log.info("Starting upload attempt %d/%d for task %s", attempt, max_attempts, task_id)
-            cancel_flag[0] = False
             
             if not is_local_temp_file and os.path.exists(temp_path):
                 try:

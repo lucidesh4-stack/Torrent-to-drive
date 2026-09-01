@@ -283,11 +283,16 @@ class DownloadManager:
         )
         task.downloader_instance = downloader
 
-        def _on_bunkr_progress(current: int, total: int, current_file: str):
+        def _on_bunkr_progress(file_downloaded: int, file_total: int, speed_mbps: float, current: int, total: int, current_file: str, album_title: str):
+            task.downloaded_bytes = file_downloaded
+            task.total_bytes = file_total
+            task.speed_mbps = speed_mbps
             task.current_item = current
             task.total_items = total
-            task.filename = f"{current_file} ({current}/{total})"
-            task.progress = (current / total * 100.0) if total > 0 else 0.0
+            task.filename = f"[{current}/{total}] {current_file}"
+            task.album_name = album_title
+            file_ratio = (file_downloaded / file_total) if file_total > 0 else 0.0
+            task.progress = min(100.0, max(0.0, ((current - 1 + file_ratio) / total * 100.0))) if total > 0 else 0.0
             self.notify_update()
 
         album_dir = await downloader.download_album(task.url, progress_callback=_on_bunkr_progress)
@@ -297,6 +302,9 @@ class DownloadManager:
             task.status = "COMPLETED"
             task.progress = 100.0
             task.speed_mbps = 0.0
-        elif not task.cancel_flag[0]:
+        elif task.cancel_flag[0]:
+            task.status = "CANCELLED"
+            task.error = "Cancelled by user"
+        else:
             task.status = "FAILED"
             task.error = "Could not resolve or download Bunkr album items"

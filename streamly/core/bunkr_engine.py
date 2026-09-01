@@ -134,7 +134,7 @@ class BunkrSequentialDownloader:
     async def download_album(
         self,
         url: str,
-        progress_callback: Optional[Callable[[int, int, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, float, int, int, str, str], None]] = None
     ) -> Optional[str]:
         """
         Extracts album and downloads all files sequentially into a dedicated folder.
@@ -150,6 +150,10 @@ class BunkrSequentialDownloader:
             log.error("Could not extract any media items from Bunkr URL: %s", url)
             return None
 
+        if self._cancel_flag and self._cancel_flag[0]:
+            log.info("Bunkr album download cancelled before starting")
+            return None
+
         # 2. Create Album Directory
         album_dir = os.path.join(self.target_base_dir, album_title)
         os.makedirs(album_dir, exist_ok=True)
@@ -163,11 +167,11 @@ class BunkrSequentialDownloader:
             for idx, item in enumerate(items, 1):
                 if self._cancel_flag and self._cancel_flag[0]:
                     log.info("Bunkr album download cancelled by user")
-                    break
+                    return None
                 if self._pause_event and not self._pause_event.is_set():
                     await self._pause_event.wait()
                     if self._cancel_flag and self._cancel_flag[0]:
-                        break
+                        return None
 
                 target_filename = item.get("filename") or f"file_{idx}"
                 target_path = os.path.join(album_dir, target_filename)
@@ -182,6 +186,11 @@ class BunkrSequentialDownloader:
                             log.warning("[Bunkr %d/%d] Skipping %s: HTTP %d", idx, total_items, target_filename, resp.status_code)
                             continue
 
+                        file_total = int(resp.headers.get("content-length", 0))
+                        file_downloaded = 0
+                        last_progress_time = time.time()
+                        last_downloaded = 0
+
                         with open(target_path, "wb") as f:
                             async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
                                 if self._cancel_flag and self._cancel_flag[0]:
@@ -191,21 +200,33 @@ class BunkrSequentialDownloader:
                                     if self._cancel_flag and self._cancel_flag[0]:
                                         raise asyncio.CancelledError("Download cancelled")
                                 f.write(chunk)
+                                file_downloaded += len(chunk)
+
+                                now = time.time()
+                                if now - last_progress_time >= 0.4:
+                                    elapsed = now - last_progress_time
+                                    diff = file_downloaded - last_downloaded
+                                    speed_mbps = (diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
+                                    last_progress_time = now
+                                    last_downloaded = file_downloaded
+                                    if progress_callback:
+                                        progress_callback(file_downloaded, file_total, speed_mbps, idx, total_items, target_filename, album_title)
 
                     completed_items += 1
                     if progress_callback:
-                        progress_callback(completed_items, total_items, target_filename)
+                        progress_callback(file_downloaded, file_total, 0.0, completed_items, total_items, target_filename, album_title)
 
                     # Polite CDN Cooldown (0.5s pause) to keep Bunkr CDN connection healthy
                     await asyncio.sleep(0.5)
 
                 except asyncio.CancelledError:
+                    log.info("Bunkr download cancelled while downloading %s", target_filename)
                     if os.path.exists(target_path):
                         try:
                             os.remove(target_path)
                         except Exception:
                             pass
-                    break
+                    return None
                 except Exception as dl_err:
                     log.warning("[Bunkr %d/%d] Failed to download %s: %s", idx, total_items, target_filename, dl_err)
                     if os.path.exists(target_path) and os.path.getsize(target_path) == 0:
@@ -213,6 +234,9 @@ class BunkrSequentialDownloader:
                             os.remove(target_path)
                         except Exception:
                             pass
+
+        if self._cancel_flag and self._cancel_flag[0]:
+            return None
 
         log.info("Bunkr Album Finished: %d/%d files downloaded into %s", completed_items, total_items, album_dir)
         return album_dir
