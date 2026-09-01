@@ -100,6 +100,8 @@
             badgeStyle = "background: rgba(245,158,11,0.15); color: #fbbf24;";
           } else if (active.status === "DOWNLOADING") {
             badgeStyle = "background: rgba(16,185,129,0.15); color: #34d399;";
+          } else if ((active.status || "").includes("RATE LIMITED") || (active.status || "").includes("PAUSED")) {
+            badgeStyle = "background: rgba(239,68,68,0.15); color: #f87171;";
           }
           
           return `

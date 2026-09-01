@@ -65,7 +65,8 @@ def _live_get(task_id: str) -> dict | None:
 
 def _live_get_active() -> dict | None:
     for tid, v in _LIVE_PROGRESS.items():
-        if v.get("status") in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN"):
+        st = v.get("status", "")
+        if st in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN") or "RATE LIMITED" in st or "PAUSED" in st:
             out = dict(v)
             out.setdefault("task_id", tid)
             return out
@@ -75,7 +76,8 @@ def _live_get_active() -> dict | None:
 def _live_get_all_active() -> list[dict]:
     items = []
     for tid, v in list(_LIVE_PROGRESS.items()):
-        if v.get("status") in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN"):
+        st = v.get("status", "")
+        if st in ("UPLOADING", "QUEUED", "DOWNLOADING", "WAITING TURN") or "RATE LIMITED" in st or "PAUSED" in st:
             out = dict(v)
             out.setdefault("task_id", tid)
             items.append(out)
