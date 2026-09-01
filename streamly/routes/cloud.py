@@ -58,16 +58,6 @@ class AddMagnetPayload(BaseModel):
     provider: str = "auto"
 
 
-@cloud_router.get("/api/devices")
-@rate_limited(cost=1.0)
-async def list_devices(request: Request, client = Depends(current_client)):
-    cloud = request.app.state.cloud
-    try:
-        devices = await cloud.get_devices(client)
-    except Exception as e:
-        log.warning("Provider error on devices: %s", e)
-        raise HTTPException(status_code=502, detail="Provider unavailable or failed to list devices")
-    return {"success": True, "devices": devices}
 
 
 @cloud_router.get("/fs/folder/{folder_id}/items")

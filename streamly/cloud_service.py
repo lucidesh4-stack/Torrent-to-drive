@@ -238,24 +238,6 @@ class CloudService:
         async with AsyncSeedr(token=client.token, httpx_client=http_client) as async_seedr:
             await async_seedr.delete_torrent(str(torrent_id))
 
-    async def get_devices(self, client: AsyncSeedrClient) -> list[dict[str, Any]]:
-        try:
-            http_client = await self._get_client()
-            async with AsyncSeedr(token=client.token, httpx_client=http_client) as async_seedr:
-                devices = await async_seedr.get_devices()
-                return [
-                    {
-                        "name": _safe_name(d.client_name or "Unknown client"),
-                        "id": _safe_name(d.client_id or ""),
-                    }
-                    for d in devices
-                ]
-        except (NetworkError, ServerError, httpx.HTTPError) as e:
-            log.warning("Seedr network error fetching devices: %s", e)
-            raise ConnectionError("Provider unavailable") from None
-        except Exception:
-            log.exception("Unexpected error fetching Seedr devices")
-            raise
 
     async def add_magnet(self, client: AsyncSeedrClient, magnet: str) -> None:
         try:

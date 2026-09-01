@@ -420,51 +420,11 @@
     });
   });
 
-  // ----- Linked Devices modal (click account email in topbar) -----
   window.esc = function(s) {
     return String(s == null ? "" : s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  }
-  window.openDevicesModal = async function() {
-    const ov = $("devicesOverlay");
-    if (!ov) return;
-    const body = $("devicesBody");
-    const empty = $("devicesEmpty");
-    const status = $("devicesStatus");
-    const sub = $("devicesSubtitle");
-    if (body) body.innerHTML = "";
-    if (empty) empty.classList.add("hidden");
-    if (status) status.textContent = "Loading devices…";
-    ov.classList.remove("hidden");
-    try {
-      const res = await fetch("/api/devices", { credentials: "same-origin" });
-      const data = await res.json();
-      const devices = (data && data.devices) || [];
-      if (status) status.textContent = "";
-      if (!devices.length) {
-        if (empty) empty.classList.remove("hidden");
-        if (sub) sub.textContent = "Apps & clients authorized on this Seedr account";
-        return;
-      }
-      if (sub) sub.textContent = `${devices.length} client${devices.length > 1 ? "s" : ""} authorized on this Seedr account`;
-      if (body) body.innerHTML = devices.map((d) =>
-        `<tr><td class="truncate">${esc(d.name) || "Unknown client"}</td>` +
-        `<td class="truncate muted">${esc(d.id) || "—"}</td></tr>`
-      ).join("");
-    } catch (e) {
-      if (status) status.textContent = "Failed to load devices.";
-    }
-  }
-  if ($("accountLabel")) {
-    $("accountLabel").addEventListener("click", openDevicesModal);
-    $("accountLabel").addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDevicesModal(); }
-    });
-  }
-  if ($("closeDevicesBtn")) $("closeDevicesBtn").addEventListener("click", () => {
-    $("devicesOverlay").classList.add("hidden");
-  });
+  };
 
   // Telegram auth and settings controls
   if ($("closeTelegramAuthBtn")) {
