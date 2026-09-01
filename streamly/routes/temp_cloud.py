@@ -301,6 +301,7 @@ class TaskControlPayload(BaseModel):
 @temp_cloud_router.post("/api/temp_cloud/downloads/cancel")
 async def temp_cloud_cancel_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
     """Cancels an active or queued download."""
+    log.info("Received download cancel request for task_id: %s", payload.task_id)
     manager = DownloadManager.get_instance()
     success = await manager.cancel_task(payload.task_id)
     return {"success": success, "message": "Download cancelled successfully" if success else "Task already finished or not found"}
@@ -309,6 +310,7 @@ async def temp_cloud_cancel_download(request: Request, payload: TaskControlPaylo
 @temp_cloud_router.post("/api/temp_cloud/downloads/pause")
 async def temp_cloud_pause_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
     """Pauses an active download."""
+    log.info("Received download pause request for task_id: %s", payload.task_id)
     manager = DownloadManager.get_instance()
     success = await manager.pause_task(payload.task_id)
     return {"success": success, "message": "Download paused" if success else "Cannot pause task"}
@@ -317,6 +319,7 @@ async def temp_cloud_pause_download(request: Request, payload: TaskControlPayloa
 @temp_cloud_router.post("/api/temp_cloud/downloads/resume")
 async def temp_cloud_resume_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
     """Resumes a paused download."""
+    log.info("Received download resume request for task_id: %s", payload.task_id)
     manager = DownloadManager.get_instance()
     success = await manager.resume_task(payload.task_id)
     return {"success": success, "message": "Download resumed" if success else "Cannot resume task"}

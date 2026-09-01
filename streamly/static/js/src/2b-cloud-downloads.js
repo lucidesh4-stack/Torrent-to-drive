@@ -46,13 +46,15 @@
     if (!tid || window._dlCancelInFlight.has(tid)) return;
 
     window._dlCancelInFlight.add(tid);
+    console.log("[CloudDownloads] Requesting cancellation for task:", tid);
     try {
       if (window.toast) window.toast("Cancelling download...");
       const res = await window.postJson("/api/temp_cloud/downloads/cancel", { task_id: tid });
+      console.log("[CloudDownloads] Cancel response:", res);
       if (res && res.success) {
         if (window.toast) window.toast("Download cancelled");
       }
-      fetchDownloadsState();
+      await fetchDownloadsState();
     } catch (e) {
       console.error("Cancel download failed:", e);
       if (window.toast) window.toast(e.message || "Cancel failed");
@@ -65,13 +67,15 @@
     if (event) { event.preventDefault(); event.stopPropagation(); }
     const tid = String(taskId || "").trim();
     if (!tid) return;
+    console.log("[CloudDownloads] Requesting pause for task:", tid);
     try {
       if (window.toast) window.toast("Pausing download...");
       const res = await window.postJson("/api/temp_cloud/downloads/pause", { task_id: tid });
+      console.log("[CloudDownloads] Pause response:", res);
       if (res && res.success) {
         if (window.toast) window.toast("Download paused");
       }
-      fetchDownloadsState();
+      await fetchDownloadsState();
     } catch (e) {
       console.error("Pause download failed:", e);
       if (window.toast) window.toast(e.message || "Pause failed");
@@ -82,13 +86,15 @@
     if (event) { event.preventDefault(); event.stopPropagation(); }
     const tid = String(taskId || "").trim();
     if (!tid) return;
+    console.log("[CloudDownloads] Requesting resume for task:", tid);
     try {
       if (window.toast) window.toast("Resuming download...");
       const res = await window.postJson("/api/temp_cloud/downloads/resume", { task_id: tid });
+      console.log("[CloudDownloads] Resume response:", res);
       if (res && res.success) {
         if (window.toast) window.toast("Download resumed");
       }
-      fetchDownloadsState();
+      await fetchDownloadsState();
     } catch (e) {
       console.error("Resume download failed:", e);
       if (window.toast) window.toast(e.message || "Resume failed");
