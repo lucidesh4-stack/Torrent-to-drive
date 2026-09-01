@@ -24,14 +24,14 @@ from ..core.archive_extractor import is_archive, safe_extract_archive
 log = logging.getLogger(__name__)
 temp_cloud_router = APIRouter()
 
-TEMP_CLOUD_ROOT = os.environ.get("TEMP_CLOUD_DIR", "/tmp/streamly_temp_cloud")
+TEMP_CLOUD_ROOT = os.environ.get("TEMP_CLOUD_DIR", "/tmp/streamly_temp_cloud/storage")
 DEFAULT_EXPIRY_SECONDS = 86400 # 24 hours
+TEMP_STORAGE_QUOTA_GB = 50.0
 
-def get_user_temp_dir(sid: str) -> str:
-    safe_sid = "".join(c for c in sid if c.isalnum() or c in "_-")
-    path = os.path.join(TEMP_CLOUD_ROOT, safe_sid)
-    os.makedirs(path, exist_ok=True)
-    return path
+def get_user_temp_dir(sid: str = "") -> str:
+    """Unified instance temp cloud storage root so files persist across browser sessions for 24h."""
+    os.makedirs(TEMP_CLOUD_ROOT, exist_ok=True)
+    return TEMP_CLOUD_ROOT
 
 def _format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
@@ -81,13 +81,9 @@ async def auto_prune_expired_files(user_dir: str):
 @rate_limited(cost=0.5)
 async def temp_cloud_storage(request: Request):
     """Returns NVMe / local disk storage metrics for the top storage bar."""
-    sid = request.session.get("sid") or ensure_sid(request)
-    user_dir = get_user_temp_dir(sid)
+    user_dir = get_user_temp_dir()
     
-    # Calculate disk usage of the host drive
-    total, used, free = shutil.disk_usage(TEMP_CLOUD_ROOT if os.path.exists(TEMP_CLOUD_ROOT) else "/")
-    
-    # Calculate user's specific temp usage
+    # Calculate actual used storage in temp cloud directory
     user_used = 0
     for root, _, files in os.walk(user_dir):
         for f in files:
@@ -96,19 +92,19 @@ async def temp_cloud_storage(request: Request):
             except Exception:
                 pass
 
-    total_gb = round(total / (1024 ** 3), 1)
-    used_gb = round(used / (1024 ** 3), 2)
+    quota_bytes = int(TEMP_STORAGE_QUOTA_GB * (1024 ** 3))
     user_used_gb = round(user_used / (1024 ** 3), 2)
-    pct = round((used / total) * 100, 1) if total > 0 else 0.0
+    pct = round((user_used / quota_bytes) * 100, 1) if quota_bytes > 0 else 0.0
+    pct = min(100.0, pct)
 
     return {
         "storage_label": "Temp NVMe Storage",
-        "storage_metrics": f"{user_used_gb:.2f} / {total_gb:.1f} GB • {pct:.0f}%",
+        "storage_metrics": f"{user_used_gb:.2f} / {TEMP_STORAGE_QUOTA_GB:.1f} GB • {pct:.0f}%",
         "storage_subtext": "Auto-expires in 24h",
         "percent": pct,
         "user_used_bytes": user_used,
-        "total_bytes": total,
-        "free_bytes": free
+        "total_bytes": quota_bytes,
+        "free_bytes": max(0, quota_bytes - user_used)
     }
 
 
@@ -279,25 +275,91 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
     }
 
 
-from fastapi.responses import FileResponse
+import mimetypes
+from fastapi.responses import StreamingResponse
 
 @temp_cloud_router.get("/api/temp_cloud/stream")
 @temp_cloud_router.get("/api/temp_cloud/file")
 async def temp_cloud_stream(request: Request, file_id: str):
-    """Streams or serves a file stored in Temp Cloud for browser playback and direct download."""
-    sid = request.session.get("sid") or ensure_sid(request)
-    user_dir = get_user_temp_dir(sid)
+    """Streams or serves a file stored in Temp Cloud with HTTP 206 Range support for video seeking & playback."""
+    user_dir = get_user_temp_dir()
 
     target_path = os.path.realpath(os.path.join(user_dir, file_id.lstrip("/\\")))
     if not target_path.startswith(os.path.realpath(user_dir)) or not os.path.exists(target_path) or os.path.isdir(target_path):
         raise HTTPException(status_code=404, detail="File not found in Temp Cloud")
 
     filename = os.path.basename(target_path)
-    return FileResponse(
-        target_path,
-        filename=filename,
-        content_disposition_type="inline"
-    )
+    file_size = os.path.getsize(target_path)
+
+    # Determine MIME type
+    content_type, _ = mimetypes.guess_type(target_path)
+    if not content_type:
+        low_name = filename.lower()
+        if low_name.endswith(".mkv"):
+            content_type = "video/x-matroska"
+        elif low_name.endswith(".mp4"):
+            content_type = "video/mp4"
+        elif low_name.endswith(".webm"):
+            content_type = "video/webm"
+        elif low_name.endswith(".mov"):
+            content_type = "video/quicktime"
+        elif low_name.endswith(".avi"):
+            content_type = "video/x-msvideo"
+        elif low_name.endswith(".mp3"):
+            content_type = "audio/mpeg"
+        else:
+            content_type = "application/octet-stream"
+
+    range_header = request.headers.get("range")
+    if not range_header:
+        # Full file streaming
+        def _iter_file():
+            with open(target_path, "rb") as f:
+                while chunk := f.read(128 * 1024):
+                    yield chunk
+
+        headers = {
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+            "Content-Type": content_type,
+            "Content-Disposition": f'inline; filename="{filename}"'
+        }
+        return StreamingResponse(_iter_file(), headers=headers, status_code=200)
+
+    # Parse Range: bytes=start-end
+    try:
+        range_val = range_header.strip().lower().replace("bytes=", "")
+        parts = range_val.split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+        if end >= file_size:
+            end = file_size - 1
+        length = end - start + 1
+    except Exception:
+        start = 0
+        end = file_size - 1
+        length = file_size
+
+    def _iter_range(start_byte: int, byte_length: int):
+        with open(target_path, "rb") as f:
+            f.seek(start_byte)
+            bytes_left = byte_length
+            while bytes_left > 0:
+                chunk_size = min(128 * 1024, bytes_left)
+                data = f.read(chunk_size)
+                if not data:
+                    break
+                bytes_left -= len(data)
+                yield data
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(length),
+        "Content-Type": content_type,
+        "Content-Disposition": f'inline; filename="{filename}"'
+    }
+    return StreamingResponse(_iter_range(start, length), headers=headers, status_code=206)
 
 
 class DeletePayload(BaseModel):

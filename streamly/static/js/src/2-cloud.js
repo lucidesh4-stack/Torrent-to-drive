@@ -1763,6 +1763,7 @@
   };
 
   window.openTempCloudItem = function(item) {
+    if (!item) return;
     if (item.type === "folder") {
       window.tempCloudCurrentFolder = item.id;
       const subtitle = $("driveProviderSubtitle");
@@ -1773,7 +1774,17 @@
       if (cmUpBtn) cmUpBtn.disabled = false;
       loadTempCloudList();
       loadTempCloudListMobile();
+      return;
     }
+
+    const ext = String(item.name || "").split(".").pop().toLowerCase();
+    if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts", "mp3", "m4a", "aac"].includes(ext) || item.is_video) {
+      if (typeof window.openVideoPlayerModal === "function") {
+        window.openVideoPlayerModal("temp", item.id, item.name || "Temp Video", item.size_str || (item.size ? formatBytes(item.size) : ""));
+        return;
+      }
+    }
+    window.open(`/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}`, "_blank", "noopener,noreferrer");
   };
 
   // Hook provider buttons

@@ -6,3 +6,4 @@ import './src/4-history.js';
 import './src/4b-telegram-transfers.js';
 import './src/5-search.js';
 import './src/6-main.js';
+import './src/7-player.js';
