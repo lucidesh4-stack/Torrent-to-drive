@@ -224,21 +224,17 @@ class DownloadPayload(BaseModel):
         return v
 
 
+from ..core.download_manager import DownloadManager
+
 @temp_cloud_router.post("/api/temp_cloud/download")
 @rate_limited(cost=1.0)
 async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf = Depends(verify_csrf)):
-    """Downloads direct URL/file via 1DM turbo multi-threaded engine into Temp Cloud."""
+    """Enqueues download into the Central DownloadManager with live progress tracking & controls."""
     await validate_public_url(payload.url)
     user_dir = get_user_temp_dir()
 
     # Pre-check Temp Cloud quota before dispatching
-    user_used = 0
-    for root, _, files in os.walk(user_dir):
-        for f in files:
-            try:
-                user_used += os.path.getsize(os.path.join(root, f))
-            except Exception:
-                pass
+    user_used = await asyncio.to_thread(_compute_used_size, user_dir)
     quota_bytes = int(TEMP_STORAGE_QUOTA_GB * (1024 ** 3))
     if user_used >= quota_bytes:
         raise HTTPException(
@@ -246,37 +242,90 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _csrf 
             detail=f"Temp Cloud quota full ({user_used / (1024**3):.1f} / {TEMP_STORAGE_QUOTA_GB:.1f} GB). Please delete files first."
         )
 
-    # Check if URL is a Bunkr album / file
-    if is_bunkr_url(payload.url):
-        async def _run_bunkr_download():
-            try:
-                bunkr_downloader = BunkrSequentialDownloader(target_base_dir=user_dir)
-                await bunkr_downloader.download_album(payload.url)
-            except Exception as e:
-                log.error("Bunkr album sequential download failed for %s: %s", payload.url, e)
-
-        asyncio.create_task(_run_bunkr_download())
-        return {
-            "success": True,
-            "message": "Bunkr Album detected! Downloading files sequentially into dedicated Temp Cloud folder..."
-        }
-
-    async def _run_download_and_extract():
-        try:
-            downloader = Direct1DMDownloader(target_dir=user_dir, num_connections=16)
-            downloaded_file = await downloader.download(payload.url)
-            if payload.auto_unzip and downloaded_file and is_archive(downloaded_file):
-                log.info("Auto-extracting downloaded archive: %s", downloaded_file)
-                await asyncio.to_thread(safe_extract_archive, downloaded_file, user_dir, delete_archive=True)
-        except Exception as e:
-            log.error("Temp cloud download failed for URL %s: %s", payload.url, e)
-
-    asyncio.create_task(_run_download_and_extract())
+    manager = DownloadManager.get_instance()
+    task = await manager.enqueue(payload.url, target_dir=user_dir, auto_unzip=payload.auto_unzip)
+    msg = "Bunkr album queued! Downloading sequentially..." if task.task_type == "bunkr" else "1DM Turbo download started!"
 
     return {
         "success": True,
-        "message": "1DM High-Speed download started. File will appear in Temp Cloud upon completion."
+        "task_id": task.task_id,
+        "task": task.to_dict(),
+        "message": msg
     }
+
+
+@temp_cloud_router.get("/api/temp_cloud/downloads")
+async def temp_cloud_get_downloads(request: Request):
+    """Returns all active, queued, and completed downloads."""
+    manager = DownloadManager.get_instance()
+    return manager.get_state()
+
+
+class TaskControlPayload(BaseModel):
+    task_id: str
+
+
+@temp_cloud_router.post("/api/temp_cloud/downloads/cancel")
+async def temp_cloud_cancel_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
+    """Cancels an active or queued download."""
+    manager = DownloadManager.get_instance()
+    success = await manager.cancel_task(payload.task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or already finished")
+    return {"success": True, "message": "Download cancelled successfully"}
+
+
+@temp_cloud_router.post("/api/temp_cloud/downloads/pause")
+async def temp_cloud_pause_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
+    """Pauses an active download."""
+    manager = DownloadManager.get_instance()
+    success = await manager.pause_task(payload.task_id)
+    return {"success": success, "message": "Download paused" if success else "Cannot pause task"}
+
+
+@temp_cloud_router.post("/api/temp_cloud/downloads/resume")
+async def temp_cloud_resume_download(request: Request, payload: TaskControlPayload, _csrf = Depends(verify_csrf)):
+    """Resumes a paused download."""
+    manager = DownloadManager.get_instance()
+    success = await manager.resume_task(payload.task_id)
+    return {"success": success, "message": "Download resumed" if success else "Cannot resume task"}
+
+
+@temp_cloud_router.get("/api/temp_cloud/downloads/sse")
+async def temp_cloud_downloads_sse(request: Request):
+    """Real-time Server-Sent Events (SSE) stream for download progress, speeds, and queue status."""
+    manager = DownloadManager.get_instance()
+    subscriber_queue = asyncio.Queue(maxsize=20)
+    manager._subscribers.append(subscriber_queue)
+
+    async def event_generator():
+        try:
+            import json as _json
+            # Send initial state immediately
+            init_state = manager.get_state()
+            yield f"data: {_json.dumps(init_state)}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    state = await asyncio.wait_for(subscriber_queue.get(), timeout=2.0)
+                    yield f"data: {_json.dumps(state)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            if subscriber_queue in manager._subscribers:
+                manager._subscribers.remove(subscriber_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 import mimetypes

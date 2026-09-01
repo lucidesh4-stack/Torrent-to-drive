@@ -1836,19 +1836,17 @@
           return;
         }
         closeModal();
-        toast("⚡ 1DM Turbo Download started in background...");
         try {
-          await postJson("/api/temp_cloud/download", {
+          const res = await postJson("/api/temp_cloud/download", {
             url: url,
             auto_unzip: autoUnzipCb ? autoUnzipCb.checked : true
           });
-          setTimeout(() => {
-            if (window.driveProvider === "temp") {
-              loadTempCloudList();
-              loadTempCloudListMobile();
-              updateTempCloudStorageHeader();
+          if (res && res.success) {
+            toast(res.message || "Download started!");
+            if (window.openCloudDownloadsModal) {
+              window.openCloudDownloadsModal();
             }
-          }, 2000);
+          }
         } catch (err) {
           toast("Download failed: " + (err.message || "Error"));
         }
