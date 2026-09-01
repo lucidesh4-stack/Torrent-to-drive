@@ -310,19 +310,24 @@ async def temp_cloud_stream(request: Request, file_id: str):
         else:
             content_type = "application/octet-stream"
 
+    STREAM_CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB Turbo Buffer Chunk Size
+
     range_header = request.headers.get("range")
     if not range_header:
-        # Full file streaming
+        # Full file streaming with 2MB buffer chunks
         def _iter_file():
             with open(target_path, "rb") as f:
-                while chunk := f.read(128 * 1024):
+                while chunk := f.read(STREAM_CHUNK_SIZE):
                     yield chunk
 
         headers = {
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
             "Content-Type": content_type,
-            "Content-Disposition": f'inline; filename="{filename}"'
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "public, max-age=3600",
+            "Connection": "keep-alive",
+            "X-Content-Type-Options": "nosniff"
         }
         return StreamingResponse(_iter_file(), headers=headers, status_code=200)
 
@@ -345,7 +350,7 @@ async def temp_cloud_stream(request: Request, file_id: str):
             f.seek(start_byte)
             bytes_left = byte_length
             while bytes_left > 0:
-                chunk_size = min(128 * 1024, bytes_left)
+                chunk_size = min(STREAM_CHUNK_SIZE, bytes_left)
                 data = f.read(chunk_size)
                 if not data:
                     break
@@ -357,7 +362,10 @@ async def temp_cloud_stream(request: Request, file_id: str):
         "Accept-Ranges": "bytes",
         "Content-Length": str(length),
         "Content-Type": content_type,
-        "Content-Disposition": f'inline; filename="{filename}"'
+        "Content-Disposition": f'inline; filename="{filename}"',
+        "Cache-Control": "public, max-age=3600",
+        "Connection": "keep-alive",
+        "X-Content-Type-Options": "nosniff"
     }
     return StreamingResponse(_iter_range(start, length), headers=headers, status_code=206)
 
