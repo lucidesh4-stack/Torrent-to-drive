@@ -1528,8 +1528,10 @@ async def telegram_cancel_transfer(request: Request, payload: CancelPayload, _cs
                 except Exception:
                     pass
             await rs._execute("LREM", "streamly:transfer_queue", "0", item)
-            await rs._execute("DEL", f"streamly:transfer_status:{task_id}")
-            await rs._execute("DEL", f"streamly:task_args:{task_id}")
+            await rs.delete(
+                f"streamly:transfer_status:{task_id}",
+                f"streamly:task_args:{task_id}"
+            )
             found = True
             trigger_next_transfer(request.app)
             break

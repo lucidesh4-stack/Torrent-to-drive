@@ -77,20 +77,25 @@ async def auto_prune_expired_files(user_dir: str):
         log.debug("Auto-prune check error: %s", e)
 
 
+def _compute_used_size(user_dir: str) -> int:
+    used = 0
+    for root, _, files in os.walk(user_dir):
+        for f in files:
+            try:
+                used += os.path.getsize(os.path.join(root, f))
+            except Exception:
+                pass
+    return used
+
+
 @temp_cloud_router.get("/api/temp_cloud/storage")
 @rate_limited(cost=0.5)
 async def temp_cloud_storage(request: Request):
     """Returns NVMe / local disk storage metrics for the top storage bar."""
     user_dir = get_user_temp_dir()
     
-    # Calculate actual used storage in temp cloud directory
-    user_used = 0
-    for root, _, files in os.walk(user_dir):
-        for f in files:
-            try:
-                user_used += os.path.getsize(os.path.join(root, f))
-            except Exception:
-                pass
+    # Calculate actual used storage in worker threadpool (non-blocking)
+    user_used = await asyncio.to_thread(_compute_used_size, user_dir)
 
     quota_bytes = int(TEMP_STORAGE_QUOTA_GB * (1024 ** 3))
     user_used_gb = round(user_used / (1024 ** 3), 2)
@@ -386,9 +391,9 @@ async def temp_cloud_delete(request: Request, payload: DeletePayload, _csrf = De
 
     try:
         if os.path.isdir(target_path):
-            shutil.rmtree(target_path, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, target_path, ignore_errors=True)
         else:
-            os.remove(target_path)
+            await asyncio.to_thread(os.remove, target_path)
         return {"success": True, "message": "Item deleted from Temp Cloud"}
     except Exception as e:
         log.error("Delete failed for %s: %s", target_path, e)

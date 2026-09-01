@@ -156,41 +156,46 @@ class Direct1DMDownloader:
                 f.write(b"\0")
 
         out_file = None
+        shared_client = None
         try:
             if supports_ranges and total_size > 0:
                 out_file = open(target_path, "r+b", buffering=0)
                 part_size = math.ceil(total_size / active_connections)
                 tasks = []
+                pool_limits = httpx.Limits(
+                    max_keepalive_connections=active_connections * 2,
+                    max_connections=active_connections * 2
+                )
+                shared_client = httpx.AsyncClient(limits=pool_limits, timeout=self.timeout, follow_redirects=True)
 
                 async def _download_slice(slice_idx: int, start_byte: int, end_byte: int):
                     nonlocal downloaded_bytes, last_progress_time, last_downloaded_bytes
                     slice_headers = {**DEFAULT_HEADERS, "Range": f"bytes={start_byte}-{end_byte}"}
                     
-                    async with httpx.AsyncClient(headers=slice_headers, timeout=self.timeout, follow_redirects=True) as client:
-                        async with client.stream("GET", probe_info["redirected_url"]) as resp:
-                            resp.raise_for_status()
-                            current_offset = start_byte
-                            async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                                if self._cancel_flag[0]:
-                                    raise asyncio.CancelledError("Download cancelled by user")
-                                
-                                chunk_len = len(chunk)
-                                async with file_lock:
-                                    out_file.seek(current_offset)
-                                    out_file.write(chunk)
-                                
-                                current_offset += chunk_len
-                                downloaded_bytes += chunk_len
+                    async with shared_client.stream("GET", probe_info["redirected_url"], headers=slice_headers) as resp:
+                        resp.raise_for_status()
+                        current_offset = start_byte
+                        async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
+                            if self._cancel_flag[0]:
+                                raise asyncio.CancelledError("Download cancelled by user")
+                            
+                            chunk_len = len(chunk)
+                            async with file_lock:
+                                out_file.seek(current_offset)
+                                out_file.write(chunk)
+                            
+                            current_offset += chunk_len
+                            downloaded_bytes += chunk_len
 
-                                now = time.time()
-                                if now - last_progress_time >= 0.5:
-                                    elapsed = now - last_progress_time
-                                    bytes_diff = downloaded_bytes - last_downloaded_bytes
-                                    speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
-                                    last_progress_time = now
-                                    last_downloaded_bytes = downloaded_bytes
-                                    if progress_callback:
-                                        progress_callback(downloaded_bytes, total_size, speed_mbps)
+                            now = time.time()
+                            if now - last_progress_time >= 0.5:
+                                elapsed = now - last_progress_time
+                                bytes_diff = downloaded_bytes - last_downloaded_bytes
+                                speed_mbps = (bytes_diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
+                                last_progress_time = now
+                                last_downloaded_bytes = downloaded_bytes
+                                if progress_callback:
+                                    progress_callback(downloaded_bytes, total_size, speed_mbps)
 
                 for i in range(active_connections):
                     s_byte = i * part_size
@@ -201,7 +206,8 @@ class Direct1DMDownloader:
                 await asyncio.gather(*tasks)
 
             else:
-                async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=self.timeout, follow_redirects=True) as client:
+                limits = httpx.Limits(max_keepalive_connections=10, max_connections=10)
+                async with httpx.AsyncClient(headers=DEFAULT_HEADERS, limits=limits, timeout=self.timeout, follow_redirects=True) as client:
                     async with client.stream("GET", probe_info["redirected_url"]) as resp:
                         resp.raise_for_status()
                         with open(target_path, "wb") as f:
@@ -238,6 +244,11 @@ class Direct1DMDownloader:
             return target_path
 
         finally:
+            if shared_client:
+                try:
+                    await shared_client.aclose()
+                except Exception:
+                    pass
             if out_file:
                 try:
                     out_file.close()
