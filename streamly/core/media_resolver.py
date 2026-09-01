@@ -55,8 +55,14 @@ class MediaResolver:
                 'no_warnings': True,
                 'skip_download': True,
                 'extract_flat': False,
-                'socket_timeout': 15,
+                'socket_timeout': 20,
                 'noplaylist': True,
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'ios', 'web_embedded', 'web'],
+                        'player_skip': ['webpage', 'configs', 'js'],
+                    }
+                }
             }
 
             # Pass 1: Try standard extractor (works for YouTube, Reddit, Twitter, TikTok, Vimeo, etc.)
@@ -82,7 +88,7 @@ class MediaResolver:
 
         info = await asyncio.to_thread(_extract_ytdlp)
 
-        if info and ("formats" in info or "entries" in info):
+        if info and ("formats" in info or "entries" in info or "title" in info):
             # Single video or entry
             title = info.get("title") or "Media Stream"
             thumb = info.get("thumbnail") or ""
@@ -105,7 +111,7 @@ class MediaResolver:
                 filesize = fmt.get("filesize") or fmt.get("filesize_approx")
                 
                 # Check video qualities
-                if h and h >= 240 and vcodec != "none":
+                if h and h >= 144 and vcodec != "none":
                     label = f"{h}p"
                     if label not in seen_res:
                         seen_res.add(label)
@@ -135,6 +141,19 @@ class MediaResolver:
                     "filesize_str": _format_bytes(ab_size),
                     "is_audio": True,
                     "note": f"{best_audio.get('abr', 128)} kbps Audio"
+                })
+
+            if not formats_list and raw_formats:
+                formats_list.append({
+                    "format_id": "best",
+                    "raw_format_id": "best",
+                    "label": "Best Available Media Quality",
+                    "resolution": "Best",
+                    "ext": "mp4",
+                    "filesize": info.get("filesize") or info.get("filesize_approx") or 0,
+                    "filesize_str": _format_bytes(info.get("filesize") or info.get("filesize_approx")),
+                    "is_audio": False,
+                    "note": "Standard Stream"
                 })
 
             if formats_list:
@@ -203,6 +222,12 @@ class MediaResolver:
                     'no_warnings': True,
                     'socket_timeout': 30,
                     'impersonate': 'chrome',
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android', 'ios', 'web_embedded', 'web'],
+                            'player_skip': ['webpage', 'configs', 'js'],
+                        }
+                    }
                 }
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(url, download=True)
