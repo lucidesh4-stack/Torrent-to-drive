@@ -468,11 +468,19 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
 async def advance_sequence_turn(app, rs, seq_num: Optional[int]):
     if seq_num is None:
         return
+    if not hasattr(app.state, "completed_seqs"):
+        app.state.completed_seqs = set()
+    app.state.completed_seqs.add(seq_num)
+
     current = await get_current_post_seq(app, rs)
-    if current <= seq_num:
-        next_seq = seq_num + 1
+    next_seq = current
+    while next_seq in app.state.completed_seqs:
+        app.state.completed_seqs.discard(next_seq)
+        next_seq += 1
+
+    if next_seq > current:
         await set_current_post_seq(app, rs, next_seq)
-        log.info("Advanced channel posting sequence turn to #%d (persisted in Redis)", next_seq)
+        log.info("Advanced channel posting sequence turn from #%d to #%d (persisted in Redis)", current, next_seq)
 
 
 async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, chat_id, filename, size, task_id, sid, seq_num: Optional[int] = None):
