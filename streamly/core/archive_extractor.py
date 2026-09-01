@@ -1,4 +1,4 @@
-﻿"""
+"""
 Safe Archive Extraction Engine
 Supports .zip, .tar, .tar.gz, .tgz, .tar.bz2, .7z, and .rar with Zip-Slip path traversal protection.
 """
@@ -10,7 +10,6 @@ import shutil
 import zipfile
 import tarfile
 import logging
-from typing import Optional, List
 
 log = logging.getLogger(__name__)
 

@@ -28,7 +28,7 @@ from ..security import (
 )
 from ..core.http_client import SeedrDownloader
 from .telegram_client import manager as tg_manager, safe_disconnect, get_telegram_client
-from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel, TelegramRateLimitError
+from .telegram_bot_api_daemon import upload_via_local_bot_api, TelegramRateLimitError
 from ..cloud_service import format_size
 
 log = logging.getLogger(__name__)

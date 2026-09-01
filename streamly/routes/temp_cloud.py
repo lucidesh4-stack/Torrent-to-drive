@@ -11,7 +11,7 @@ import time
 import shutil
 import logging
 import asyncio
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, field_validator
 
