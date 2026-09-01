@@ -161,6 +161,7 @@ class ProgressTracker:
         self.last_speed_mb = None
         self.last_persist_time = 0.0
         self.last_bw_flush_time = time.time()
+        self.last_global_expire_time = 0.0
         self.phase = "upload"
 
     def __call__(self, sent_bytes, total_bytes=None):
@@ -259,7 +260,10 @@ class ProgressTracker:
                     "sid": self.sid
                 }
                 cmds.append(["SET", f"streamly:transfer_status:{self.task_id}", _json.dumps(state), "EX", "3600"])
-                cmds.append(["EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS)])  # EXPIRE", "streamly:active_transfer_global"
+                now_t = time.time()
+                if (now_t - self.last_global_expire_time) >= 30.0 or pct >= 100.0:
+                    cmds.append(["EXPIRE", "streamly:active_transfer_global", str(_ACTIVE_TTL_SECONDS)])
+                    self.last_global_expire_time = now_t
             if cmds:
                 await self.rs.pipeline(*cmds)
         except Exception as e:
@@ -644,8 +648,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                     if not os.path.exists(temp_path):
                         raise FileNotFoundError(f"Downloaded file not found at {temp_path}")
                     actual_downloaded_size = os.path.getsize(temp_path)
-                    if actual_downloaded_size != exact_size:
+                    if exact_size > 0 and actual_downloaded_size != exact_size:
                         raise ValueError(f"Download size mismatch: expected {exact_size} bytes, got {actual_downloaded_size} bytes")
+                    if exact_size <= 0:
+                        exact_size = actual_downloaded_size
+                        log.info("Resolved exact size from downloaded file: %d bytes (%.2f MB)", exact_size, exact_size / (1024 * 1024))
                 else:
                     log.info("Zero-copy bypass: file %s is already on local disk (%d bytes)", temp_path, exact_size)
 
@@ -846,11 +853,11 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
             await safe_disconnect(client)
         _live_clear(task_id)
         try:
-            await rs.pipeline(
-                ["DEL", "streamly:active_transfer_global"],
-                ["DEL", f"streamly:active_transfer:{sid}"],
-                ["DEL", f"streamly:cancel_request:{task_id}"],
-                ["DEL", f"streamly:task_args:{task_id}"]
+            await rs.delete(
+                "streamly:active_transfer_global",
+                f"streamly:active_transfer:{sid}",
+                f"streamly:cancel_request:{task_id}",
+                f"streamly:task_args:{task_id}"
             )
         except Exception as cl_err:
             log.warning("Redis cleanup failed for task %s: %s", task_id, cl_err)

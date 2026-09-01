@@ -109,8 +109,10 @@ class RedisStore:
             return await self._execute("SET", key, cleaned, "EX", str(ex)) == "OK"
         return await self._execute("SET", key, cleaned) == "OK"
 
-    async def delete(self, key: str) -> bool:
-        res = await self._execute("DEL", key)
+    async def delete(self, *keys: str) -> bool:
+        if not keys:
+            return False
+        res = await self._execute("DEL", *keys)
         return bool(isinstance(res, int) and res > 0)
 
     @staticmethod
