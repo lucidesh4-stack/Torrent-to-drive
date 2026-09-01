@@ -99,14 +99,11 @@ def _compute_used_size(user_dir: str) -> int:
 
 async def verify_user_session(request: Request):
     """
-    Guarantees session ID existence and warms up client if available,
-    without blocking Temp Cloud if Seedr is unavailable.
+    Guarantees session ID existence for Temp Cloud local disk operations.
+    Completely decoupled from Seedr OAuth state.
     """
     ensure_sid(request)
-    try:
-        await current_client(request)
-    except Exception:
-        pass
+    request.session.setdefault("site_auth", True)
     return True
 
 

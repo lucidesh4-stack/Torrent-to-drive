@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import secrets
 import logging
 from fastapi import Request
@@ -63,11 +64,12 @@ async def current_client(request: Request):
 
     # 2. Fast path: check if ANY active client exists in store (single-tenant app)
     # If another request just restored the session, immediately bind it to this sid!
-    if store and hasattr(store, "_store") and store._store:
+    if store and hasattr(store, "_items") and store._items:
         try:
-            for _, val in list(store._store.items()):
-                if val and isinstance(val, (tuple, list)) and val[0]:
-                    active_client = val[0]
+            now = store.clock() if hasattr(store, "clock") else time.time()
+            for _, entry in list(store._items.items()):
+                if entry and getattr(entry, "expires_at", 0) > now and getattr(entry, "value", None):
+                    active_client = entry.value
                     store.put(sid, active_client)
                     username = getattr(active_client, "username", "") or request.session.get("username", "")
                     if username:
