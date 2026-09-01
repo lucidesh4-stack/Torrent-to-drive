@@ -270,9 +270,7 @@ async def temp_cloud_cancel_download(request: Request, payload: TaskControlPaylo
     """Cancels an active or queued download."""
     manager = DownloadManager.get_instance()
     success = await manager.cancel_task(payload.task_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Task not found or already finished")
-    return {"success": True, "message": "Download cancelled successfully"}
+    return {"success": success, "message": "Download cancelled successfully" if success else "Task already finished or not found"}
 
 
 @temp_cloud_router.post("/api/temp_cloud/downloads/pause")

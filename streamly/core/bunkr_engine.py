@@ -117,10 +117,16 @@ class BunkrSequentialDownloader:
     to prevent Bunkr CDN IP bans (429/403).
     """
 
-    def __init__(self, target_base_dir: str):
+    def __init__(
+        self,
+        target_base_dir: str,
+        cancel_flag: Optional[list] = None,
+        pause_event: Optional[asyncio.Event] = None
+    ):
         self.target_base_dir = target_base_dir
         self.chunk_size = 1024 * 1024  # 1 MB chunk streaming
-        self._cancel_flag = [False]
+        self._cancel_flag = cancel_flag if cancel_flag is not None else [False]
+        self._pause_event = pause_event
 
     def cancel(self):
         self._cancel_flag[0] = True
@@ -155,9 +161,13 @@ class BunkrSequentialDownloader:
         # 3. Strictly Sequential Download Loop (Concurrency = 1)
         async with httpx.AsyncClient(headers=DEFAULT_HEADERS, timeout=60.0, follow_redirects=True) as client:
             for idx, item in enumerate(items, 1):
-                if self._cancel_flag[0]:
+                if self._cancel_flag and self._cancel_flag[0]:
                     log.info("Bunkr album download cancelled by user")
                     break
+                if self._pause_event and not self._pause_event.is_set():
+                    await self._pause_event.wait()
+                    if self._cancel_flag and self._cancel_flag[0]:
+                        break
 
                 target_filename = item.get("filename") or f"file_{idx}"
                 target_path = os.path.join(album_dir, target_filename)
@@ -174,8 +184,12 @@ class BunkrSequentialDownloader:
 
                         with open(target_path, "wb") as f:
                             async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                                if self._cancel_flag[0]:
+                                if self._cancel_flag and self._cancel_flag[0]:
                                     raise asyncio.CancelledError("Download cancelled")
+                                if self._pause_event and not self._pause_event.is_set():
+                                    await self._pause_event.wait()
+                                    if self._cancel_flag and self._cancel_flag[0]:
+                                        raise asyncio.CancelledError("Download cancelled")
                                 f.write(chunk)
 
                     completed_items += 1

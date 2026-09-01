@@ -47,14 +47,14 @@
 
     window._dlCancelInFlight.add(tid);
     try {
+      if (window.toast) window.toast("Cancelling download...");
       const res = await window.postJson("/api/temp_cloud/downloads/cancel", { task_id: tid });
       if (res && res.success) {
         if (window.toast) window.toast("Download cancelled");
-        fetchDownloadsState();
-      } else {
-        if (window.toast) window.toast(res.error || "Failed to cancel");
       }
+      fetchDownloadsState();
     } catch (e) {
+      console.error("Cancel download failed:", e);
       if (window.toast) window.toast(e.message || "Cancel failed");
     } finally {
       window._dlCancelInFlight.delete(tid);
@@ -66,9 +66,14 @@
     const tid = String(taskId || "").trim();
     if (!tid) return;
     try {
-      await window.postJson("/api/temp_cloud/downloads/pause", { task_id: tid });
+      if (window.toast) window.toast("Pausing download...");
+      const res = await window.postJson("/api/temp_cloud/downloads/pause", { task_id: tid });
+      if (res && res.success) {
+        if (window.toast) window.toast("Download paused");
+      }
       fetchDownloadsState();
     } catch (e) {
+      console.error("Pause download failed:", e);
       if (window.toast) window.toast(e.message || "Pause failed");
     }
   };
@@ -78,9 +83,14 @@
     const tid = String(taskId || "").trim();
     if (!tid) return;
     try {
-      await window.postJson("/api/temp_cloud/downloads/resume", { task_id: tid });
+      if (window.toast) window.toast("Resuming download...");
+      const res = await window.postJson("/api/temp_cloud/downloads/resume", { task_id: tid });
+      if (res && res.success) {
+        if (window.toast) window.toast("Download resumed");
+      }
       fetchDownloadsState();
     } catch (e) {
+      console.error("Resume download failed:", e);
       if (window.toast) window.toast(e.message || "Resume failed");
     }
   };

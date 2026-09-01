@@ -162,21 +162,20 @@ class DownloadManager:
                 return False
 
             task.cancel_flag[0] = True
+            task.pause_event.set()  # Unblock event if paused so worker can cleanly exit
+
             if task.downloader_instance and hasattr(task.downloader_instance, "cancel"):
                 task.downloader_instance.cancel()
 
             if task.asyncio_task and not task.asyncio_task.done():
                 task.asyncio_task.cancel()
 
-            if task.status in ("QUEUED", "DOWNLOADING", "PAUSED"):
-                task.status = "CANCELLED"
-                task.error = "Cancelled by user"
-                task.completed_at = time.time()
-                self.notify_update()
-                log.info("Cancelled download task: %s", task_id)
-                return True
-
-            return False
+            task.status = "CANCELLED"
+            task.error = "Cancelled by user"
+            task.completed_at = time.time()
+            self.notify_update()
+            log.info("Cancelled download task: %s", task_id)
+            return True
 
     async def pause_task(self, task_id: str) -> bool:
         async with self._lock:
@@ -221,9 +220,16 @@ class DownloadManager:
                     task.status = "CANCELLED"
                     task.error = "Cancelled by user"
                 except Exception as e:
-                    task.status = "FAILED"
-                    task.error = str(e)
+                    if task.cancel_flag[0] or task.status == "CANCELLED":
+                        task.status = "CANCELLED"
+                        task.error = "Cancelled by user"
+                    else:
+                        task.status = "FAILED"
+                        task.error = str(e)
                 finally:
+                    if task.cancel_flag[0]:
+                        task.status = "CANCELLED"
+                        task.error = "Cancelled by user"
                     task.completed_at = time.time()
                     self.notify_update()
                     self._queue.task_done()
@@ -240,7 +246,12 @@ class DownloadManager:
             await self._run_direct_1dm_task(task)
 
     async def _run_direct_1dm_task(self, task: DownloadTask):
-        downloader = Direct1DMDownloader(target_dir=task.target_dir, num_connections=16)
+        downloader = Direct1DMDownloader(
+            target_dir=task.target_dir,
+            num_connections=16,
+            cancel_flag=task.cancel_flag,
+            pause_event=task.pause_event
+        )
         task.downloader_instance = downloader
 
         # Progress hook
@@ -259,12 +270,17 @@ class DownloadManager:
                 self.notify_update()
                 await asyncio.to_thread(safe_extract_archive, downloaded_file, task.target_dir, delete_archive=True)
 
-            task.status = "COMPLETED"
-            task.progress = 100.0
-            task.speed_mbps = 0.0
+            if not task.cancel_flag[0]:
+                task.status = "COMPLETED"
+                task.progress = 100.0
+                task.speed_mbps = 0.0
 
     async def _run_bunkr_task(self, task: DownloadTask):
-        downloader = BunkrSequentialDownloader(target_base_dir=task.target_dir)
+        downloader = BunkrSequentialDownloader(
+            target_base_dir=task.target_dir,
+            cancel_flag=task.cancel_flag,
+            pause_event=task.pause_event
+        )
         task.downloader_instance = downloader
 
         def _on_bunkr_progress(current: int, total: int, current_file: str):
@@ -275,12 +291,12 @@ class DownloadManager:
             self.notify_update()
 
         album_dir = await downloader.download_album(task.url, progress_callback=_on_bunkr_progress)
-        if album_dir:
+        if album_dir and not task.cancel_flag[0]:
             task.album_name = os.path.basename(album_dir)
             task.filename = f"Album: {task.album_name}"
             task.status = "COMPLETED"
             task.progress = 100.0
             task.speed_mbps = 0.0
-        else:
+        elif not task.cancel_flag[0]:
             task.status = "FAILED"
             task.error = "Could not resolve or download Bunkr album items"

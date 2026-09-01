@@ -31,13 +31,16 @@ class Direct1DMDownloader:
         target_dir: str,
         num_connections: int = 16,
         chunk_size: int = 1024 * 1024 * 2, # 2MB buffer
-        timeout: float = 30.0
+        timeout: float = 30.0,
+        cancel_flag: Optional[list] = None,
+        pause_event: Optional[asyncio.Event] = None,
     ):
         self.target_dir = target_dir
         self.num_connections = max(1, min(num_connections, 32))
         self.chunk_size = chunk_size
         self.timeout = timeout
-        self._cancel_flag = [False]
+        self._cancel_flag = cancel_flag if cancel_flag is not None else [False]
+        self._pause_event = pause_event
         os.makedirs(self.target_dir, exist_ok=True)
 
     def cancel(self):
@@ -176,8 +179,12 @@ class Direct1DMDownloader:
                         resp.raise_for_status()
                         current_offset = start_byte
                         async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                            if self._cancel_flag[0]:
+                            if self._cancel_flag and self._cancel_flag[0]:
                                 raise asyncio.CancelledError("Download cancelled by user")
+                            if self._pause_event and not self._pause_event.is_set():
+                                await self._pause_event.wait()
+                                if self._cancel_flag and self._cancel_flag[0]:
+                                    raise asyncio.CancelledError("Download cancelled by user")
                             
                             chunk_len = len(chunk)
                             async with file_lock:
@@ -212,8 +219,12 @@ class Direct1DMDownloader:
                         resp.raise_for_status()
                         with open(target_path, "wb") as f:
                             async for chunk in resp.aiter_bytes(chunk_size=self.chunk_size):
-                                if self._cancel_flag[0]:
+                                if self._cancel_flag and self._cancel_flag[0]:
                                     raise asyncio.CancelledError("Download cancelled by user")
+                                if self._pause_event and not self._pause_event.is_set():
+                                    await self._pause_event.wait()
+                                    if self._cancel_flag and self._cancel_flag[0]:
+                                        raise asyncio.CancelledError("Download cancelled by user")
                                 f.write(chunk)
                                 downloaded_bytes += len(chunk)
 
