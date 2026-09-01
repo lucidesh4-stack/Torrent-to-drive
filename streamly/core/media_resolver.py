@@ -42,11 +42,12 @@ class MediaResolver:
         """
         url = url.strip()
         
-        # 1. Try yt-dlp first for web media / video sites
+        last_error = ["No error recorded"]
         def _extract_ytdlp():
             try:
                 import yt_dlp
             except ImportError as ie:
+                last_error[0] = f"yt-dlp import error: {ie}"
                 log.error("yt-dlp not available: %s", ie)
                 return None
 
@@ -65,13 +66,14 @@ class MediaResolver:
                 }
             }
 
-            # Pass 1: Try standard extractor (works for YouTube, Reddit, Twitter, TikTok, Vimeo, etc.)
+            # Pass 1: Try standard extractor
             try:
                 with yt_dlp.YoutubeDL(base_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     if info:
                         return info
             except Exception as e1:
+                last_error[0] = f"Standard error: {e1}"
                 log.warning("Standard yt-dlp extraction failed for %s: %s", url, e1)
 
             # Pass 2: Try with impersonate for Cloudflare protected hosts
@@ -82,6 +84,7 @@ class MediaResolver:
                     if info:
                         return info
             except Exception as e2:
+                last_error[0] = f"Impersonate error: {e2}"
                 log.warning("Impersonate yt-dlp extraction failed for %s: %s", url, e2)
 
             return None
@@ -180,6 +183,7 @@ class MediaResolver:
             "thumbnail": "",
             "duration": "",
             "uploader": "",
+            "debug_error": last_error[0],
             "formats": [
                 {
                     "format_id": "direct",
