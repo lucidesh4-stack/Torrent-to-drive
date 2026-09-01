@@ -28,7 +28,7 @@ from ..security import (
 )
 from ..core.http_client import SeedrDownloader
 from .telegram_client import manager as tg_manager, safe_disconnect, get_telegram_client
-from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel
+from .telegram_bot_api_daemon import upload_via_local_bot_api, get_bot_id, post_file_id_to_channel, TelegramRateLimitError
 from ..cloud_service import format_size
 
 log = logging.getLogger(__name__)
@@ -331,6 +331,13 @@ async def _trigger_next_transfer_locked(app):
             
         active_count = len(app.state.active_tasks)
         if active_count >= 3:
+            return
+
+        now_t = time.time()
+        rl_until = getattr(app.state, "tg_rate_limited_until", 0)
+        if now_t < rl_until:
+            wait_rem = int(rl_until - now_t)
+            log.info("Queue dispatch paused: Telegram rate limit cooldown active (%ds remaining)", wait_rem)
             return
 
         session_str = await rs.get("streamly:telegram_session")
@@ -732,6 +739,28 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                             transfer_succeeded = True
                             await advance_sequence_turn(app, rs, seq_num)
                             break
+                        except (TelegramRateLimitError, FloodWaitError) as rl_err:
+                            wait_secs = getattr(rl_err, "retry_after", None) or getattr(rl_err, "seconds", 60)
+                            wait_secs = max(5, int(wait_secs))
+                            app.state.tg_rate_limited_until = time.time() + wait_secs
+                            log.warning("Telegram Rate Limit hit on attempt %d: pausing transfer %s and queue for %d seconds...", attempt, task_id, wait_secs)
+                            for sec in range(wait_secs, 0, -1):
+                                if cancel_flag[0]:
+                                    raise ValueError("Cancelled by user")
+                                if sec % 5 == 0 or sec <= 3:
+                                    _live_set(task_id, {
+                                        "progress": tracker.last_pct or 50.0,
+                                        "status": f"RATE LIMITED ({sec}s)",
+                                        "filename": filename,
+                                        "sent_bytes": tracker.last_write_bytes or 0,
+                                        "total_bytes": exact_size,
+                                        "error": None,
+                                        "sid": sid,
+                                        "seq_num": seq_num,
+                                    })
+                                await asyncio.sleep(1.0)
+                            log.info("Rate limit cooldown elapsed. Automatically resuming upload for task %s...", task_id)
+                            continue
                         except Exception as bot_err:
                             err_msg = str(bot_err) or type(bot_err).__name__
                             log.error("Local C++ TDLib daemon upload failed on attempt %d: %s", attempt, err_msg)

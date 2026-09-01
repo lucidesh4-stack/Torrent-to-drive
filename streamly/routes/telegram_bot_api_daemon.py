@@ -181,6 +181,12 @@ async def stop_local_bot_api_daemon(port: int):
             log.debug("Error terminating daemon on port %d: %s", port, e)
 
 
+class TelegramRateLimitError(Exception):
+    def __init__(self, retry_after: int = 60, message: str = ""):
+        self.retry_after = retry_after
+        super().__init__(message or f"Telegram Bot Rate Limit: Too Many Requests (retry after {retry_after}s)")
+
+
 async def upload_via_local_bot_api(
     bot_token: str,
     chat_id: str,
@@ -244,13 +250,15 @@ async def upload_via_local_bot_api(
                         err_json = resp.json()
                     except Exception:
                         pass
-                    retry_after = err_json.get("parameters", {}).get("retry_after", 60)
-                    log.error("Telegram Bot Rate Limit on port %d (HTTP 429): retry after %s seconds", port, retry_after)
-                    raise ValueError(f"Telegram Bot Rate Limit: Too Many Requests (retry after {retry_after}s). Please wait before sending more files.")
+                    retry_after = int(err_json.get("parameters", {}).get("retry_after", 60))
+                    log.warning("Telegram Bot Rate Limit on port %d (HTTP 429): retry after %d seconds", port, retry_after)
+                    raise TelegramRateLimitError(retry_after=retry_after)
                 else:
                     log.warning("Local C++ TDLib daemon port %d returned HTTP %d: %s", port, resp.status_code, resp.text[:500])
                     raise ValueError(f"Local daemon upload returned HTTP {resp.status_code}: {resp.text[:200]}")
-            except (asyncio.CancelledError, ValueError) as cancel_err:
+            except (asyncio.CancelledError, TelegramRateLimitError, ValueError) as cancel_err:
+                if isinstance(cancel_err, TelegramRateLimitError):
+                    raise cancel_err
                 log.info("Local daemon send on port %d aborted: %s", port, cancel_err)
                 raise cancel_err
             except Exception as local_err:
