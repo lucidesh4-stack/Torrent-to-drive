@@ -71,6 +71,7 @@ async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_
     sid = rotate_sid(request)
     store.put(sid, client)
     request.session["username"] = username
+    request.session["site_auth"] = True
     
     if rs:
         rt = cloud.serialize_token(client)
@@ -85,6 +86,7 @@ async def login(request: Request, payload: LoginPayload, _csrf = Depends(verify_
 async def login_silent(request: Request):
     try:
         await current_client(request)
+        request.session["site_auth"] = True
         return {"success": True, "username": request.session.get("username", "")}
     except NotAuthenticated:
         raise HTTPException(status_code=401, detail="No valid refresh token stored")

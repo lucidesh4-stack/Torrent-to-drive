@@ -1229,7 +1229,10 @@
   }
 
   window.reloadCloudView = function(opts = {}) {
-    if (window.driveProvider === "offcloud") {
+    if (window.driveProvider === "temp") {
+      loadTempCloudList();
+      loadTempCloudListMobile();
+    } else if (window.driveProvider === "offcloud") {
       loadOffcloudList();
       loadOffcloudListMobile();
     } else {

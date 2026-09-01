@@ -580,8 +580,7 @@
       if (data.authenticated) {
         showApp(data.username || "Logged in");
         if (initialTab === "cloud") {
-          setTab("cloud");
-          await loadFolder(0);
+          await setTab("cloud");
         } else if (typeof refreshStorageSnapshot === "function") {
           refreshStorageSnapshot();
         }

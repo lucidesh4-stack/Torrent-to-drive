@@ -284,7 +284,8 @@ def create_app(
         # Site protection check
         if path != "/healthz" and path != "/healthz/deep" and path != "/site-login" and not path.startswith("/static/"):
             site_password = _SITE_PASSWORD
-            if site_password and not request.session.get("site_auth"):
+            is_authed = bool(request.session.get("site_auth") or request.session.get("username"))
+            if site_password and not is_authed:
                 if path.startswith("/api/") or path.startswith("/fs/"):
                     return JSONResponse(
                         status_code=401,
