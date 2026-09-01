@@ -51,6 +51,7 @@ class MediaResolver:
                 log.error("yt-dlp not available: %s", ie)
                 return None
 
+            # Clean options with Android player client to bypass YouTube datacenter wall
             base_opts = {
                 'quiet': True,
                 'no_warnings': True,
@@ -60,32 +61,36 @@ class MediaResolver:
                 'noplaylist': True,
                 'extractor_args': {
                     'youtube': {
-                        'player_client': ['android', 'ios', 'web_embedded', 'web'],
-                        'player_skip': ['webpage', 'configs', 'js'],
+                        'player_client': ['android', 'web'],
                     }
                 }
             }
 
-            # Pass 1: Try standard extractor
             try:
                 with yt_dlp.YoutubeDL(base_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     if info:
                         return info
             except Exception as e1:
-                last_error[0] = f"Standard error: {e1}"
-                log.warning("Standard yt-dlp extraction failed for %s: %s", url, e1)
+                last_error[0] = f"yt-dlp error: {e1}"
+                log.warning("yt-dlp extraction failed for %s: %s", url, e1)
 
-            # Pass 2: Try with impersonate for Cloudflare protected hosts
+            # Pass 2: Fallback with generic extractor
             try:
-                opts_imp = {**base_opts, 'impersonate': 'chrome'}
-                with yt_dlp.YoutubeDL(opts_imp) as ydl:
+                simple_opts = {
+                    'quiet': True,
+                    'no_warnings': True,
+                    'skip_download': True,
+                    'extract_flat': False,
+                    'socket_timeout': 20,
+                }
+                with yt_dlp.YoutubeDL(simple_opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     if info:
                         return info
             except Exception as e2:
-                last_error[0] = f"Impersonate error: {e2}"
-                log.warning("Impersonate yt-dlp extraction failed for %s: %s", url, e2)
+                last_error[0] = f"yt-dlp simple fallback error: {e2}"
+                log.warning("Simple yt-dlp fallback failed for %s: %s", url, e2)
 
             return None
 
@@ -225,11 +230,9 @@ class MediaResolver:
                     'quiet': True,
                     'no_warnings': True,
                     'socket_timeout': 30,
-                    'impersonate': 'chrome',
                     'extractor_args': {
                         'youtube': {
-                            'player_client': ['android', 'ios', 'web_embedded', 'web'],
-                            'player_skip': ['webpage', 'configs', 'js'],
+                            'player_client': ['android', 'web'],
                         }
                     }
                 }
