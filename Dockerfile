@@ -21,7 +21,6 @@ WORKDIR /app
 COPY streamly/requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip \
     && pip install --prefix=/install --prefer-binary \
-       --only-binary=:all: --no-binary=pyaes \
        -r requirements.txt
 
 # ---- Stage 2: final runtime image ----------------------------------------
