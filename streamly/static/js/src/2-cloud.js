@@ -1627,7 +1627,7 @@
       if (res.status === 401 && retryCount === 0) {
         const relogged = await window.attemptSilentRelogin();
         if (relogged) {
-          return window.loadTempCloudList(1);
+          return await window.loadTempCloudList(1);
         }
       }
       const data = await parseResponse(res);
@@ -1713,7 +1713,7 @@
       if (res.status === 401 && retryCount === 0) {
         const relogged = await window.attemptSilentRelogin();
         if (relogged) {
-          return window.loadTempCloudListMobile(1);
+          return await window.loadTempCloudListMobile(1);
         }
       }
       const data = await parseResponse(res);

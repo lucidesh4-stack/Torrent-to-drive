@@ -47,42 +47,36 @@
   };
 
   // Silent-relogin state: debounced so transient failures don't permanently disable.
-  window.silentReloginAttempted = false;
-  window.silentReloginTimer = null;
-  window.SILENT_RELOGIN_DEBOUNCE_MS = 8000;
+  window._silentReloginPromise = null;
 
   window.attemptSilentRelogin = async function() {
-    if (window.silentReloginAttempted) return false;
-    window.silentReloginAttempted = true;
-    try {
-      const r = await fetch("/api/login/silent", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "X-CSRF-Token": window.csrfToken || "" },
-      });
-      if (r.ok) {
-        const data = await r.json().catch(() => ({}));
-        if (data && data.success) {
-          window.showApp(data.username || "Logged in");
-          // Reset flag after debounce window on success
-          clearTimeout(window.silentReloginTimer);
-          window.silentReloginTimer = setTimeout(() => { window.silentReloginAttempted = false; }, window.SILENT_RELOGIN_DEBOUNCE_MS);
-          return true;
+    if (window._silentReloginPromise) {
+      return await window._silentReloginPromise;
+    }
+    window._silentReloginPromise = (async () => {
+      try {
+        const r = await fetch("/api/login/silent", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "X-CSRF-Token": window.csrfToken || "" },
+        });
+        if (r.ok) {
+          const data = await r.json().catch(() => ({}));
+          if (data && data.success) {
+            window.showApp(data.username || "Logged in");
+            return true;
+          }
         }
-      }
-    } catch (_) {}
-    // On failure: allow retry after debounce window
-    clearTimeout(window.silentReloginTimer);
-    window.silentReloginTimer = setTimeout(() => { window.silentReloginAttempted = false; }, window.SILENT_RELOGIN_DEBOUNCE_MS);
-    return false;
+      } catch (_) {}
+      return false;
+    })().finally(() => {
+      setTimeout(() => { window._silentReloginPromise = null; }, 1500);
+    });
+
+    return await window._silentReloginPromise;
   };
 
   window.parseResponse = async function(response) {
-    if (response.status === 401 && !response.url.includes("/api/status") && !response.url.includes("/api/login")) {
-      // Try silent re-login but do NOT show login popup here.
-      // The caller (setTab or loadFolder) is responsible for that decision.
-      await window.attemptSilentRelogin();
-    }
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.success === false) {
       const message = data && data.error && data.error.message ? data.error.message : `HTTP ${response.status}`;
