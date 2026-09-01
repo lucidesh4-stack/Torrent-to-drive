@@ -46,20 +46,39 @@ class MediaResolver:
         def _extract_ytdlp():
             try:
                 import yt_dlp
-                ydl_opts = {
-                    'quiet': True,
-                    'no_warnings': True,
-                    'skip_download': True,
-                    'extract_flat': False,
-                    'socket_timeout': 15,
-                    'impersonate': 'chrome',
-                }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    return info
-            except Exception as e:
-                log.debug("yt-dlp extraction skipped/failed for %s: %s", url, e)
+            except ImportError as ie:
+                log.error("yt-dlp not available: %s", ie)
                 return None
+
+            base_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'extract_flat': False,
+                'socket_timeout': 15,
+                'noplaylist': True,
+            }
+
+            # Pass 1: Try standard extractor (works for YouTube, Reddit, Twitter, TikTok, Vimeo, etc.)
+            try:
+                with yt_dlp.YoutubeDL(base_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        return info
+            except Exception as e1:
+                log.warning("Standard yt-dlp extraction failed for %s: %s", url, e1)
+
+            # Pass 2: Try with impersonate for Cloudflare protected hosts
+            try:
+                opts_imp = {**base_opts, 'impersonate': 'chrome'}
+                with yt_dlp.YoutubeDL(opts_imp) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info:
+                        return info
+            except Exception as e2:
+                log.warning("Impersonate yt-dlp extraction failed for %s: %s", url, e2)
+
+            return None
 
         info = await asyncio.to_thread(_extract_ytdlp)
 
