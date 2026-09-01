@@ -62,8 +62,12 @@ async def auto_prune_expired_files(user_dir: str):
                 fpath = os.path.join(root, fname)
                 try:
                     stat = os.stat(fpath)
-                    # Use st_ctime (or most recent time) to avoid deleting files with old archive/remote mtimes
-                    file_age = now - max(stat.st_ctime, stat.st_mtime)
+                    # If file has an old preserved timestamp from archive/remote (e.g. before year 2025), touch it to now!
+                    if stat.st_mtime < 1735689600:
+                        os.utime(fpath, (now, now))
+                        continue
+                        
+                    file_age = now - stat.st_mtime
                     if file_age > DEFAULT_EXPIRY_SECONDS:
                         os.remove(fpath)
                         log.info("Auto-pruned expired temp file: %s (age: %.1f hours)", fpath, file_age / 3600.0)
@@ -93,9 +97,22 @@ def _compute_used_size(user_dir: str) -> int:
     return used
 
 
+async def verify_user_session(request: Request):
+    """
+    Guarantees session ID existence and warms up client if available,
+    without blocking Temp Cloud if Seedr is unavailable.
+    """
+    ensure_sid(request)
+    try:
+        await current_client(request)
+    except Exception:
+        pass
+    return True
+
+
 @temp_cloud_router.get("/api/temp_cloud/storage")
 @rate_limited(cost=0.5)
-async def temp_cloud_storage(request: Request, _client = Depends(current_client)):
+async def temp_cloud_storage(request: Request, _auth = Depends(verify_user_session)):
     """Returns NVMe / local disk storage metrics for the top storage bar."""
     user_dir = get_user_temp_dir()
     
@@ -120,7 +137,7 @@ async def temp_cloud_storage(request: Request, _client = Depends(current_client)
 
 @temp_cloud_router.get("/api/temp_cloud/list")
 @rate_limited(cost=1.0)
-async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _client = Depends(current_client)):
+async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _auth = Depends(verify_user_session)):
     """Lists files and folders inside Temp Cloud matching Seedr schema."""
     sid = request.session.get("sid") or ensure_sid(request)
     user_dir = get_user_temp_dir(sid)
@@ -232,7 +249,7 @@ from ..core.download_manager import DownloadManager
 
 @temp_cloud_router.post("/api/temp_cloud/download")
 @rate_limited(cost=1.0)
-async def temp_cloud_download(request: Request, payload: DownloadPayload, _client = Depends(current_client), _csrf = Depends(verify_csrf)):
+async def temp_cloud_download(request: Request, payload: DownloadPayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
     """Enqueues download into the Central DownloadManager with live progress tracking & controls."""
     await validate_public_url(payload.url)
     user_dir = get_user_temp_dir()
@@ -444,7 +461,7 @@ class DeletePayload(BaseModel):
 
 @temp_cloud_router.post("/api/temp_cloud/delete")
 @rate_limited(cost=1.0)
-async def temp_cloud_delete(request: Request, payload: DeletePayload, _client = Depends(current_client), _csrf = Depends(verify_csrf)):
+async def temp_cloud_delete(request: Request, payload: DeletePayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
     """Deletes a file or directory from user's Temp Cloud."""
     sid = request.session.get("sid") or ensure_sid(request)
     user_dir = get_user_temp_dir(sid)

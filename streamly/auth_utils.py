@@ -38,6 +38,9 @@ def get_csrf_token(request: Request) -> str:
     return token
 
 
+_MASTER_TOKEN_LOCK = asyncio.Lock()
+
+
 async def current_client(request: Request):
     config = request.app.state.config
     cloud = request.app.state.cloud
@@ -48,23 +51,78 @@ async def current_client(request: Request):
     if not sid:
         sid = ensure_sid(request)
         
+    # 1. Fast path: check in-memory store for this session id
     try:
         c = store.get(sid)
         if c:
             request.session.setdefault("site_auth", True)
-        return c
+            return c
     except NotAuthenticated:
+        pass
+
+    # 2. Fast path: check if ANY active client exists in store (single-tenant app)
+    # If another request just restored the session, immediately bind it to this sid!
+    if store and hasattr(store, "_store") and store._store:
         try:
-            if not rs:
-                raise NotAuthenticated("Not authenticated")
-            rt = await rs.get_refresh_token()
-            if not rt:
-                raise NotAuthenticated("Not authenticated")
-            try:
-                client, username = await cloud.login_with_saved_token(rt)
-            except PermissionError:
-                await rs.delete_refresh_token()
-                raise NotAuthenticated("Refresh token invalid")
+            for _, val in list(store._store.items()):
+                if val and isinstance(val, (tuple, list)) and val[0]:
+                    active_client = val[0]
+                    store.put(sid, active_client)
+                    username = getattr(active_client, "username", "") or request.session.get("username", "")
+                    if username:
+                        request.session["username"] = username
+                    request.session["site_auth"] = True
+                    return active_client
+        except Exception:
+            pass
+
+    # 3. Serialized token restoration via _MASTER_TOKEN_LOCK to prevent Seedr OAuth collision
+    async with _MASTER_TOKEN_LOCK:
+        # Re-check store after acquiring lock
+        try:
+            c = store.get(sid)
+            if c:
+                request.session.setdefault("site_auth", True)
+                return c
+        except NotAuthenticated:
+            pass
+
+        if not rs:
+            # Check headless mode
+            seedr_email = config.seedr_email
+            seedr_password = config.seedr_password
+            if seedr_email and seedr_password:
+                try:
+                    client, username = await cloud.login(seedr_email, seedr_password)
+                    store.put(sid, client)
+                    request.session["username"] = username
+                    request.session["site_auth"] = True
+                    return client
+                except Exception as e:
+                    log.error("Headless auto-login failed: %s", e)
+            raise NotAuthenticated("Not authenticated")
+
+        rt = await rs.get_refresh_token()
+        if not rt:
+            seedr_email = config.seedr_email
+            seedr_password = config.seedr_password
+            if seedr_email and seedr_password:
+                try:
+                    client, username = await cloud.login(seedr_email, seedr_password)
+                    store.put(sid, client)
+                    request.session["username"] = username
+                    request.session["site_auth"] = True
+                    new_rt = cloud.serialize_token(client)
+                    if new_rt:
+                        await rs.set_refresh_token(new_rt)
+                    log.info("Auto-logged in headless mode for sid=%s", sid[:8])
+                    return client
+                except Exception as e:
+                    log.error("Headless auto-login failed: %s", e)
+            raise NotAuthenticated("Not authenticated")
+
+        try:
+            client, username = await cloud.login_with_saved_token(rt)
             store.put(sid, client)
             request.session["username"] = username
             request.session["site_auth"] = True
@@ -73,28 +131,22 @@ async def current_client(request: Request):
                 await rs.set_refresh_token(new_rt)
             log.info("Session restored via global master token for sid=%s...", sid[:8])
             return client
-        except NotAuthenticated:
-            pass
-        
-        # Headless mode check
-        seedr_email = config.seedr_email
-        seedr_password = config.seedr_password
-        if seedr_email and seedr_password:
-            try:
-                client, username = await cloud.login(seedr_email, seedr_password)
-                store.put(sid, client)
-                request.session["username"] = username
-                request.session["site_auth"] = True
-                if rs:
-                    rt = cloud.serialize_token(client)
-                    if rt:
-                        await rs.set_refresh_token(rt)
-                log.info("Auto-logged in headless mode for sid=%s", sid[:8])
-                return client
-            except PermissionError:
-                log.error("Headless auto-login failed: invalid SEEDR_EMAIL/SEEDR_PASSWORD")
-            except ConnectionError:
-                raise
-            except Exception:
-                log.exception("Unexpected error during headless auto-login")
-        raise NotAuthenticated("Not authenticated")
+        except PermissionError:
+            log.warning("Saved refresh token was rejected by Seedr OAuth")
+            # Try headless login fallback before throwing NotAuthenticated
+            seedr_email = config.seedr_email
+            seedr_password = config.seedr_password
+            if seedr_email and seedr_password:
+                try:
+                    client, username = await cloud.login(seedr_email, seedr_password)
+                    store.put(sid, client)
+                    request.session["username"] = username
+                    request.session["site_auth"] = True
+                    new_rt = cloud.serialize_token(client)
+                    if new_rt:
+                        await rs.set_refresh_token(new_rt)
+                    log.info("Recovered session via headless login fallback for sid=%s", sid[:8])
+                    return client
+                except Exception:
+                    pass
+            raise NotAuthenticated("Refresh token invalid")
