@@ -131,7 +131,7 @@
     const dlBtn = $("downloadBtn");
     if (dlBtn) dlBtn.disabled = count === 0;
 
-    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.download_url));
+    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.type === "archive" || x.download_url));
     const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
@@ -153,7 +153,7 @@
       if (archiveItem) {
         if (archiveItem.type === "folder") {
           isZipCandidate = true;
-        } else if (archiveItem.type === "file") {
+        } else if (archiveItem.type === "file" || archiveItem.type === "archive") {
           const lowerName = (archiveItem.name || "").toLowerCase();
           if (lowerName.endsWith(".zip") || lowerName.endsWith(".rar") || lowerName.endsWith(".7z") || lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar")) {
             isUnzipCandidate = true;
@@ -1083,7 +1083,7 @@
     const filesToSend = [];
     for (const key of selectedKeys) {
       const it = items.find(x => x.key === key);
-      if (it && it.type === "file") {
+      if (it && (it.type === "file" || it.type === "archive" || it.download_url)) {
         filesToSend.push(it);
       }
     }
