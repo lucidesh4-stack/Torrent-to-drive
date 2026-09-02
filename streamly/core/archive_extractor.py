@@ -126,10 +126,19 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
     return dest_dir
 
 
+PRE_COMPRESSED_EXTENSIONS = {
+    ".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".ts", ".m4v",
+    ".mp3", ".aac", ".flac", ".wav", ".ogg", ".m4a", ".opus",
+    ".jpg", ".jpeg", ".png", ".webp", ".gif",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".iso", ".dmg"
+}
+
+
 def safe_create_zip(folder_path: str, output_zip_path: Optional[str] = None, delete_folder: bool = False) -> str:
     """
-    Compresses a directory into a standard .zip archive.
-    Returns the path to the created zip file.
+    Compresses a directory into a standard .zip archive with Turbo speed.
+    Uses ZIP_STORED (copy) for pre-compressed media and ZIP_DEFLATED (level 1)
+    for raw data to maximize throughput.
     """
     if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
         raise FileNotFoundError(f"Folder not found: {folder_path}")
@@ -141,9 +150,9 @@ def safe_create_zip(folder_path: str, output_zip_path: Optional[str] = None, del
     if not output_zip_path:
         output_zip_path = os.path.join(parent_dir, f"{base_name}.zip")
 
-    log.info("Compressing folder %s -> %s", folder_path, output_zip_path)
+    log.info("Compressing folder %s -> %s (Turbo Mode)", folder_path, output_zip_path)
 
-    with zipfile.ZipFile(output_zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+    with zipfile.ZipFile(output_zip_path, 'w', allowZip64=True) as zf:
         for root, dirs, files in os.walk(folder_path):
             for file in files:
                 full_path = os.path.join(root, file)
@@ -151,7 +160,14 @@ def safe_create_zip(folder_path: str, output_zip_path: Optional[str] = None, del
                 if os.path.abspath(full_path) == os.path.abspath(output_zip_path):
                     continue
                 rel_path = os.path.relpath(full_path, folder_path)
-                zf.write(full_path, rel_path)
+                
+                _, ext = os.path.splitext(file.lower())
+                if ext in PRE_COMPRESSED_EXTENSIONS:
+                    # Pure I/O streaming for media (near-instantaneous)
+                    zf.write(full_path, rel_path, compress_type=zipfile.ZIP_STORED)
+                else:
+                    # Fast deflate (level 1) for text/documents
+                    zf.write(full_path, rel_path, compress_type=zipfile.ZIP_DEFLATED, compresslevel=1)
 
     now = time.time()
     try:
