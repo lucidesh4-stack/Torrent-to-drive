@@ -173,7 +173,8 @@
           const sent = formatBytes(item.downloaded_bytes || 0);
           const total = formatBytes(item.total_bytes || 0);
           const isPaused = item.status === "PAUSED";
-          const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (item.type === "bunkr" ? "BUNKR ALBUM" : "1DM TURBO"));
+          const isMedia = item.type === "media_grabber" || item.type === "bunkr";
+          const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (isMedia ? "MEDIA GRABBER" : "1DM TURBO"));
 
           return `
           <div data-task-id="${item.task_id}" style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;">
@@ -253,7 +254,8 @@
       if (queue.length > 0) {
         queueBody.innerHTML = queue.map(item => {
           const fname = escapeHtml(item.filename || "file");
-          const ftype = item.type === "bunkr" ? "Bunkr Album" : "Direct / Archive";
+          const isMedia = item.type === "media_grabber" || item.type === "bunkr";
+          const ftype = isMedia ? "Media / Album" : "Direct / Archive";
           return `
           <tr>
             <td style="padding: 10px; font-size: 13px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${fname}</td>

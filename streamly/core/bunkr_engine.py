@@ -31,32 +31,53 @@ def is_bunkr_url(url: str) -> bool:
     return bool(BUNKR_DOMAIN_PATTERN.match(url.strip()))
 
 
+def is_gallery_dl_url(url: str) -> bool:
+    """Returns True if the URL points to Bunkr or any site supported by gallery-dl."""
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    if is_bunkr_url(url):
+        return True
+    try:
+        from gallery_dl import extractor
+        extr = extractor.find(url)
+        if extr is not None:
+            category = getattr(extr, "category", "")
+            if category and category.lower() not in ("oauth", "generic"):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def sanitize_folder_name(name: str) -> str:
     """Sanitizes directory names, removing illegal filesystem characters."""
     clean = re.sub(r'[\\/*?:"<>|]', "", name).strip()
-    return clean if clean else "Bunkr_Album"
+    return clean if clean else "Media_Album"
 
 
-def resolve_bunkr_via_gallery_dl(url: str) -> tuple[str, list[dict]]:
+def resolve_media_via_gallery_dl(url: str) -> tuple[str, list[dict]]:
     """
-    Uses gallery-dl's built-in extractor to parse Bunkr album/file metadata.
-    Returns (album_title, list of {'filename': ..., 'url': ...}).
+    Uses gallery-dl's built-in extractors to parse media metadata from 100+ sites.
+    Returns (album_or_site_title, list of {'filename': ..., 'url': ...}).
     """
     try:
         from gallery_dl import job
         results = []
-        album_title = "Bunkr_Album"
+        album_title = ""
 
         class _MemoryDataJob(job.DataJob):
             def handle_url(self, item_url, kwdict):
                 nonlocal album_title
                 fname = kwdict.get("filename") or kwdict.get("name") or os.path.basename(item_url.split("?")[0])
                 if not fname:
-                    fname = f"bunkr_{len(results)+1}"
+                    fname = f"media_{len(results)+1}"
                 if kwdict.get("extension") and not fname.endswith(f".{kwdict.get('extension')}"):
                     fname = f"{fname}.{kwdict.get('extension')}"
-                if kwdict.get("album_name") and album_title == "Bunkr_Album":
-                    album_title = sanitize_folder_name(kwdict.get("album_name"))
+                if not album_title:
+                    title_candidate = kwdict.get("album_name") or kwdict.get("title") or kwdict.get("category") or kwdict.get("user")
+                    if title_candidate:
+                        album_title = sanitize_folder_name(str(title_candidate))
 
                 results.append({
                     "filename": fname,
@@ -66,12 +87,17 @@ def resolve_bunkr_via_gallery_dl(url: str) -> tuple[str, list[dict]]:
         data_job = _MemoryDataJob(url)
         data_job.run()
         if results:
-            log.info("gallery-dl resolved %d items for Bunkr URL %s (Album: %s)", len(results), url, album_title)
+            if not album_title:
+                album_title = sanitize_folder_name(results[0]["filename"].rsplit(".", 1)[0]) if results else "Media_Album"
+            log.info("gallery-dl resolved %d items for URL %s (Title: %s)", len(results), url, album_title)
             return album_title, results
     except Exception as e:
-        log.warning("gallery-dl extraction failed for %s: %s; falling back to direct parser", url, e)
+        log.warning("gallery-dl extraction failed for %s: %s; falling back to direct parser if applicable", url, e)
 
     return "", []
+
+
+resolve_bunkr_via_gallery_dl = resolve_media_via_gallery_dl
 
 
 async def resolve_bunkr_fallback(url: str) -> tuple[str, list[dict]]:
@@ -110,11 +136,11 @@ async def resolve_bunkr_fallback(url: str) -> tuple[str, list[dict]]:
         return "", []
 
 
-class BunkrSequentialDownloader:
+class UniversalMediaGrabberDownloader:
     """
-    Sequential, polite downloader for Bunkr albums.
+    Universal polite, sequential media downloader for Bunkr and 100+ gallery-dl supported sites.
     Strictly limits concurrency to 1 and applies polite pauses between files
-    to prevent Bunkr CDN IP bans (429/403).
+    to prevent CDN IP bans (429/403).
     """
 
     def __init__(
@@ -139,28 +165,28 @@ class BunkrSequentialDownloader:
         """
         Extracts album and downloads all files sequentially into a dedicated folder.
         """
-        log.info("Starting Bunkr Sequential Album Downloader for: %s", url)
+        log.info("Starting Universal Media Grabber for: %s", url)
 
-        # 1. Resolve Album Metadata via gallery-dl with fallback
+        # 1. Resolve Media Metadata via gallery-dl with fallback
         if progress_callback:
-            progress_callback(0, 0, 0.0, 0, 1, "Resolving album metadata...", "Bunkr Album")
+            progress_callback(0, 0, 0.0, 0, 1, "Resolving media items with gallery-dl...", "Media Grabber")
 
-        album_title, items = await asyncio.to_thread(resolve_bunkr_via_gallery_dl, url)
-        if not items:
+        album_title, items = await asyncio.to_thread(resolve_media_via_gallery_dl, url)
+        if not items and is_bunkr_url(url):
             album_title, items = await resolve_bunkr_fallback(url)
 
         if not items:
-            log.error("Could not extract any media items from Bunkr URL: %s", url)
+            log.error("Could not extract any media items from URL: %s", url)
             return None
 
         if self._cancel_flag and self._cancel_flag[0]:
-            log.info("Bunkr album download cancelled before starting")
+            log.info("Media download cancelled before starting")
             return None
 
-        # 2. Create Album Directory
+        # 2. Determine Album Directory
         album_dir = os.path.join(self.target_base_dir, album_title)
         os.makedirs(album_dir, exist_ok=True)
-        log.info("Downloading %d Bunkr items into: %s", len(items), album_dir)
+        log.info("Downloading %d media items into: %s", len(items), album_dir)
 
         total_items = len(items)
         completed_items = 0
@@ -312,5 +338,9 @@ class BunkrSequentialDownloader:
         if self._cancel_flag and self._cancel_flag[0]:
             return None
 
-        log.info("Bunkr Album Finished: %d/%d files downloaded into %s", completed_items, total_items, album_dir)
+        log.info("Media Album Finished: %d/%d files downloaded into %s", completed_items, total_items, album_dir)
         return album_dir
+
+
+# Alias for backward compatibility
+BunkrSequentialDownloader = UniversalMediaGrabberDownloader

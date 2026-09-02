@@ -14,7 +14,7 @@ import logging
 from typing import Optional, Dict, List, Any
 from .direct_downloader import Direct1DMDownloader
 from .archive_extractor import is_archive, safe_extract_archive
-from .bunkr_engine import is_bunkr_url, BunkrSequentialDownloader
+from .bunkr_engine import is_bunkr_url, is_gallery_dl_url, UniversalMediaGrabberDownloader, BunkrSequentialDownloader
 
 log = logging.getLogger(__name__)
 
@@ -130,8 +130,9 @@ class DownloadManager:
         auto_unzip: bool = True
     ) -> DownloadTask:
         task_id = f"dl_{uuid.uuid4().hex[:10]}"
-        task_type = "bunkr" if is_bunkr_url(url) else "direct"
-        filename = os.path.basename(url.split("?")[0]) or ("Bunkr Album" if task_type == "bunkr" else "file")
+        is_gallery = is_gallery_dl_url(url)
+        task_type = "media_grabber" if is_gallery else "direct"
+        filename = os.path.basename(url.split("?")[0]) or ("Media Album" if is_gallery else "file")
 
         task = DownloadTask(
             task_id=task_id,
@@ -240,8 +241,8 @@ class DownloadManager:
 
     async def _run_task(self, task: DownloadTask):
         """Executes a single download task."""
-        if task.task_type == "bunkr":
-            await self._run_bunkr_task(task)
+        if task.task_type in ("bunkr", "media_grabber"):
+            await self._run_media_grabber_task(task)
         else:
             await self._run_direct_1dm_task(task)
 
@@ -275,15 +276,15 @@ class DownloadManager:
                 task.progress = 100.0
                 task.speed_mbps = 0.0
 
-    async def _run_bunkr_task(self, task: DownloadTask):
-        downloader = BunkrSequentialDownloader(
+    async def _run_media_grabber_task(self, task: DownloadTask):
+        downloader = UniversalMediaGrabberDownloader(
             target_base_dir=task.target_dir,
             cancel_flag=task.cancel_flag,
             pause_event=task.pause_event
         )
         task.downloader_instance = downloader
 
-        def _on_bunkr_progress(file_downloaded: int, file_total: int, speed_mbps: float, current: int, total: int, current_file: str, album_title: str):
+        def _on_media_progress(file_downloaded: int, file_total: int, speed_mbps: float, current: int, total: int, current_file: str, album_title: str):
             task.downloaded_bytes = file_downloaded
             task.total_bytes = file_total
             task.speed_mbps = speed_mbps
@@ -295,7 +296,7 @@ class DownloadManager:
             task.progress = min(100.0, max(0.0, ((current - 1 + file_ratio) / total * 100.0))) if total > 0 else 0.0
             self.notify_update()
 
-        album_dir = await downloader.download_album(task.url, progress_callback=_on_bunkr_progress)
+        album_dir = await downloader.download_album(task.url, progress_callback=_on_media_progress)
         if album_dir and not task.cancel_flag[0]:
             task.album_name = os.path.basename(album_dir)
             task.filename = f"Album: {task.album_name}"
@@ -307,4 +308,6 @@ class DownloadManager:
             task.error = "Cancelled by user"
         else:
             task.status = "FAILED"
-            task.error = "Could not resolve or download Bunkr album items"
+            task.error = "Could not resolve or download media items"
+
+    _run_bunkr_task = _run_media_grabber_task

@@ -277,7 +277,7 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _auth 
 
     manager = DownloadManager.get_instance()
     task = await manager.enqueue(payload.url, target_dir=user_dir, auto_unzip=payload.auto_unzip)
-    msg = "Bunkr album queued! Downloading sequentially..." if task.task_type == "bunkr" else "1DM Turbo download started!"
+    msg = "Media Grabber album queued! Downloading sequentially..." if task.task_type in ("bunkr", "media_grabber") else "1DM Turbo download started!"
 
     return {
         "success": True,
