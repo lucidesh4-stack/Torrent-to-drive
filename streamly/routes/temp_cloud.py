@@ -270,6 +270,8 @@ async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _au
                         "expiry_str": expiry_str
                     })
                 elif entry.is_file():
+                    if entry.name.endswith(".part"):
+                        continue
                     fsize = stat.st_size
                     is_arch = is_archive(entry.name)
                     files_list.append({

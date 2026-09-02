@@ -176,10 +176,14 @@ class UniversalMediaGrabberDownloader:
         cmd = [
             "gallery-dl",
             "--directory", self.target_base_dir,
-            "--no-part",
-            "--sleep", "1.0",
-            "--sleep-request", "0.5",
-            "--retries", "15",
+            "-o", "downloader.http.timeout=180",
+            "-o", "downloader.http.chunk-size=1048576",
+            "-o", "downloader.http.retry-wait=2",
+            "-o", "downloader.http.retry-backoff=1.5",
+            "-o", "downloader.part=true",
+            "--sleep", "0.8",
+            "--sleep-request", "0.4",
+            "--retries", "25",
             "--abort", "0",
             "--no-mtime",
             url
