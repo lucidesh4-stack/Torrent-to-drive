@@ -497,3 +497,63 @@ async def temp_cloud_delete(request: Request, payload: DeletePayload, _auth = De
     except Exception as e:
         log.error("Delete failed for %s: %s", target_path, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+from ..core.archive_extractor import safe_create_zip, safe_extract_archive, is_archive
+
+class ArchiveOperationPayload(BaseModel):
+    item_id: str
+    delete_source: bool = False
+
+
+@temp_cloud_router.post("/api/temp_cloud/zip")
+@rate_limited(cost=1.0)
+async def temp_cloud_zip_folder(request: Request, payload: ArchiveOperationPayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
+    """Compresses a folder into a standard .zip archive."""
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+
+    target_path = os.path.realpath(os.path.join(user_dir, payload.item_id.lstrip("/\\")))
+    if not target_path.startswith(os.path.realpath(user_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    if not os.path.isdir(target_path):
+        raise HTTPException(status_code=400, detail="Target is not a folder")
+
+    try:
+        zip_path = await asyncio.to_thread(safe_create_zip, target_path, delete_folder=payload.delete_source)
+        zip_name = os.path.basename(zip_path)
+        return {"success": True, "message": f"Folder zipped successfully to {zip_name}", "zip_file": zip_name}
+    except Exception as e:
+        log.error("Zip failed for %s: %s", target_path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@temp_cloud_router.post("/api/temp_cloud/unzip")
+@rate_limited(cost=1.0)
+async def temp_cloud_unzip_archive(request: Request, payload: ArchiveOperationPayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
+    """Extracts a .zip, .rar, .7z, or .tar archive file."""
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+
+    target_path = os.path.realpath(os.path.join(user_dir, payload.item_id.lstrip("/\\")))
+    if not target_path.startswith(os.path.realpath(user_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(target_path):
+        raise HTTPException(status_code=404, detail="Archive not found")
+
+    if not is_archive(target_path):
+        raise HTTPException(status_code=400, detail="File is not a supported archive format (.zip, .rar, .7z, .tar.gz)")
+
+    try:
+        parent_dir = os.path.dirname(target_path)
+        dest_dir = await asyncio.to_thread(safe_extract_archive, target_path, extract_to=parent_dir, delete_archive=payload.delete_source)
+        folder_name = os.path.basename(dest_dir)
+        return {"success": True, "message": f"Archive extracted successfully to {folder_name}", "dest_folder": folder_name}
+    except Exception as e:
+        log.error("Unzip failed for %s: %s", target_path, e)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -164,6 +164,12 @@
   if ($("telegramBtn")) $("telegramBtn").addEventListener("click", () => {
     if (typeof sendSelectedToTelegram === "function") sendSelectedToTelegram();
   });
+  if ($("archiveActionBtn")) $("archiveActionBtn").addEventListener("click", () => {
+    if (typeof window.archiveSelectedAction === "function") window.archiveSelectedAction();
+  });
+  if ($("cmBulkArchive")) $("cmBulkArchive").addEventListener("click", () => {
+    if (typeof window.archiveSelectedAction === "function") window.archiveSelectedAction();
+  });
   $("deleteBtn").addEventListener("click", deleteSelected);
   $("selectAllCheck").addEventListener("change", (e) => {
     if (e.target.checked) {

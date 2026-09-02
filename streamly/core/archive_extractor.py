@@ -122,3 +122,42 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
                 pass
 
     return dest_dir
+
+
+def safe_create_zip(folder_path: str, output_zip_path: Optional[str] = None, delete_folder: bool = False) -> str:
+    """
+    Compresses a directory into a standard .zip archive.
+    Returns the path to the created zip file.
+    """
+    if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+        raise FileNotFoundError(f"Folder not found: {folder_path}")
+
+    folder_path = os.path.abspath(folder_path)
+    parent_dir = os.path.dirname(folder_path)
+    base_name = os.path.basename(folder_path)
+
+    if not output_zip_path:
+        output_zip_path = os.path.join(parent_dir, f"{base_name}.zip")
+
+    log.info("Compressing folder %s -> %s", folder_path, output_zip_path)
+
+    with zipfile.ZipFile(output_zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                full_path = os.path.join(root, file)
+                # Avoid recursively zipping the output zip if placed inside
+                if os.path.abspath(full_path) == os.path.abspath(output_zip_path):
+                    continue
+                rel_path = os.path.relpath(full_path, folder_path)
+                zf.write(full_path, rel_path)
+
+    now = time.time()
+    try:
+        os.utime(output_zip_path, (now, now))
+    except Exception:
+        pass
+
+    if delete_folder and os.path.exists(folder_path):
+        shutil.rmtree(folder_path, ignore_errors=True)
+
+    return output_zip_path

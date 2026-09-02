@@ -124,6 +124,43 @@
     const deleteBtn = $("deleteBtn");
     if (deleteBtn) deleteBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
 
+    // Archive Action (Zip folder / Unzip archive)
+    const archiveBtn = $("archiveActionBtn");
+    const cmArchiveBtn = $("cmBulkArchive");
+    let isZipCandidate = false;
+    let isUnzipCandidate = false;
+    let archiveItem = null;
+
+    if (window.driveProvider === "temp" && count === 1) {
+      archiveItem = selected || items.find(x => selectedKeys.has(x.key));
+      if (archiveItem) {
+        if (archiveItem.type === "folder") {
+          isZipCandidate = true;
+        } else if (archiveItem.type === "file") {
+          const lowerName = (archiveItem.name || "").toLowerCase();
+          if (lowerName.endsWith(".zip") || lowerName.endsWith(".rar") || lowerName.endsWith(".7z") || lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar")) {
+            isUnzipCandidate = true;
+          }
+        }
+      }
+    }
+
+    if (archiveBtn) {
+      if (isZipCandidate) {
+        archiveBtn.classList.remove("hidden");
+        archiveBtn.textContent = "📦 Zip Folder";
+        archiveBtn.title = "Compress this folder into a .zip archive";
+        archiveBtn.disabled = false;
+      } else if (isUnzipCandidate) {
+        archiveBtn.classList.remove("hidden");
+        archiveBtn.textContent = "📂 Unzip Archive";
+        archiveBtn.title = "Extract this archive in-place";
+        archiveBtn.disabled = false;
+      } else {
+        archiveBtn.classList.add("hidden");
+      }
+    }
+
     // ----- Mobile selection sync -----
     document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
       row.classList.toggle("sel", selectedKeys.has(row.dataset.key));
@@ -146,6 +183,15 @@
     if (cmCpBtn) cmCpBtn.disabled = count === 0;
     const tgBtn = $("cmBulkTelegram");
     if (tgBtn) tgBtn.disabled = selectedFiles.length === 0 || hasFolder;
+    if (cmArchiveBtn) {
+      if (isZipCandidate || isUnzipCandidate) {
+        cmArchiveBtn.classList.remove("hidden");
+        cmArchiveBtn.title = isZipCandidate ? "Zip Folder" : "Unzip Archive";
+        cmArchiveBtn.disabled = false;
+      } else {
+        cmArchiveBtn.classList.add("hidden");
+      }
+    }
     const cmDelBtn = $("cmBulkDelete");
     if (cmDelBtn) cmDelBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
     // Mobile select-all checkbox state
@@ -863,6 +909,52 @@
       updateStatus($("cloudStatus"), err.message || "Zip failed", "error");
     }
   }
+
+  window.archiveSelectedAction = async function() {
+    if (selectedKeys.size === 0) return toast("Select an item first");
+    const item = selected || items.find(x => selectedKeys.has(x.key));
+    if (!item) return;
+
+    if (window.driveProvider !== "temp") {
+      return toast("Zip / Unzip is supported on Temp Cloud storage");
+    }
+
+    if (item.type === "folder") {
+      // ZIP FOLDER
+      updateStatus($("cloudStatus"), `Zipping folder "${item.name}"...`, "");
+      toast(`Compressing folder "${item.name}" into .zip...`);
+      try {
+        const res = await postJson("/api/temp_cloud/zip", { item_id: item.id || item.name });
+        if (res && res.success) {
+          toast(res.message || `Folder zipped to ${res.zip_file}`);
+          updateStatus($("cloudStatus"), res.message, "ok");
+          await window.cloudRefresh();
+        } else {
+          throw new Error((res && res.detail) || "Zip operation failed");
+        }
+      } catch (err) {
+        toast("Zip failed: " + (err.message || err));
+        updateStatus($("cloudStatus"), err.message || "Zip failed", "error");
+      }
+    } else if (item.type === "file") {
+      // UNZIP ARCHIVE
+      updateStatus($("cloudStatus"), `Extracting archive "${item.name}"...`, "");
+      toast(`Extracting archive "${item.name}"...`);
+      try {
+        const res = await postJson("/api/temp_cloud/unzip", { item_id: item.id || item.name });
+        if (res && res.success) {
+          toast(res.message || `Archive extracted to ${res.dest_folder}`);
+          updateStatus($("cloudStatus"), res.message, "ok");
+          await window.cloudRefresh();
+        } else {
+          throw new Error((res && res.detail) || "Unzip operation failed");
+        }
+      } catch (err) {
+        toast("Unzip failed: " + (err.message || err));
+        updateStatus($("cloudStatus"), err.message || "Unzip failed", "error");
+      }
+    }
+  };
 
   window.deleteSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
