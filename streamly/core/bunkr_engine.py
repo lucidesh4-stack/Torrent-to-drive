@@ -176,6 +176,9 @@ class UniversalMediaGrabberDownloader:
         cmd = [
             "gallery-dl",
             "--directory", self.target_base_dir,
+            "--no-part",
+            "--sleep", "1.0",
+            "--sleep-request", "0.5",
             "--retries", "15",
             "--abort", "0",
             "--no-mtime",
@@ -231,19 +234,28 @@ class UniversalMediaGrabberDownloader:
                     if now - last_speed_time >= 0.4:
                         cur_album_dir = os.path.join(self.target_base_dir, album_title)
                         total_bytes = 0
-                        if os.path.exists(cur_album_dir):
-                            for root, _, files in os.walk(cur_album_dir):
-                                for f in files:
-                                    try:
-                                        total_bytes += os.path.getsize(os.path.join(root, f))
-                                    except Exception:
-                                        pass
+                        scan_dir = cur_album_dir if os.path.exists(cur_album_dir) else self.target_base_dir
+                        for root, _, files in os.walk(scan_dir):
+                            for f in files:
+                                try:
+                                    total_bytes += os.path.getsize(os.path.join(root, f))
+                                except Exception:
+                                    pass
                         elapsed = now - last_speed_time
                         diff = total_bytes - last_total_bytes
                         speed_mbps = (diff / (1024 * 1024) / elapsed) * 8.0 if elapsed > 0 else 0.0
                         last_speed_time = now
                         last_total_bytes = total_bytes
                         progress_callback(total_bytes, total_bytes, speed_mbps, current_item, total_items, current_filename, album_title)
+
+        async def _read_stderr():
+            while self._active_proc and self._active_proc.stderr:
+                line = await self._active_proc.stderr.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").strip()
+                if text:
+                    log.info("[gallery-dl stderr] %s", text)
 
         async def _monitor_cancel():
             while self._active_proc and self._active_proc.returncode is None:
@@ -256,17 +268,24 @@ class UniversalMediaGrabberDownloader:
                 await asyncio.sleep(0.4)
 
         stdout_task = asyncio.create_task(_read_stdout())
+        stderr_task = asyncio.create_task(_read_stderr())
         cancel_task = asyncio.create_task(_monitor_cancel())
 
         await self._active_proc.wait()
         await stdout_task
+        await stderr_task
         cancel_task.cancel()
 
         if self._cancel_flag and self._cancel_flag[0]:
             return None
 
-        # Resolve output folder
+        # Resolve output folder (including nested category subfolders like bunkr/desi_cheeks)
         if os.path.exists(self.target_base_dir):
+            # Check if an inner album directory was created
+            for root, dirs, files in os.walk(self.target_base_dir):
+                if files and any(f.lower().endswith(('.mp4', '.mkv', '.webm', '.jpg', '.png', '.jpeg', '.mp3', '.m4v')) for f in files):
+                    return root
+
             current_dirs = set(os.listdir(self.target_base_dir))
             new_dirs = current_dirs - existing_dirs
             for d in new_dirs:
