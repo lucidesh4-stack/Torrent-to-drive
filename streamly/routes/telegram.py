@@ -440,12 +440,46 @@ async def set_current_post_seq(app, rs, seq_num: int):
             cond.notify_all()
 
 
+async def _has_active_or_queued_preceding_task(app, rs, seq_num: int) -> bool:
+    """Check if there is any active or queued transfer task strictly before this seq_num."""
+    # 1. Check in-memory active tasks
+    active_tasks = getattr(app.state, "active_tasks", {})
+    for tid, t in list(active_tasks.items()):
+        t_seq = getattr(t, "_seq_num", None)
+        if t_seq is not None and t_seq < seq_num and not t.done():
+            return True
+
+    # 2. Check queued tasks in Redis
+    if rs:
+        try:
+            q_items = await rs._execute("LRANGE", "streamly:transfer_queue", 0, 100)
+            if q_items:
+                for q_tid in q_items:
+                    raw_args = await rs.get(f"streamly:task_args:{q_tid}")
+                    if raw_args:
+                        args = _json.loads(raw_args)
+                        q_seq = args.get("seq_num")
+                        if q_seq is not None and q_seq < seq_num:
+                            return True
+        except Exception as e:
+            log.debug("Preceding task queue check failed: %s", e)
+
+    return False
+
+
 async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: Optional[list] = None):
     if seq_num is None:
         return
 
     current = await get_current_post_seq(app, rs)
     if current >= seq_num:
+        return
+
+    # Self-healing check: If no prior task is active or queued, auto-advance turn immediately!
+    has_prior = await _has_active_or_queued_preceding_task(app, rs, seq_num)
+    if not has_prior:
+        log.info("No active or queued tasks before seq #%d (current turn was #%d). Auto-advancing sequence turn to #%d!", seq_num, current, seq_num)
+        await set_current_post_seq(app, rs, seq_num)
         return
 
     log.info("Task seq #%d waiting for sequential channel posting turn (current active turn: #%d)...", seq_num, current)
@@ -460,10 +494,17 @@ async def wait_for_sequence_turn(app, rs, seq_num: Optional[int], cancel_flag: O
                 log.info("Task seq #%d cancelled while waiting at sequence gate; advancing turn", seq_num)
                 await advance_sequence_turn(app, rs, seq_num)
                 raise asyncio.CancelledError("Cancelled by user while waiting for sequence turn")
-            
+
+            # Periodic self-healing check in case a preceding task was cancelled/dropped without advancing turn
+            has_prior = await _has_active_or_queued_preceding_task(app, rs, seq_num)
+            if not has_prior:
+                log.info("Preceding tasks completed/cancelled for seq #%d. Auto-advancing sequence turn from #%d to #%d!", seq_num, current, seq_num)
+                await set_current_post_seq(app, rs, seq_num)
+                break
+
             async with cond:
                 try:
-                    await asyncio.wait_for(cond.wait(), timeout=0.5)
+                    await asyncio.wait_for(cond.wait(), timeout=1.0)
                 except asyncio.TimeoutError:
                     pass
             current = getattr(app.state, "current_post_seq", current)
@@ -1244,7 +1285,9 @@ async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, cli
     seq_num = int(raw_seq) if raw_seq and str(raw_seq).isdigit() else 1
 
     current_turn_val = await rs._execute("GET", "streamly:current_channel_post_seq")
-    if current_turn_val is None:
+    queue_len = await rs._execute("LLEN", "streamly:transfer_queue")
+    active_count = len(getattr(request.app.state, "active_tasks", {}))
+    if current_turn_val is None or ((int(current_turn_val) if str(current_turn_val).isdigit() else 0) < seq_num and (queue_len == 0 or queue_len is None) and active_count == 0):
         await rs._execute("SET", "streamly:current_channel_post_seq", str(seq_num))
         request.app.state.current_post_seq = seq_num
 
