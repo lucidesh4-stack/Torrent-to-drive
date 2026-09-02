@@ -26,25 +26,65 @@ log = logging.getLogger(__name__)
 temp_cloud_router = APIRouter()
 
 def _resolve_temp_cloud_root() -> str:
-    env_dir = os.environ.get("TEMP_CLOUD_DIR")
+    # 1. Explicit env var override
+    env_dir = os.environ.get("PERSISTENT_STORAGE_DIR") or os.environ.get("TEMP_CLOUD_DIR")
     if env_dir:
-        return os.path.abspath(env_dir)
-    # Prefer /tmp/streamly_temp_cloud on Linux/Docker environments for guaranteed 100% write permissions
+        try:
+            p = os.path.abspath(env_dir)
+            os.makedirs(p, exist_ok=True)
+            if os.access(p, os.W_OK):
+                return p
+        except Exception:
+            pass
+
+    # 2. Hugging Face Spaces Persistent Storage volume (/data)
+    if os.path.exists("/data"):
+        try:
+            p = "/data/streamly_storage"
+            os.makedirs(p, exist_ok=True)
+            if os.access(p, os.W_OK):
+                return p
+        except Exception:
+            pass
+
+    # 3. User home persistent space (~/streamly_storage)
+    try:
+        home = os.path.expanduser("~")
+        if home and os.path.exists(home):
+            p = os.path.join(home, "streamly_storage")
+            os.makedirs(p, exist_ok=True)
+            if os.access(p, os.W_OK):
+                return p
+    except Exception:
+        pass
+
+    # 4. Project workspace local storage
+    try:
+        local_dir = os.path.abspath(os.path.join(os.getcwd(), "storage", "temp_cloud"))
+        os.makedirs(local_dir, exist_ok=True)
+        if os.access(local_dir, os.W_OK):
+            return local_dir
+    except Exception:
+        pass
+
+    # 5. Linux /tmp fallback
     if os.name != "nt" and os.path.exists("/tmp"):
         return "/tmp/streamly_temp_cloud"
-    return os.path.abspath(os.path.join(os.getcwd(), "storage", "temp_cloud"))
+
+    return os.path.abspath(os.path.join(os.getcwd(), "temp_cloud_data"))
 
 TEMP_CLOUD_ROOT = _resolve_temp_cloud_root()
-DEFAULT_EXPIRY_SECONDS = 86400 # 24 hours
-TEMP_STORAGE_QUOTA_GB = 50.0
+DEFAULT_EXPIRY_DAYS = float(os.environ.get("TEMP_CLOUD_EXPIRY_DAYS", "30.0"))
+DEFAULT_EXPIRY_SECONDS = int(DEFAULT_EXPIRY_DAYS * 86400)
+TEMP_STORAGE_QUOTA_GB = float(os.environ.get("TEMP_STORAGE_QUOTA_GB", "50.0"))
 
 def get_user_temp_dir(sid: str = "") -> str:
-    """Unified instance temp cloud storage root so files persist across browser sessions for 24h."""
+    """Unified instance cloud storage root persisting files across restarts and sessions."""
     try:
         os.makedirs(TEMP_CLOUD_ROOT, exist_ok=True)
         return TEMP_CLOUD_ROOT
     except Exception as e:
-        log.warning("Primary temp cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", TEMP_CLOUD_ROOT, e)
+        log.warning("Primary cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", TEMP_CLOUD_ROOT, e)
         fallback = "/tmp/streamly_temp_cloud" if os.name != "nt" else os.path.abspath(os.path.join(os.getcwd(), "temp_cloud_data"))
         os.makedirs(fallback, exist_ok=True)
         return fallback
@@ -62,8 +102,11 @@ def _format_size(size_bytes: int) -> str:
 def _format_expiry(expiry_sec: int) -> str:
     if expiry_sec <= 0:
         return "Expires soon"
-    hours = expiry_sec // 3600
+    days = expiry_sec // 86400
+    hours = (expiry_sec % 86400) // 3600
     minutes = (expiry_sec % 3600) // 60
+    if days > 0:
+        return f"Expires in {days}d {hours:02d}h"
     if hours > 0:
         return f"Expires in {hours}h {minutes:02d}m"
     return f"Expires in {minutes}m"
@@ -556,4 +599,84 @@ async def temp_cloud_unzip_archive(request: Request, payload: ArchiveOperationPa
         return {"success": True, "message": f"Archive extracted successfully to {folder_name}", "dest_folder": folder_name}
     except Exception as e:
         log.error("Unzip failed for %s: %s", target_path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class CreateFolderPayload(BaseModel):
+    name: str
+    folder_id: Optional[str] = ""
+
+
+@temp_cloud_router.post("/api/temp_cloud/folder/create")
+@rate_limited(cost=1.0)
+async def temp_cloud_create_folder(request: Request, payload: CreateFolderPayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
+    """Creates a new folder in Temp Cloud."""
+    import re
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+
+    clean_name = re.sub(r'[\\/*?:"<>|]', "", payload.name).strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+
+    parent_rel = (payload.folder_id or "").strip().lstrip("/\\")
+    if parent_rel and parent_rel != "0":
+        target_dir = os.path.realpath(os.path.join(user_dir, parent_rel))
+    else:
+        target_dir = os.path.realpath(user_dir)
+
+    if not target_dir.startswith(os.path.realpath(user_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    new_folder_path = os.path.join(target_dir, clean_name)
+    if os.path.exists(new_folder_path):
+        raise HTTPException(status_code=400, detail=f"A folder or file named '{clean_name}' already exists")
+
+    try:
+        os.makedirs(new_folder_path, exist_ok=True)
+        now = time.time()
+        os.utime(new_folder_path, (now, now))
+        return {"success": True, "message": f"Folder '{clean_name}' created successfully", "folder_name": clean_name}
+    except Exception as e:
+        log.error("Create folder failed for %s: %s", new_folder_path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RenamePayload(BaseModel):
+    item_id: str
+    new_name: str
+
+
+@temp_cloud_router.post("/api/temp_cloud/rename")
+@rate_limited(cost=1.0)
+async def temp_cloud_rename(request: Request, payload: RenamePayload, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
+    """Renames a file or folder in Temp Cloud."""
+    import re
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+
+    clean_name = re.sub(r'[\\/*?:"<>|]', "", payload.new_name).strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Invalid new name")
+
+    source_path = os.path.realpath(os.path.join(user_dir, payload.item_id.lstrip("/\\")))
+    if not source_path.startswith(os.path.realpath(user_dir)):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not os.path.exists(source_path):
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    parent_dir = os.path.dirname(source_path)
+    dest_path = os.path.join(parent_dir, clean_name)
+
+    if os.path.exists(dest_path) and dest_path != source_path:
+        raise HTTPException(status_code=400, detail=f"An item named '{clean_name}' already exists")
+
+    try:
+        os.rename(source_path, dest_path)
+        now = time.time()
+        os.utime(dest_path, (now, now))
+        return {"success": True, "message": f"Renamed to '{clean_name}' successfully", "new_name": clean_name}
+    except Exception as e:
+        log.error("Rename failed for %s -> %s: %s", source_path, dest_path, e)
         raise HTTPException(status_code=500, detail=str(e))

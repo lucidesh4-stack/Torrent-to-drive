@@ -164,6 +164,18 @@
   if ($("telegramBtn")) $("telegramBtn").addEventListener("click", () => {
     if (typeof sendSelectedToTelegram === "function") sendSelectedToTelegram();
   });
+  if ($("newFolderBtn")) $("newFolderBtn").addEventListener("click", () => {
+    if (typeof window.createTempFolder === "function") window.createTempFolder();
+  });
+  if ($("cmNewFolderBtn")) $("cmNewFolderBtn").addEventListener("click", () => {
+    if (typeof window.createTempFolder === "function") window.createTempFolder();
+  });
+  if ($("renameBtn")) $("renameBtn").addEventListener("click", () => {
+    if (typeof window.renameSelectedItem === "function") window.renameSelectedItem();
+  });
+  if ($("cmBulkRename")) $("cmBulkRename").addEventListener("click", () => {
+    if (typeof window.renameSelectedItem === "function") window.renameSelectedItem();
+  });
   if ($("archiveActionBtn")) $("archiveActionBtn").addEventListener("click", () => {
     if (typeof window.archiveSelectedAction === "function") window.archiveSelectedAction();
   });

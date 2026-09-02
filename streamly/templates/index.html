@@ -86,6 +86,9 @@
               <button id="refreshBtn" class="secondary" type="button" style="padding: 6px 10px; font-size: 13px; display: flex; align-items: center; justify-content: center;" title="Refresh Drive">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.72 2.78L21 8"/><path d="M21 3v5h-5"/></svg>
               </button>
+              <button id="newFolderBtn" class="secondary hidden" type="button" style="padding: 6px 10px; font-size: 13px; display: flex; align-items: center; justify-content: center;" title="Create New Folder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-plus"><path d="M12 10v6M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+              </button>
               <button id="pasteMagnetBtn" class="secondary" type="button" style="padding: 6px 10px; font-size: 13px; display: flex; align-items: center; justify-content: center;" title="Paste & add magnet link from clipboard">
                 <svg id="desktopActionIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M5 14V8a7 7 0 0 1 14 0v6h-4V8a3 3 0 0 0-6 0v6H5z" fill="#f43f5e"/><rect x="5" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/><rect x="15" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/></svg>
               </button>
@@ -112,6 +115,7 @@
           <div class="metric"><span class="muted">Size</span><strong id="selSize">-</strong></div>
           <div class="actions">
             <button id="openBtn" type="button">Open</button>
+            <button id="renameBtn" class="secondary" type="button" title="Rename selected file or folder">✏️ Rename</button>
             <button id="downloadBtn" class="secondary" type="button" title="Folders are automatically zipped">Download</button>
             <button id="copyLinkBtn" class="secondary" type="button" title="Copy file link or zip link">Copy Link</button>
             <button id="telegramBtn" class="secondary" type="button" title="Send file directly to your Telegram Saved Messages / Chat">Send to Telegram</button>
@@ -139,6 +143,7 @@
               </button>
               <button type="button" id="cmUpBtn" class="cm-tbtn" title="Up"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-up"><path d="m5 12 7-7 7 7M12 5v14"/></svg></button>
               <button type="button" id="cmRefreshBtn" class="cm-tbtn" title="Refresh"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-cw"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.72 2.78L21 8"/><path d="M21 3v5h-5"/></svg></button>
+              <button type="button" id="cmNewFolderBtn" class="cm-tbtn hidden" title="Create New Folder"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder-plus"><path d="M12 10v6M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></button>
               <button type="button" id="cmMagnetBtn" class="cm-tbtn" title="Paste magnet from clipboard"><svg id="mobileActionIcon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M5 14V8a7 7 0 0 1 14 0v6h-4V8a3 3 0 0 0-6 0v6H5z" fill="#f43f5e"/><rect x="5" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/><rect x="15" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/></svg></button>
             </div>
             <div id="cmStatus" class="cm-status hidden"></div>
@@ -153,6 +158,7 @@
               <span id="cmBulkCount" class="cm-bulk-count">0</span>
             </div>
             <div class="cm-bulk-actions">
+              <button type="button" id="cmBulkRename" class="ico rn" title="Rename" aria-label="Rename"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
               <button type="button" id="cmBulkDownload" class="ico dl" title="Download" aria-label="Download"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 4 5-4"/><path d="M5 19h14"/></svg></button>
               <button type="button" id="cmBulkCopy" class="ico cp" title="Copy link" aria-label="Copy link"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
               <button type="button" id="cmBulkTelegram" class="ico tg" title="Send to Telegram" aria-label="Send to Telegram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3 2 10.5l6.5 2.2"/><path d="m22 3-9 18-3.5-7.3L22 3Z"/></svg></button>

@@ -9,8 +9,20 @@
   // Expose a deterministic "go up" the Up buttons can call.
   window.cloudGoUp = function () {
     if (window.driveProvider === "temp") {
-      window.tempCloudCurrentFolder = null;
-      setDriveProvider("temp");
+      if (!window.tempCloudCurrentFolder) return;
+      const parts = window.tempCloudCurrentFolder.replace(/\\/g, "/").split("/").filter(Boolean);
+      parts.pop();
+      window.tempCloudCurrentFolder = parts.length ? parts.join("/") : null;
+      const subtitle = $("driveProviderSubtitle");
+      if (subtitle) {
+        subtitle.textContent = window.tempCloudCurrentFolder ? ("Folder: " + parts[parts.length - 1]) : "Temp Cloud (High-Speed Local Storage)";
+      }
+      const upBtn = $("upBtn");
+      const cmUpBtn = $("cmUpBtn");
+      if (upBtn) upBtn.disabled = !window.tempCloudCurrentFolder;
+      if (cmUpBtn) cmUpBtn.disabled = !window.tempCloudCurrentFolder;
+      loadTempCloudList();
+      loadTempCloudListMobile();
       return;
     }
     if (window.driveProvider === "offcloud") {
@@ -110,6 +122,10 @@
 
     // Open: enabled ONLY when exactly 1 item is selected
     $("openBtn").disabled = count !== 1;
+    const renameBtn = $("renameBtn");
+    const canRename = (window.driveProvider === "temp" && count === 1);
+    if (renameBtn) renameBtn.disabled = !canRename;
+
     const copyBtn = $("copyLinkBtn");
     if (copyBtn) copyBtn.disabled = count === 0;
     const dlBtn = $("downloadBtn");
@@ -127,6 +143,7 @@
     // Archive Action (Zip folder / Unzip archive)
     const archiveBtn = $("archiveActionBtn");
     const cmArchiveBtn = $("cmBulkArchive");
+    const cmRenameBtn = $("cmBulkRename");
     let isZipCandidate = false;
     let isUnzipCandidate = false;
     let archiveItem = null;
@@ -176,6 +193,10 @@
     const mobileCloud = $("cloudMobile");
     if (mobileCloud) {
       mobileCloud.classList.toggle("cm-bulk-active", count > 0);
+    }
+    if (cmRenameBtn) {
+      cmRenameBtn.classList.toggle("hidden", !canRename);
+      cmRenameBtn.disabled = !canRename;
     }
     const cmDlBtn = $("cmBulkDownload");
     if (cmDlBtn) cmDlBtn.disabled = count === 0;
@@ -956,6 +977,66 @@
     }
   };
 
+  window.createTempFolder = async function() {
+    if (window.driveProvider !== "temp") {
+      return toast("Folder creation is supported in Temp Cloud");
+    }
+    const name = prompt("Enter new folder name:", "New Folder");
+    if (!name || !name.trim()) return;
+    const cleanName = name.trim();
+    updateStatus($("cloudStatus"), `Creating folder "${cleanName}"...`, "");
+    toast(`Creating folder "${cleanName}"...`);
+    try {
+      const res = await postJson("/api/temp_cloud/folder/create", {
+        name: cleanName,
+        folder_id: window.tempCloudCurrentFolder || ""
+      });
+      if (res && res.success) {
+        toast(res.message || `Folder "${cleanName}" created`);
+        updateStatus($("cloudStatus"), res.message, "ok");
+        await window.cloudRefresh();
+      } else {
+        throw new Error((res && res.detail) || "Create folder failed");
+      }
+    } catch (err) {
+      toast("Create folder failed: " + (err.message || err));
+      updateStatus($("cloudStatus"), err.message || "Create folder failed", "error");
+    }
+  };
+
+  window.renameSelectedItem = async function() {
+    if (selectedKeys.size !== 1) return toast("Select exactly one item to rename");
+    const item = selected || items.find(x => selectedKeys.has(x.key));
+    if (!item) return;
+
+    if (window.driveProvider !== "temp") {
+      return toast("Rename is supported on Temp Cloud storage");
+    }
+
+    const newName = prompt(`Rename "${item.name}" to:`, item.name);
+    if (!newName || !newName.trim() || newName.trim() === item.name) return;
+    const cleanNewName = newName.trim();
+
+    updateStatus($("cloudStatus"), `Renaming to "${cleanNewName}"...`, "");
+    toast(`Renaming to "${cleanNewName}"...`);
+    try {
+      const res = await postJson("/api/temp_cloud/rename", {
+        item_id: item.id || item.name,
+        new_name: cleanNewName
+      });
+      if (res && res.success) {
+        toast(res.message || `Renamed to "${cleanNewName}"`);
+        updateStatus($("cloudStatus"), res.message, "ok");
+        await window.cloudRefresh();
+      } else {
+        throw new Error((res && res.detail) || "Rename failed");
+      }
+    } catch (err) {
+      toast("Rename failed: " + (err.message || err));
+      updateStatus($("cloudStatus"), err.message || "Rename failed", "error");
+    }
+  };
+
   window.deleteSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
     
@@ -1198,17 +1279,23 @@
     const upBtn = $("upBtn");
     const cmUpBtn = $("cmUpBtn");
     const subtitle = $("driveProviderSubtitle");
+    const nfBtn = $("newFolderBtn");
+    const cmNfBtn = $("cmNewFolderBtn");
 
     if (isTemp) {
       if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.tempCloudCurrentFolder == null); }
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.tempCloudCurrentFolder == null); }
-      if (subtitle) subtitle.textContent = "Temp Cloud (24-Hour High-Speed NVMe Storage)";
+      if (nfBtn) nfBtn.classList.remove("hidden");
+      if (cmNfBtn) cmNfBtn.classList.remove("hidden");
+      if (subtitle) subtitle.textContent = "Temp Cloud (High-Speed Local Storage)";
       await updateTempCloudStorageHeader();
       loadTempCloudList();
       loadTempCloudListMobile();
     } else if (isOffcloud) {
       if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.offcloudCurrentFolder == null); }
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.offcloudCurrentFolder == null); }
+      if (nfBtn) nfBtn.classList.add("hidden");
+      if (cmNfBtn) cmNfBtn.classList.add("hidden");
       if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
       if (typeof window.renderStorage === "function") window.renderStorage();
       loadOffcloudList();
@@ -1216,6 +1303,8 @@
     } else {
       if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (currentFolder || 0) == 0; }
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (currentFolder || 0) == 0; }
+      if (nfBtn) nfBtn.classList.add("hidden");
+      if (cmNfBtn) cmNfBtn.classList.add("hidden");
       if (subtitle) subtitle.textContent = "Browse your saved files and folders";
       if (typeof window.renderStorage === "function") window.renderStorage();
       loadFolder(currentFolder || 0);
