@@ -37,15 +37,28 @@ def _resolve_temp_cloud_root() -> str:
         except Exception:
             pass
 
-    # 2. Hugging Face Spaces Persistent Storage volume (/data)
+    # 2. Hugging Face Spaces Persistent Storage / Bucket mount (/data)
     if os.path.exists("/data"):
         try:
             p = "/data/streamly_storage"
             os.makedirs(p, exist_ok=True)
-            if os.access(p, os.W_OK):
-                return p
+            test_file = os.path.join(p, ".write_test")
+            with open(test_file, "w") as f:
+                f.write("ok")
+            os.remove(test_file)
+            log.info("Using persistent bucket mount at %s", p)
+            return p
         except Exception:
-            pass
+            try:
+                # If subfolder creation fails on certain FUSE bucket drivers, use /data directly
+                test_file = "/data/.write_test"
+                with open(test_file, "w") as f:
+                    f.write("ok")
+                os.remove(test_file)
+                log.info("Using persistent bucket mount directly at /data")
+                return "/data"
+            except Exception as e:
+                log.warning("/data bucket mount exists but is not writable (%s)", e)
 
     # 3. User home persistent space (~/streamly_storage)
     try:
@@ -80,11 +93,12 @@ TEMP_STORAGE_QUOTA_GB = float(os.environ.get("TEMP_STORAGE_QUOTA_GB", "50.0"))
 
 def get_user_temp_dir(sid: str = "") -> str:
     """Unified instance cloud storage root persisting files across restarts and sessions."""
+    target_root = _resolve_temp_cloud_root()
     try:
-        os.makedirs(TEMP_CLOUD_ROOT, exist_ok=True)
-        return TEMP_CLOUD_ROOT
+        os.makedirs(target_root, exist_ok=True)
+        return target_root
     except Exception as e:
-        log.warning("Primary cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", TEMP_CLOUD_ROOT, e)
+        log.warning("Primary cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", target_root, e)
         fallback = "/tmp/streamly_temp_cloud" if os.name != "nt" else os.path.abspath(os.path.join(os.getcwd(), "temp_cloud_data"))
         os.makedirs(fallback, exist_ok=True)
         return fallback
