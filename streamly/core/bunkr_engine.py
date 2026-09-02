@@ -208,8 +208,8 @@ class UniversalMediaGrabberDownloader:
         album_title: str,
         progress_callback: Optional[Callable] = None
     ) -> bool:
-        """Downloads a large file in 4 parallel concurrent segments with individual slice resume."""
-        num_segments = min(4, max(2, total_size // (4 * 1024 * 1024)))
+        """Downloads a large file in 2 parallel concurrent segments with individual slice resume."""
+        num_segments = 2
         seg_size = total_size // num_segments
         
         slices = []
@@ -256,8 +256,8 @@ class UniversalMediaGrabberDownloader:
                     async with httpx.AsyncClient(headers=req_headers, timeout=timeout_cfg, limits=limits_cfg, follow_redirects=True, http2=False) as client:
                         async with client.stream("GET", media_url) as resp:
                             if resp.status_code == 429:
-                                backoff = min(10.0, 1.5 * attempt)
-                                log.warning("[Bunkr %d/%d] Rate limited on segment %d/%d (attempt %d/%d)", idx, total_items, seg_idx + 1, num_segments, attempt, max_retries)
+                                backoff = min(15.0, 3.0 * attempt)
+                                log.warning("[Bunkr %d/%d] Rate limited on segment %d/%d (attempt %d/%d). Backing off %.1fs...", idx, total_items, seg_idx + 1, num_segments, attempt, max_retries, backoff)
                                 await asyncio.sleep(backoff)
                                 continue
                             if resp.status_code not in (200, 206):
@@ -299,7 +299,7 @@ class UniversalMediaGrabberDownloader:
                 except asyncio.CancelledError:
                     raise
                 except Exception as err:
-                    log.warning("[Bunkr %d/%d] Segment %d/%d drop on %s (attempt %d/%d, offset %d/%d): %s", idx, total_items, seg_idx + 1, num_segments, attempt, max_retries, target_filename, current_offset, seg_len, err)
+                    log.warning("[Bunkr %d/%d] Segment %d/%d drop on %s (attempt %d/%d, offset %d/%d): %s", idx, total_items, seg_idx + 1, num_segments, target_filename, attempt, max_retries, current_offset, seg_len, err)
                     await asyncio.sleep(min(5.0, 0.8 * attempt))
 
             if current_offset < seg_len:
