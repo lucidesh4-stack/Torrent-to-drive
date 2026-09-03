@@ -51,11 +51,11 @@ def probe_video(path):
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     cmd = ["ffmpeg", "-y", "-hide_banner"]
     
-    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses Colab's 2 vCPU bottleneck!)
+    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses CPU bottleneck!)
     if has_nvenc:
         cmd += ["-hwaccel", "cuda"]
         
@@ -66,14 +66,24 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, cop
     ]
     
     if has_nvenc:
+        gop = max(30, int(fps * 4)) # 4-second GOP
         cmd += [
-            "-preset", "fast",         # 250-350+ FPS on Tesla T4!
-            "-pix_fmt", "p010le",       # 10-bit HEVC for zero color banding
+            "-profile:v", "main10",      # 10-bit HEVC (eliminates color banding at 1500k)
+            "-pix_fmt", "p010le",
+            "-preset", "p5",             # High Quality preset (clean balance of studio clarity & speed)
+            "-tune", "hq",               # High visual quality tuning
+            "-rc", "vbr",
             "-b:v", f"{target_k}k",
             "-maxrate", f"{max_v}k",
             "-bufsize", f"{bufsize}k",
-            "-spatial_aq", "1",        # Edge & text sharpness
-            "-temporal_aq", "1",       # Motion consistency
+            "-qmin", "18",               # Quality floor for action scenes
+            "-qmax", "36",
+            "-spatial_aq", "1",          # Spatial Adaptive Quantization (sharp text & edges)
+            "-temporal_aq", "1",         # Temporal Adaptive Quantization (eliminates pulsing artifacts)
+            "-rc-lookahead", "32",       # 32-frame predictive bit allocation buffer
+            "-bf", "4",                  # 4 B-frames for 20% smaller bitrate
+            "-b_ref_mode", "middle",     # B-frames as reference
+            "-g", str(gop),
         ]
     else:
         cmd += [
@@ -112,8 +122,8 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     duration = info.get("duration", 0)
 
     # Try 1: Full GPU pipeline with NVDEC + NVENC (fastest: 250-350+ FPS)
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=True)
-    print(f"   ▶ Turbo Hardware Pipeline (NVDEC + NVENC 10-bit, {target_k}k target)...")
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), copy_audio=True)
+    print(f"   ▶ Turbo Hardware Pipeline (NVDEC + NVENC 10-bit HQ, {target_k}k target)...")
     
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     fps_val = "0"
@@ -148,7 +158,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     # If audio copy failed (e.g. PCM / incompatible in MP4), retry with AAC transcode
     if p.returncode != 0 and ("Could not find tag" in stderr_out or "incompatible" in stderr_out or "muxer does not support" in stderr_out):
         print("   ⚠️ Retrying with AAC audio transcode...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=False)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), copy_audio=False)
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while True:
             line = p.stdout.readline()
