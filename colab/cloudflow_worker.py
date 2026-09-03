@@ -29,28 +29,44 @@ if "NVIDIA" not in GPU_NAME and "Tesla" not in GPU_NAME:
     print("⚠️ WARNING: No NVIDIA GPU detected! Make sure you selected T4 GPU in Colab:")
     print("   Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU")
 
-def ensure_vmaf_ffmpeg():
+VMAF_FFMPEG_BIN = "ffmpeg"
+
+def ensure_vmaf_engine():
+    global VMAF_FFMPEG_BIN
     try:
         fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
         if "libvmaf" in fchk.stdout:
+            VMAF_FFMPEG_BIN = "ffmpeg"
             return True
     except Exception:
         pass
 
-    print("⚡ Installing enhanced FFmpeg with native libvmaf + NVENC...")
+    vmaf_path = "/usr/local/bin/ffmpeg-vmaf"
+    if os.path.exists(vmaf_path):
+        VMAF_FFMPEG_BIN = vmaf_path
+        return True
+
+    print("⚡ Installing high-speed VMAF quality benchmark engine...")
     try:
-        cmd = "curl -fsSL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | tar -xJ --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'"
-        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
-        if res.returncode == 0:
-            print("✅ Upgraded FFmpeg with native libvmaf & NVENC successfully!")
+        setup_cmd = (
+            "wget -q -c -O /tmp/vmaf_pkg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && "
+            "tar -xJf /tmp/vmaf_pkg.tar.xz -C /tmp && "
+            "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg-vmaf && "
+            "chmod +x /usr/local/bin/ffmpeg-vmaf && "
+            "rm -rf /tmp/vmaf_pkg.tar.xz /tmp/ffmpeg-*-amd64-static"
+        )
+        res = subprocess.run(setup_cmd, shell=True, capture_output=True, text=True)
+        if os.path.exists(vmaf_path):
+            VMAF_FFMPEG_BIN = vmaf_path
+            print("✅ VMAF benchmark engine installed successfully (/usr/local/bin/ffmpeg-vmaf)!")
             return True
         else:
-            print(f"⚠️ FFmpeg upgrade notice: {res.stderr[:200]}")
+            print(f"⚠️ VMAF engine notice: {res.stderr[:200]}")
     except Exception as e:
         print(f"⚠️ Notice: {e}")
     return False
 
-ensure_vmaf_ffmpeg()
+ensure_vmaf_engine()
 
 def probe_nvenc_capabilities():
     caps = {
@@ -275,27 +291,42 @@ def compress_video(in_path, out_path, task, report_progress_fn):
 
     return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
 
+def ensure_vmaf_model():
+    model_path = "/tmp/vmaf_v0.6.1.json"
+    if not os.path.exists(model_path):
+        try:
+            url = "https://raw.githubusercontent.com/Netflix/vmaf/master/model/vmaf_v0.6.1.json"
+            subprocess.run(["wget", "-q", "-O", model_path, url], timeout=15)
+        except Exception:
+            pass
+    return model_path if os.path.exists(model_path) else None
+
 def calculate_vmaf(ref_path, comp_path, sample_sec=60):
+    global VMAF_FFMPEG_BIN
     try:
-        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
+        fchk = subprocess.run([VMAF_FFMPEG_BIN, "-hide_banner", "-filters"], capture_output=True, text=True)
         if "libvmaf" not in fchk.stdout:
-            print("   ℹ️ [VMAF] libvmaf filter not available in current FFmpeg build. Skipping automated test.")
+            print(f"   ℹ️ [VMAF] libvmaf filter not available in {VMAF_FFMPEG_BIN}. Skipping automated test.")
             return None
 
         print(f"   🎯 [VMAF] Running fast automated {sample_sec}s VMAF benchmark on Colab...")
         t_start = time.time()
         vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
 
+        # Check for model file
+        model_file = ensure_vmaf_model()
+        model_arg = f":model=path='{model_file}'" if model_file else ""
+
         # Exact filter string matching Video_compression/VMAF_Test.ps1
         filter_str = (
             f"[0:v]setpts=PTS-STARTPTS,format=yuv420p10le[d];"
             f"[1:v]setpts=PTS-STARTPTS,format=yuv420p10le[rr];"
             f"[rr][d]scale2ref=flags=bicubic[r][d2];"
-            f"[d2][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_threads=4"
+            f"[d2][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_threads=4{model_arg}"
         )
 
         cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            VMAF_FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
             "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
             "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
             "-filter_complex", filter_str,
