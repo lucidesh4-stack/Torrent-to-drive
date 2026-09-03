@@ -100,18 +100,20 @@ NVENC_CAPS = probe_nvenc_capabilities()
 def probe_video(path):
     cmd = [
         "ffprobe", "-v", "error",
-        "-show_entries", "stream=codec_name,width,height,avg_frame_rate,bit_rate:format=bit_rate,duration",
+        "-show_entries", "stream=codec_name,width,height,avg_frame_rate,codec_type,bit_rate:format=bit_rate,duration",
         "-of", "json", path
     ]
     res = subprocess.run(cmd, capture_output=True, text=True)
     try:
         data = json.loads(res.stdout)
         v = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
+        a = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), {})
         fmt = data.get("format", {})
         fps_str = v.get("avg_frame_rate", "30/1")
         fps_eval = eval(fps_str) if "/" in fps_str else float(fps_str or 30)
         return {
             "codec": v.get("codec_name", "unknown"),
+            "acodec": a.get("codec_name", "none"),
             "width": int(v.get("width", 0)),
             "height": int(v.get("height", 0)),
             "fps": max(1, int(round(fps_eval))),
@@ -119,7 +121,7 @@ def probe_video(path):
             "size_mb": round(os.path.getsize(path) / (1024 * 1024), 2)
         }
     except Exception:
-        return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
+        return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0, "codec": "unknown", "acodec": "none"}
 
 def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
@@ -166,9 +168,10 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             ]
 
         if safe_mode:
-            # ⚡ Robust GPU NVENC: Strips lookahead & forced main10, encodes standard HEVC at 200+ FPS on Tesla T4!
+            # ⚡ Robust GPU NVENC: Standard 8-bit YUV420p Main profile, universal stream compatibility on Tesla T4
             cmd += [
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                "-pix_fmt", "yuv420p",
                 "-preset", "p5",
                 "-rc", "vbr",
                 "-b:v", f"{target_k}k",
@@ -180,6 +183,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             cmd += [
                 "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=p010le",
                 "-profile:v", "main10",
+                "-pix_fmt", "p010le",
                 "-preset", preset,
                 "-tune", "hq",
                 *rc_opts,
@@ -235,6 +239,8 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     duration = info.get("duration", 0)
     mode = task.get("mode", "VBR")
 
+    print(f"   📹 Input: {info.get('width')}x{info.get('height')} @ {info.get('fps')}fps, video={info.get('codec')}, audio={info.get('acodec')}, size={info.get('size_mb')}MB")
+
     def _run_cmd(ffmpeg_args):
         p_proc = subprocess.Popen(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         _fps = "0"
@@ -270,16 +276,23 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, mode={mode}, {target_k}k target)...")
     rc, stderr_out = _run_cmd(cmd)
 
-    # Try 2: Robust High-Speed GPU NVENC Pipeline (p5, universal stream compatibility, still 100% on GPU!)
+    # Try 2: Robust High-Speed GPU NVENC Pipeline (p5 8-bit, universal stream compatibility, still 100% on GPU!)
     if rc != 0 and has_nvenc:
-        err_hint = " ".join([l.strip() for l in stderr_out.splitlines() if any(k in l.lower() for k in ["error", "invalid", "nvenc", "cannot", "unsupported"])][-2:])
-        print(f"   ⚡ Primary attempt notice ({err_hint or 'stream rejected'}). Retrying with robust GPU NVENC (Tesla T4 p5)...")
+        err_lines = [l.strip() for l in stderr_out.splitlines() if any(k in l.lower() for k in ["error", "invalid", "nvenc", "cannot", "unsupported", "failed"])]
+        print(f"   ⚡ Primary NVENC notice (code {rc}):")
+        for el in err_lines[-3:]:
+            print(f"      {el}")
+        print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
         cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
 
     # Try 3: Ultra-compatible CPU Software Fallback (libx264)
     if rc != 0:
-        print(f"   ⚠️ GPU rejected stream parameters (code {rc}). Retrying with CPU software encoder (libx264)...")
+        err_lines = [l.strip() for l in stderr_out.splitlines() if any(k in l.lower() for k in ["error", "invalid", "nvenc", "cannot", "unsupported", "failed"])]
+        print(f"   ⚠️ Secondary NVENC also exited (code {rc}):")
+        for el in err_lines[-3:]:
+            print(f"      {el}")
+        print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
         cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=info.get("fps", 30), mode=mode, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
 
