@@ -222,6 +222,56 @@ def compress_video(in_path, out_path, task, report_progress_fn):
 
     return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
 
+def calculate_vmaf(ref_path, comp_path, sample_sec=60):
+    try:
+        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
+        if "libvmaf" not in fchk.stdout:
+            print("   ℹ️ [VMAF] libvmaf filter not available in current FFmpeg build. Skipping automated test.")
+            return None
+
+        print(f"   🎯 [VMAF] Running fast automated {sample_sec}s VMAF benchmark on Colab...")
+        t_start = time.time()
+        vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
+
+        # Exact filter string matching Video_compression/VMAF_Test.ps1
+        filter_str = (
+            f"[0:v]setpts=PTS-STARTPTS,format=yuv420p10le[d];"
+            f"[1:v]setpts=PTS-STARTPTS,format=yuv420p10le[rr];"
+            f"[rr][d]scale2ref=flags=bicubic[r][d2];"
+            f"[d2][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_threads=4"
+        )
+
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
+            "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
+            "-filter_complex", filter_str,
+            "-f", "null", "-"
+        ]
+
+        subprocess.run(cmd, capture_output=True, text=True)
+
+        if os.path.exists(vmaf_log):
+            with open(vmaf_log, "r") as f:
+                vdata = json.load(f)
+            try: os.remove(vmaf_log)
+            except Exception: pass
+
+            score = None
+            if "pooled_metrics" in vdata and "vmaf" in vdata["pooled_metrics"]:
+                score = round(float(vdata["pooled_metrics"]["vmaf"].get("mean", 0)), 2)
+            elif "VMAF score" in vdata:
+                score = round(float(vdata["VMAF score"]), 2)
+
+            if score and score > 0:
+                elapsed = time.time() - t_start
+                verdict = "Visually Lossless (95+)" if score >= 95 else ("High Quality (90+)" if score >= 90 else "Noticeable Compression")
+                print(f"   🏆 [VMAF] Score: {score} / 100 ({verdict}) in {elapsed:.1f}s")
+                return score
+    except Exception as e:
+        print(f"   ⚠️ [VMAF] Benchmark notice: {e}")
+    return None
+
 # ==============================================================================
 # 🔄 PARALLEL JOB WORKER
 # ==============================================================================
@@ -274,6 +324,9 @@ def process_single_task(task):
             elapsed = time.time() - t_start
             print(f"✅ [{task_id}] Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {elapsed:.1f}s)")
 
+            # Fast Colab VMAF Benchmark
+            vmaf_val = calculate_vmaf(in_path, out_path, sample_sec=60)
+
             print(f"🚀 [{task_id}] Uploading compressed video back to Cloudflow...")
             with open(out_path, "rb") as f:
                 files = {"file": (f"compressed_{filename}", f, "video/mp4")}
@@ -283,6 +336,8 @@ def process_single_task(task):
                     "orig_mb": orig_mb,
                     "new_mb": new_mb
                 }
+                if vmaf_val is not None:
+                    form_data["vmaf"] = vmaf_val
                 session.post(f"{CLOUDFLOW_URL}/api/gpu/complete", data=form_data, files=files, timeout=300)
             print(f"🎉 [{task_id}] Task completed and saved in Temp Cloud!\n")
         else:

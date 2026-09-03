@@ -50,6 +50,7 @@ class GPUTask:
         self.orig_size_mb = 0.0
         self.new_size_mb = 0.0
         self.saved_pct = 0.0
+        self.vmaf: Optional[float] = None
         self.error: Optional[str] = None
         self.created_at = time.time()
         self.started_at: Optional[float] = None
@@ -73,6 +74,7 @@ class GPUTask:
             'orig_size_mb': round(self.orig_size_mb, 2),
             'new_size_mb': round(self.new_size_mb, 2),
             'saved_pct': round(self.saved_pct, 1),
+            'vmaf': self.vmaf,
             'error': self.error,
             'created_at': self.created_at,
             'started_at': self.started_at,
@@ -225,6 +227,7 @@ async def gpu_complete(
     secret: str = Form(...),
     orig_mb: float = Form(0.0),
     new_mb: float = Form(0.0),
+    vmaf: Optional[float] = Form(None),
     file: UploadFile = File(...)
 ):
     if secret != GPU_WORKER_SECRET:
@@ -252,11 +255,12 @@ async def gpu_complete(
     task.completed_at = time.time()
     task.orig_size_mb = orig_mb
     task.new_size_mb = new_mb or (os.path.getsize(out_path) / (1024 * 1024))
+    task.vmaf = vmaf
     if task.orig_size_mb > 0:
         task.saved_pct = ((task.orig_size_mb - task.new_size_mb) / task.orig_size_mb) * 100.0
 
-    log.info('GPU Task %s complete! Saved %s (%.1f MB -> %.1f MB, %.1f%% reduction)', task_id, out_path, task.orig_size_mb, task.new_size_mb, task.saved_pct)
-    return {'success': True, 'saved_path': dest_filename}
+    log.info('GPU Task %s complete! Saved %s (%.1f MB -> %.1f MB, %.1f%% reduction, VMAF: %s)', task_id, out_path, task.orig_size_mb, task.new_size_mb, task.saved_pct, task.vmaf)
+    return {'success': True, 'saved_path': dest_filename, 'vmaf': task.vmaf}
 
 
 @gpu_router.post('/api/gpu/compress')

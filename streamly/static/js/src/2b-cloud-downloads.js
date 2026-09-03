@@ -334,10 +334,14 @@
       });
 
       completed.slice(0, 3).forEach(t => {
+        const vmafBadge = t.vmaf ? `<span style="background: rgba(16,185,129,0.2); color: #34d399; font-weight: 700; padding: 1px 5px; border-radius: 4px; font-size: 10px; margin-left: 6px;">⭐ VMAF ${t.vmaf}</span>` : '';
         html += `
           <div style="background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.2); border-radius: var(--radius-sm); padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
-            <span style="font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65%;">${escapeHtml(t.filename)}</span>
-            <span style="color: #34d399; font-weight: 600; font-size: 11px;">✅ ${t.orig_size_mb ? t.orig_size_mb.toFixed(1) : '0'}MB ➔ ${t.new_size_mb ? t.new_size_mb.toFixed(1) : '0'}MB (-${t.saved_pct ? t.saved_pct.toFixed(0) : '0'}%)</span>
+            <span style="font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%;">${escapeHtml(t.filename)}</span>
+            <span style="color: #34d399; font-weight: 600; font-size: 11px; display: flex; align-items: center;">
+              ✅ ${t.orig_size_mb ? t.orig_size_mb.toFixed(1) : '0'}MB ➔ ${t.new_size_mb ? t.new_size_mb.toFixed(1) : '0'}MB (-${t.saved_pct ? t.saved_pct.toFixed(0) : '0'}%)
+              ${vmafBadge}
+            </span>
           </div>
         `;
       });
