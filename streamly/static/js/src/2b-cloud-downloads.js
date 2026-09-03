@@ -271,10 +271,77 @@
     }
   }
 
+  window.fetchGpuTasksState = async function() {
+    try {
+      const res = await window.getJson("/api/gpu/tasks");
+      if (!res) return;
+
+      const dot = document.getElementById("colabStatusDot");
+      const text = document.getElementById("colabStatusText");
+      if (res.online) {
+        if (dot) { dot.style.background = "#10b981"; dot.style.boxShadow = "0 0 8px #10b981"; }
+        if (text) { text.textContent = "Colab GPU: " + (res.gpu_name || "NVIDIA T4") + " (Online)"; text.style.color = "#34d399"; }
+      } else {
+        if (dot) { dot.style.background = "#64748b"; dot.style.boxShadow = "none"; }
+        if (text) { text.textContent = "Colab GPU: Offline"; text.style.color = "#94a3b8"; }
+      }
+
+      const card = document.getElementById("colabGpuTasksCard");
+      const badge = document.getElementById("gpuActiveBadge");
+      const active = res.active || [];
+      const completed = res.completed || [];
+
+      if (badge) {
+        badge.classList.toggle("hidden", active.length === 0);
+        badge.textContent = active.length;
+      }
+
+      if (!card) return;
+
+      if (active.length === 0 && completed.length === 0) {
+        card.innerHTML = `<div class="empty" style="padding: 12px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 12px;">No video compression tasks running.</div>`;
+        return;
+      }
+
+      let html = "";
+      active.forEach(t => {
+        const pct = Math.min(100, Math.max(0, t.progress || 0));
+        const statusColor = t.status === "PROCESSING" ? "#10b981" : "#eab308";
+        html += `
+          <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 600; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">${escapeHtml(t.filename)}</span>
+              <span style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44;">${t.status}</span>
+            </div>
+            <div style="height: 6px; border-radius: 999px; background: var(--panel-2); overflow: hidden;">
+              <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #10b981, #059669); transition: width 0.3s ease;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--muted); font-family: monospace;">
+              <span>⚡ ${t.fps || 0} FPS • ${t.speed_x || '0x'}</span>
+              <span>${t.time_str || '00:00:00'} • ${pct.toFixed(1)}%</span>
+            </div>
+          </div>
+        `;
+      });
+
+      completed.slice(0, 3).forEach(t => {
+        html += `
+          <div style="background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.2); border-radius: var(--radius-sm); padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; font-size: 12px;">
+            <span style="font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 65%;">${escapeHtml(t.filename)}</span>
+            <span style="color: #34d399; font-weight: 600; font-size: 11px;">✅ ${t.orig_size_mb ? t.orig_size_mb.toFixed(1) : '0'}MB ➔ ${t.new_size_mb ? t.new_size_mb.toFixed(1) : '0'}MB (-${t.saved_pct ? t.saved_pct.toFixed(0) : '0'}%)</span>
+          </div>
+        `;
+      });
+
+      card.innerHTML = html;
+    } catch (e) {}
+  };
+
   async function fetchDownloadsState() {
     try {
       const res = await window.getJson("/api/temp_cloud/downloads");
       if (res) renderDownloads(res);
+      await window.fetchGpuTasksState();
     } catch (e) {
       // ignore transient polling errors
     }
@@ -288,6 +355,7 @@
         try {
           const data = JSON.parse(event.data);
           renderDownloads(data);
+          window.fetchGpuTasksState();
         } catch (e) {}
       };
       downloadsEventSource.onerror = () => {
@@ -295,7 +363,6 @@
           downloadsEventSource.close();
           downloadsEventSource = null;
         }
-        // Fallback to light interval poll if SSE disconnected
         setTimeout(initDownloadsSSE, 5000);
       };
     } catch (e) {

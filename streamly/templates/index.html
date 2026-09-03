@@ -116,6 +116,7 @@
           <div class="actions">
             <button id="openBtn" type="button">Open</button>
             <button id="renameBtn" class="secondary" type="button" title="Rename selected file or folder">✏️ Rename</button>
+            <button id="gpuCompressBtn" class="secondary hidden" type="button" style="background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.35); color: #34d399;" title="Compress Video (10-bit HEVC Colab GPU)">⚡ GPU Compress</button>
             <button id="downloadBtn" class="secondary" type="button" title="Folders are automatically zipped">Download</button>
             <button id="copyLinkBtn" class="secondary" type="button" title="Copy file link or zip link">Copy Link</button>
             <button id="telegramBtn" class="secondary" type="button" title="Send file directly to your Telegram Saved Messages / Chat">Send to Telegram</button>
@@ -160,6 +161,7 @@
             <div class="cm-bulk-actions">
               <button type="button" id="cmBulkRename" class="ico rn" title="Rename" aria-label="Rename"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg></button>
               <button type="button" id="cmBulkDownload" class="ico dl" title="Download" aria-label="Download"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 4 5-4"/><path d="M5 19h14"/></svg></button>
+              <button type="button" id="cmBulkGpuCompress" class="ico gpu hidden" style="color: #34d399;" title="GPU Compress" aria-label="GPU Compress"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></button>
               <button type="button" id="cmBulkCopy" class="ico cp" title="Copy link" aria-label="Copy link"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
               <button type="button" id="cmBulkTelegram" class="ico tg" title="Send to Telegram" aria-label="Send to Telegram"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3 2 10.5l6.5 2.2"/><path d="m22 3-9 18-3.5-7.3L22 3Z"/></svg></button>
               <button type="button" id="cmBulkArchive" class="ico arc hidden" title="Zip / Unzip" aria-label="Zip / Unzip"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></button>
@@ -345,8 +347,15 @@
       <div class="sheet-grabber" style="flex-shrink: 0;"></div>
       <div class="panel-head" style="flex-shrink: 0; border-radius: 14px 14px 0 0; padding: 16px 20px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center;">
         <div>
-          <h2 style="margin: 0; font-size: 1.25rem;">Cloud Downloader</h2>
-          <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">1DM Direct URLs, Archives & Universal Media Grabber (100+ Sites)</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <h2 style="margin: 0; font-size: 1.25rem;">Cloud Downloader & Tasks</h2>
+            <div id="colabWorkerStatusPill" style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); font-size: 11px; font-weight: 600;">
+              <span id="colabStatusDot" style="width: 7px; height: 7px; border-radius: 50%; background: #64748b;"></span>
+              <span id="colabStatusText">Colab GPU: Offline</span>
+              <a href="https://colab.research.google.com/github/lucidesh4-stack/Torrent-to-drive/blob/main/colab/cloudflow_worker.ipynb" target="_blank" rel="noopener" style="color: #38bdf8; text-decoration: none; margin-left: 3px; font-size: 10px;">[Launch]</a>
+            </div>
+          </div>
+          <div class="muted" style="font-size: 0.8rem; margin-top: 2px;">1DM Direct URLs, Media Grabber & Colab GPU Compression</div>
         </div>
         <button id="closeCloudDownloadsBtn" class="ghost" type="button" aria-label="Close downloads" style="font-size: 20px; padding: 0; line-height: 1;">×</button>
       </div>
@@ -371,6 +380,17 @@
           <h4 style="margin: 0 0 10px 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px;" class="muted">Active Download</h4>
           <div id="cloudActiveDownloadsCard" style="display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
             <div class="empty" style="padding: 12px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm);">No active downloads running.</div>
+          </div>
+        </div>
+
+        <!-- Colab GPU Tasks Section -->
+        <div id="colabGpuTasksSection" style="flex-shrink: 0; width: 100%; box-sizing: border-box;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin: 0 0 10px 0;">
+            <h4 style="margin: 0; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.5px; color: #34d399;">⚡ Colab GPU Compression Tasks</h4>
+            <span id="gpuActiveBadge" class="tab-badge hidden" style="background: #10b981; color: white; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 999px;">0</span>
+          </div>
+          <div id="colabGpuTasksCard" style="display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
+            <div class="empty" style="padding: 12px; margin: 0; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 12px;">No video compression tasks running.</div>
           </div>
         </div>
         
@@ -479,6 +499,65 @@
       <button id="mobileFilterApply" class="mfs-apply" type="button">Apply filters</button>
     </div>
   </div>
+
+  <!-- GPU Video Compression Modal -->
+  <section id="gpuCompressModal" class="overlay hidden">
+    <div class="player-box" style="max-width: 480px; padding: 22px; background: var(--bg); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 25px 60px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); padding-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="width: 28px; height: 28px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); color: #34d399; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">⚡</div>
+          <h3 style="margin: 0; font-size: 1.15rem;">Colab GPU Compressor</h3>
+        </div>
+        <button id="closeGpuCompressBtn" class="ghost" type="button" style="font-size: 20px; padding: 0; line-height: 1;">&times;</button>
+      </div>
+
+      <!-- File Details -->
+      <div style="background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px;">
+        <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--muted); margin-bottom: 4px;">Target Video</div>
+        <div id="gpuTargetFileName" style="font-size: 13px; font-weight: 600; word-break: break-all; color: var(--text);">-</div>
+        <div id="gpuTargetFileSize" style="font-size: 12px; color: var(--muted); margin-top: 2px;">Size: -</div>
+      </div>
+
+      <!-- Colab Worker Status -->
+      <div id="gpuModalWorkerStatus" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 8px; font-size: 12px;">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span id="gpuModalStatusDot" style="width: 8px; height: 8px; border-radius: 50%; background: #64748b;"></span>
+          <span id="gpuModalStatusText" style="font-weight: 600;">Colab GPU: Checking...</span>
+        </div>
+        <a href="https://colab.research.google.com/github/lucidesh4-stack/Torrent-to-drive/blob/main/colab/cloudflow_worker.ipynb" target="_blank" rel="noopener" style="color: #38bdf8; text-decoration: none; font-size: 11px; font-weight: 600;">Open Colab ↗</a>
+      </div>
+
+      <!-- Compression Settings -->
+      <div style="display: grid; gap: 10px;">
+        <div>
+          <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px;">Rate Control Mode</label>
+          <select id="gpuCompressMode" style="width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;">
+            <option value="VBR" selected>VBR (Target Bitrate - Recommended for web/mobile)</option>
+            <option value="CQ">CQ (Constant Quality CQ 30 - Variable Bitrate)</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px;">Video Target Bitrate</label>
+          <select id="gpuTargetBitrate" style="width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;">
+            <option value="1000">1000 kbps (High Compression ~80% smaller)</option>
+            <option value="1500" selected>1500 kbps (Balanced 1080p ~70% smaller - Recommended)</option>
+            <option value="2500">2500 kbps (High Quality 1080p ~50% smaller)</option>
+            <option value="4000">4000 kbps (HQ 2K/4K)</option>
+          </select>
+        </div>
+
+        <div style="font-size: 11px; color: var(--muted); line-height: 1.4;">
+          ⚡ Uses NVIDIA T4 10-bit HEVC (<code>p010le</code>) hardware encoding with fast-start streaming & embedded thumbnail.
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px;">
+        <button id="cancelGpuCompressBtn" class="secondary" type="button" style="padding: 8px 16px; font-size: 13px;">Cancel</button>
+        <button id="startGpuCompressBtn" class="primary" type="button" style="padding: 8px 18px; font-size: 13px; font-weight: 700; background: #10b981; border-color: #10b981; color: white;">⚡ Start GPU Compression</button>
+      </div>
+    </div>
+  </section>
 
   <!-- Cinema Glass Video Player Modal -->
   <div id="videoPlayerModal" class="modal-wrap hidden" style="position: fixed; inset: 0; z-index: 99999; background: rgba(5, 8, 15, 0.95); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box;">

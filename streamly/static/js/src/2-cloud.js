@@ -178,6 +178,25 @@
       }
     }
 
+    // GPU Compress candidate (video files)
+    const gpuBtn = $("gpuCompressBtn");
+    const cmGpuBtn = $("cmBulkGpuCompress");
+    let isVideoCandidate = false;
+    if (count === 1) {
+      const vidCandidate = selected || items.find(x => selectedKeys.has(x.key));
+      if (vidCandidate && (vidCandidate.type === "video" || /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(vidCandidate.name || ""))) {
+        isVideoCandidate = true;
+      }
+    }
+    if (gpuBtn) {
+      gpuBtn.classList.toggle("hidden", !isVideoCandidate);
+      gpuBtn.disabled = !isVideoCandidate;
+    }
+    if (cmGpuBtn) {
+      cmGpuBtn.classList.toggle("hidden", !isVideoCandidate);
+      cmGpuBtn.disabled = !isVideoCandidate;
+    }
+
     // ----- Mobile selection sync -----
     document.querySelectorAll("#cloudMobileList .cm-row").forEach((row) => {
       row.classList.toggle("sel", selectedKeys.has(row.dataset.key));
@@ -2024,5 +2043,73 @@
     if (cmBtn) cmBtn.addEventListener("click", handleActionBtnClick, true);
   });
 
+  // ============================================================================
+  // ⚡ Colab GPU Compression Handlers
+  // ============================================================================
+  window.openGpuCompressModal = function() {
+    const selectedItem = items.find(x => selectedKeys.has(x.key));
+    if (!selectedItem) return;
 
+    window._targetGpuItem = selectedItem;
+    const modal = $("gpuCompressModal");
+    if (modal) modal.classList.remove("hidden");
 
+    const nameEl = $("gpuTargetFileName");
+    if (nameEl) nameEl.textContent = selectedItem.name;
+    const sizeEl = $("gpuTargetFileSize");
+    if (sizeEl) sizeEl.textContent = "Size: " + (selectedItem.size_str || (selectedItem.size ? (Math.round(selectedItem.size / (1024*1024)*10)/10 + " MB") : "-"));
+
+    window.fetchGpuWorkerStatus();
+  };
+
+  window.closeGpuCompressModal = function() {
+    const modal = $("gpuCompressModal");
+    if (modal) modal.classList.add("hidden");
+  };
+
+  window.fetchGpuWorkerStatus = async function() {
+    try {
+      const res = await fetch("/api/gpu/status");
+      const data = await res.json();
+      const dot = $("gpuModalStatusDot");
+      const text = $("gpuModalStatusText");
+      if (data && data.online) {
+        if (dot) { dot.style.background = "#10b981"; dot.style.boxShadow = "0 0 8px #10b981"; }
+        if (text) { text.textContent = "Colab GPU: " + (data.gpu_name || "NVIDIA T4") + " (Online)"; text.style.color = "#34d399"; }
+      } else {
+        if (dot) { dot.style.background = "#64748b"; dot.style.boxShadow = "none"; }
+        if (text) { text.textContent = "Colab GPU: Offline (will queue until Colab runs)"; text.style.color = "#94a3b8"; }
+      }
+    } catch (e) {}
+  };
+
+  window.startGpuCompress = async function() {
+    const item = window._targetGpuItem;
+    if (!item) return;
+
+    const mode = $("gpuCompressMode") ? $("gpuCompressMode").value : "VBR";
+    const bitrate = $("gpuTargetBitrate") ? parseInt($("gpuTargetBitrate").value) : 1500;
+
+    window.closeGpuCompressModal();
+    if (window.toast) window.toast("⚡ Queuing video for Colab GPU compression...");
+
+    try {
+      const res = await window.postJson("/api/gpu/compress", {
+        file_id: item.id || item.file_id || item.key,
+        filename: item.name,
+        source_type: window.driveProvider === "temp" ? "temp_cloud" : "seedr",
+        source_url: item.download_url || null,
+        mode: mode,
+        target_bitrate_k: bitrate
+      });
+      if (res && res.success) {
+        if (window.toast) window.toast("✅ Queued for Colab GPU! Opening tasks drawer...");
+        if (typeof window.openCloudDownloadsModal === "function") window.openCloudDownloadsModal();
+      } else {
+        if (window.toast) window.toast("Failed: " + (res?.error || "Error queuing"));
+      }
+    } catch (e) {
+      if (window.toast) window.toast("Compression request failed: " + e.message);
+    }
+  };
+})();

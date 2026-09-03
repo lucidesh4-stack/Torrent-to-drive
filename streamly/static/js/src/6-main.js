@@ -182,6 +182,21 @@
   if ($("cmBulkArchive")) $("cmBulkArchive").addEventListener("click", () => {
     if (typeof window.archiveSelectedAction === "function") window.archiveSelectedAction();
   });
+  if ($("gpuCompressBtn")) $("gpuCompressBtn").addEventListener("click", () => {
+    if (typeof window.openGpuCompressModal === "function") window.openGpuCompressModal();
+  });
+  if ($("cmBulkGpuCompress")) $("cmBulkGpuCompress").addEventListener("click", () => {
+    if (typeof window.openGpuCompressModal === "function") window.openGpuCompressModal();
+  });
+  if ($("closeGpuCompressBtn")) $("closeGpuCompressBtn").addEventListener("click", () => {
+    if (typeof window.closeGpuCompressModal === "function") window.closeGpuCompressModal();
+  });
+  if ($("cancelGpuCompressBtn")) $("cancelGpuCompressBtn").addEventListener("click", () => {
+    if (typeof window.closeGpuCompressModal === "function") window.closeGpuCompressModal();
+  });
+  if ($("startGpuCompressBtn")) $("startGpuCompressBtn").addEventListener("click", () => {
+    if (typeof window.startGpuCompress === "function") window.startGpuCompress();
+  });
   $("deleteBtn").addEventListener("click", deleteSelected);
   $("selectAllCheck").addEventListener("change", (e) => {
     if (e.target.checked) {
