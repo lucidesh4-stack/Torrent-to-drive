@@ -52,6 +52,35 @@ def ensure_vmaf_ffmpeg():
 
 ensure_vmaf_ffmpeg()
 
+def probe_nvenc_capabilities():
+    caps = {
+        "spatial_aq": None,
+        "temporal_aq": None,
+        "aq_strength": False,
+        "b_ref_mode": None,
+        "multipass": False,
+    }
+    try:
+        res = subprocess.run(["ffmpeg", "-h", "encoder=hevc_nvenc"], capture_output=True, text=True)
+        out = res.stdout
+        if "-spatial-aq" in out: caps["spatial_aq"] = "-spatial-aq"
+        elif "-spatial_aq" in out: caps["spatial_aq"] = "-spatial_aq"
+
+        if "-temporal-aq" in out: caps["temporal_aq"] = "-temporal-aq"
+        elif "-temporal_aq" in out: caps["temporal_aq"] = "-temporal_aq"
+
+        if "-aq-strength" in out: caps["aq_strength"] = True
+        
+        if "-b_ref_mode" in out: caps["b_ref_mode"] = "-b_ref_mode"
+        elif "-b-ref-mode" in out: caps["b_ref_mode"] = "-b-ref-mode"
+
+        if "-multipass" in out: caps["multipass"] = True
+    except Exception:
+        pass
+    return caps
+
+NVENC_CAPS = probe_nvenc_capabilities()
+
 def probe_video(path):
     cmd = [
         "ffprobe", "-v", "error",
@@ -76,7 +105,7 @@ def probe_video(path):
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     cmd = ["ffmpeg", "-y", "-hide_banner"]
     
@@ -129,17 +158,27 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             "-preset", preset,               # p7 highest quality (exact match with bat script!)
             "-tune", "hq",                   # High visual quality tuning
             *rc_opts,
-            "-multipass", multipass,         # 2-pass fullres macroblock analysis
-            "-spatial_aq", "1",              # Edge & fine texture adaptive quantization
-            "-temporal_aq", "1",             # Motion-based quantization (0 bits for static frames)
-            "-aq-strength", "7",             # Optimal strength matching bat script
             "-rc-lookahead", "32",           # 32-frame forward bit distribution
             "-bf", "3",                      # 3 B-frames
-            "-b_ref_mode", "middle",         # B-frame middle reference
             "-g", str(gop),
             "-keyint_min", str(keyint_min),
             "-tag:v:0", "hvc1",              # Apple / iOS hardware decoding tag
         ]
+
+        if not safe_mode:
+            if NVENC_CAPS.get("multipass") and multipass:
+                cmd += ["-multipass", multipass]
+
+            if NVENC_CAPS.get("spatial_aq"):
+                cmd += [NVENC_CAPS["spatial_aq"], "1"]
+                if NVENC_CAPS.get("aq_strength"):
+                    cmd += ["-aq-strength", "7"]
+
+            if NVENC_CAPS.get("temporal_aq"):
+                cmd += [NVENC_CAPS["temporal_aq"], "1"]
+
+            if NVENC_CAPS.get("b_ref_mode"):
+                cmd += [NVENC_CAPS["b_ref_mode"], "middle"]
     else:
         cmd += [
             "-preset", "veryfast",
@@ -212,15 +251,15 @@ def compress_video(in_path, out_path, task, report_progress_fn):
 
     stderr_out = p.stderr.read()
     
-    # Adaptive fallbacks if container / audio stream rejects copy or driver has preset restrictions
     if p.returncode != 0:
         needs_aac = any(msg in stderr_out for msg in ["Could not find tag", "incompatible", "muxer does not support", "tag not found"])
-        needs_preset_fallback = ("preset" in stderr_out.lower() or "multipass" in stderr_out.lower() or "p7" in stderr_out)
+        needs_safe_mode = any(msg in stderr_out.lower() for msg in ["unrecognized option", "option not found", "error splitting the argument list"])
+        needs_preset_fallback = ("preset" in stderr_out.lower() or "multipass" in stderr_out.lower() or "p7" in stderr_out or needs_safe_mode)
         preset_to_use = "p5" if needs_preset_fallback else "p7"
         mp_to_use = "qres" if needs_preset_fallback else "fullres"
 
-        print(f"   ⚠️ Retrying with adaptive fallback (audio={'aac' if needs_aac else 'copy'}, preset={preset_to_use})...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset=preset_to_use, multipass=mp_to_use, copy_audio=(not needs_aac))
+        print(f"   ⚠️ Retrying with adaptive fallback (audio={'aac' if needs_aac else 'copy'}, preset={preset_to_use}, safe_mode={needs_safe_mode})...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset=preset_to_use, multipass=mp_to_use, safe_mode=needs_safe_mode, copy_audio=(not needs_aac))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while True:
             line = p.stdout.readline()
