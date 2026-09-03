@@ -185,14 +185,25 @@ async def temp_cloud_storage(request: Request, _auth = Depends(verify_user_sessi
     # Calculate actual used storage in worker threadpool (non-blocking)
     user_used = await asyncio.to_thread(_compute_used_size, user_dir)
 
-    quota_bytes = int(TEMP_STORAGE_QUOTA_GB * (1024 ** 3))
+    try:
+        total_phys, _, free_phys = shutil.disk_usage(user_dir)
+        if "TEMP_STORAGE_QUOTA_GB" not in os.environ and total_phys > 0:
+            quota_bytes = total_phys
+            effective_quota_gb = round(total_phys / (1024 ** 3), 1)
+        else:
+            effective_quota_gb = TEMP_STORAGE_QUOTA_GB
+            quota_bytes = int(effective_quota_gb * (1024 ** 3))
+    except Exception:
+        effective_quota_gb = TEMP_STORAGE_QUOTA_GB
+        quota_bytes = int(effective_quota_gb * (1024 ** 3))
+
     user_used_gb = round(user_used / (1024 ** 3), 2)
     pct = round((user_used / quota_bytes) * 100, 1) if quota_bytes > 0 else 0.0
     pct = min(100.0, pct)
 
     return {
         "storage_label": "Temp NVMe Storage",
-        "storage_metrics": f"{user_used_gb:.2f} / {TEMP_STORAGE_QUOTA_GB:.1f} GB • {pct:.0f}%",
+        "storage_metrics": f"{user_used_gb:.2f} / {effective_quota_gb:.1f} GB • {pct:.0f}%",
         "storage_subtext": "Auto-expires in 24h",
         "percent": pct,
         "user_used_bytes": user_used,
