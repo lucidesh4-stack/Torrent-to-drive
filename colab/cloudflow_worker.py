@@ -29,6 +29,29 @@ if "NVIDIA" not in GPU_NAME and "Tesla" not in GPU_NAME:
     print("⚠️ WARNING: No NVIDIA GPU detected! Make sure you selected T4 GPU in Colab:")
     print("   Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU")
 
+def ensure_vmaf_ffmpeg():
+    try:
+        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
+        if "libvmaf" in fchk.stdout:
+            return True
+    except Exception:
+        pass
+
+    print("⚡ Installing enhanced FFmpeg with native libvmaf + NVENC...")
+    try:
+        cmd = "curl -fsSL https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | tar -xJ --strip-components=2 -C /usr/local/bin/ --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'"
+        res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if res.returncode == 0:
+            print("✅ Upgraded FFmpeg with native libvmaf & NVENC successfully!")
+            return True
+        else:
+            print(f"⚠️ FFmpeg upgrade notice: {res.stderr[:200]}")
+    except Exception as e:
+        print(f"⚠️ Notice: {e}")
+    return False
+
+ensure_vmaf_ffmpeg()
+
 def probe_video(path):
     cmd = [
         "ffprobe", "-v", "error",
