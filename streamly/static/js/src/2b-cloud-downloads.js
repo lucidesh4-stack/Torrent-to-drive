@@ -21,6 +21,7 @@
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   }
 
+  let _gpuPollTimer = null;
   window.openCloudDownloadsModal = function() {
     window.isDownloadsOverlayOpen = true;
     const overlay = document.getElementById("cloudDownloadsOverlay");
@@ -29,10 +30,18 @@
     if (input) { input.focus(); }
     initDownloadsSSE();
     fetchDownloadsState();
+    if (typeof window.fetchGpuTasksState === "function") window.fetchGpuTasksState();
+    if (_gpuPollTimer) clearInterval(_gpuPollTimer);
+    _gpuPollTimer = setInterval(() => {
+      if (window.isDownloadsOverlayOpen && typeof window.fetchGpuTasksState === "function") {
+        window.fetchGpuTasksState();
+      }
+    }, 3000);
   };
 
   window.closeCloudDownloadsModal = function() {
     window.isDownloadsOverlayOpen = false;
+    if (_gpuPollTimer) { clearInterval(_gpuPollTimer); _gpuPollTimer = null; }
     const overlay = document.getElementById("cloudDownloadsOverlay");
     if (overlay) overlay.classList.add("hidden");
   };
@@ -273,7 +282,7 @@
 
   window.fetchGpuTasksState = async function() {
     try {
-      const res = await window.getJson("/api/gpu/tasks");
+      const res = await fetch("/api/gpu/tasks", { credentials: "same-origin", cache: "no-store" }).then(r => r.json()).catch(() => null);
       if (!res) return;
 
       const dot = document.getElementById("colabStatusDot");

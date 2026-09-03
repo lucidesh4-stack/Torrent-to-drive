@@ -75,9 +75,12 @@
 
   window.updateSelection = function() {
     refreshSelectedShim();
+    const currentItems = (window.items && window.items.length) ? window.items : (typeof items !== "undefined" ? items : []);
     const count = selectedKeys.size;
     const heading = $("selectionHeading");
     const clearBtn = $("clearSelBtn");
+    const firstKey = count ? selectedKeys.values().next().value : null;
+    const currentSelected = window.selected || (firstKey ? currentItems.find(it => it.key === firstKey) : null);
 
     if (count === 0) {
       heading.textContent = "Selected Item";
@@ -86,15 +89,15 @@
       $("selSize").textContent = "-";
       clearBtn.style.display = "none";
     } else if (count === 1) {
-      const item = selected;
+      const item = currentSelected;
       heading.textContent = "Selected Item";
       $("selName").textContent = item ? item.name : "None";
-      $("selType").textContent = item ? item.type : "-";
+      $("selType").textContent = item ? (item.type || (item.is_video ? "video" : "file")) : "-";
       $("selSize").textContent = item ? (item.size_str || "-") : "-";
       clearBtn.style.display = "";
     } else {
       // Multi-select: aggregate
-      const selectedItems = items.filter(it => selectedKeys.has(it.key));
+      const selectedItems = currentItems.filter(it => selectedKeys.has(it.key));
       const totalBytes = selectedItems.reduce((sum, it) => sum + Number(it.size || 0), 0);
       const types = new Set(selectedItems.map(it => it.type));
       heading.textContent = `${count} items selected`;
@@ -116,7 +119,7 @@
     const allCb = $("selectAllCheck");
     if (allCb) {
       if (count === 0) { allCb.checked = false; allCb.indeterminate = false; }
-      else if (count === items.length) { allCb.checked = true; allCb.indeterminate = false; }
+      else if (count === currentItems.length) { allCb.checked = true; allCb.indeterminate = false; }
       else { allCb.checked = false; allCb.indeterminate = true; }
     }
 
@@ -131,8 +134,8 @@
     const dlBtn = $("downloadBtn");
     if (dlBtn) dlBtn.disabled = count === 0;
 
-    const selectedFiles = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.type === "archive" || x.download_url));
-    const hasFolder = Array.from(selectedKeys).map(k => items.find(x => x.key === k)).some(x => x && x.type === "folder");
+    const selectedFiles = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.type === "archive" || x.is_video || x.download_url));
+    const hasFolder = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
     // Offcloud has no delete API -> disable/grey the Delete button in Offcloud mode
@@ -148,16 +151,14 @@
     let isUnzipCandidate = false;
     let archiveItem = null;
 
-    if (window.driveProvider === "temp" && count === 1) {
-      archiveItem = selected || items.find(x => selectedKeys.has(x.key));
-      if (archiveItem) {
-        if (archiveItem.type === "folder") {
-          isZipCandidate = true;
-        } else if (archiveItem.type === "file" || archiveItem.type === "archive") {
-          const lowerName = (archiveItem.name || "").toLowerCase();
-          if (lowerName.endsWith(".zip") || lowerName.endsWith(".rar") || lowerName.endsWith(".7z") || lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar")) {
-            isUnzipCandidate = true;
-          }
+    if (window.driveProvider === "temp" && count === 1 && currentSelected) {
+      archiveItem = currentSelected;
+      if (archiveItem.type === "folder") {
+        isZipCandidate = true;
+      } else {
+        const lowerName = (archiveItem.name || "").toLowerCase();
+        if (lowerName.endsWith(".zip") || lowerName.endsWith(".rar") || lowerName.endsWith(".7z") || lowerName.endsWith(".tar.gz") || lowerName.endsWith(".tgz") || lowerName.endsWith(".tar")) {
+          isUnzipCandidate = true;
         }
       }
     }
@@ -182,9 +183,13 @@
     const gpuBtn = $("gpuCompressBtn");
     const cmGpuBtn = $("cmBulkGpuCompress");
     let isVideoCandidate = false;
-    if (count === 1) {
-      const vidCandidate = selected || items.find(x => selectedKeys.has(x.key));
-      if (vidCandidate && (vidCandidate.type === "video" || /\.(mp4|mkv|webm|avi|mov|flv|m4v)$/i.test(vidCandidate.name || ""))) {
+    if (count === 1 && currentSelected) {
+      const isVid = (
+        currentSelected.type === "video" ||
+        currentSelected.is_video === true ||
+        /\.(mp4|mkv|webm|avi|mov|flv|m4v|ts)$/i.test(currentSelected.name || "")
+      );
+      if (isVid) {
         isVideoCandidate = true;
       }
     }
@@ -2047,8 +2052,13 @@
   // ⚡ Colab GPU Compression Handlers
   // ============================================================================
   window.openGpuCompressModal = function() {
-    const selectedItem = items.find(x => selectedKeys.has(x.key));
-    if (!selectedItem) return;
+    const currentItems = (window.items && window.items.length) ? window.items : (typeof items !== "undefined" ? items : []);
+    const firstKey = selectedKeys.size ? selectedKeys.values().next().value : null;
+    const selectedItem = window.selected || (firstKey ? currentItems.find(it => it.key === firstKey) : null);
+    if (!selectedItem) {
+      if (window.toast) window.toast("Please select a video first");
+      return;
+    }
 
     window._targetGpuItem = selectedItem;
     const modal = $("gpuCompressModal");
