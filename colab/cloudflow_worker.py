@@ -68,19 +68,19 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     if has_nvenc:
         gop = max(30, int(fps * 4)) # 4-second GOP
         cmd += [
-            "-profile:v", "main10",      # 10-bit HEVC (eliminates color banding at 1500k)
+            "-profile:v", "main10",      # 10-bit HEVC (eliminates banding in shadows/gradients)
             "-pix_fmt", "p010le",
-            "-preset", "p5",             # High Quality preset (clean balance of studio clarity & speed)
-            "-tune", "hq",               # High visual quality tuning
+            "-preset", "p5",             # High Quality Turing preset
+            "-tune", "hq",               # Visual clarity tuning
             "-rc", "vbr",
-            "-b:v", f"{target_k}k",
-            "-maxrate", f"{max_v}k",
-            "-bufsize", f"{bufsize}k",
-            "-qmin", "18",               # Quality floor for action scenes
-            "-qmax", "36",
-            "-spatial_aq", "1",          # Spatial Adaptive Quantization (sharp text & edges)
-            "-temporal_aq", "1",         # Temporal Adaptive Quantization (eliminates pulsing artifacts)
-            "-rc-lookahead", "32",       # 32-frame predictive bit allocation buffer
+            "-cq", "26",                 # Dynamic Content-Adaptive Target: near-ZERO bits on static/black frames!
+            "-b:v", f"{target_k}k",      # Target average bitrate across the full video
+            "-maxrate", f"{max_v}k",     # Bursts dynamically when motion/explosions/details demand it
+            "-bufsize", f"{bufsize}k",   # VBV buffer size
+            "-spatial_aq", "1",          # Prioritizes bits to textures/faces, 0 bits to flat black/dark backgrounds
+            "-aq-strength", "8",
+            "-temporal_aq", "1",         # Prioritizes 0 bits to non-moving frames across time
+            "-rc-lookahead", "40",       # 40-frame lookahead: banks bits during static scenes to spend on action!
             "-bf", "4",                  # 4 B-frames for 20% smaller bitrate
             "-b_ref_mode", "middle",     # B-frames as reference
             "-g", str(gop),
@@ -115,8 +115,8 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     if info.get("fps", 30) > 45:
         target_k = int(target_k * 1.3)
         
-    max_v = target_k * 2
-    bufsize = max_v * 2
+    max_v = int(target_k * 2.5)
+    bufsize = int(target_k * 3.5)
 
     has_nvenc = ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME)
     duration = info.get("duration", 0)
