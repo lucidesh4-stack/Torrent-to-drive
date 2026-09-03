@@ -71,8 +71,18 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
         gop = max(30, int(fps * 5)) # 5-second GOP matching batch script
         keyint_min = int(fps)
         
-        # Exact rate-control matching original Video_compression.bat
-        if mode == "CQ":
+        # Exact rate-control matching original Video_compression.bat or Enhanced 95+ VMAF
+        if mode == "VMAF95_ENHANCED":
+            rc_opts = [
+                "-rc", "vbr",
+                "-cq", "25",
+                "-b:v", f"{target_k}k",
+                "-maxrate", f"{int(target_k * 2.2)}k",
+                "-bufsize", f"{int(target_k * 4.4)}k",
+                "-qmin", "18",
+                "-qmax", "33",
+            ]
+        elif mode == "CQ":
             rc_opts = [
                 "-rc", "vbr",
                 "-cq", "30",

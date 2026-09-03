@@ -532,8 +532,9 @@
         <div>
           <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px;">Rate Control Mode</label>
           <select id="gpuCompressMode" style="width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;">
-            <option value="VBR" selected>VBR (Target Bitrate - Recommended for web/mobile)</option>
-            <option value="CQ">CQ (Constant Quality CQ 30 - Variable Bitrate)</option>
+            <option value="VBR" selected>Original VBR (1500k - Video_compression.bat)</option>
+            <option value="CQ">Original CQ 30 (Video_compression.bat)</option>
+            <option value="VMAF95_ENHANCED">Enhanced 95+ VMAF Pro (CQ 25 + Dynamic Floor)</option>
           </select>
         </div>
 
