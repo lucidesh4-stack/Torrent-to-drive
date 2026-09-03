@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import os
 import time
@@ -9,9 +9,9 @@ from typing import Optional, Dict, List, Any
 from fastapi import APIRouter, Request, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 
-from ..auth_utils import verify_user_session, ensure_sid
+from ..auth_utils import ensure_sid
 from ..security import rate_limited
-from .temp_cloud import get_user_temp_dir
+from .temp_cloud import get_user_temp_dir, verify_user_session
 
 log = logging.getLogger(__name__)
 
