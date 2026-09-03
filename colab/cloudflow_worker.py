@@ -13,6 +13,13 @@ print("=" * 75)
 print(f"🔗 Target Cloudflow Instance : {CLOUDFLOW_URL}")
 print(f"⚡ Max Concurrent Encoders   : {MAX_CONCURRENT_JOBS}")
 
+# Ensure Colab NVIDIA driver paths are properly accessible in LD_LIBRARY_PATH
+cuda_paths = ["/usr/lib64-nvidia", "/usr/local/cuda/lib64", "/usr/lib/x86_64-linux-gnu"]
+existing_ld = os.environ.get("LD_LIBRARY_PATH", "")
+paths_to_add = [p for p in cuda_paths if os.path.exists(p) and p not in existing_ld]
+if paths_to_add:
+    os.environ["LD_LIBRARY_PATH"] = ":".join(paths_to_add) + (f":{existing_ld}" if existing_ld else "")
+
 def get_gpu_name():
     try:
         res = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True)
@@ -33,8 +40,8 @@ def ensure_modern_ffmpeg():
     try:
         res = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
         first_line = res.stdout.splitlines()[0] if res.stdout else "unknown"
-        print(f"🎬 Current FFmpeg: {first_line}")
         if any(v in first_line for v in ["version 7", "version 6", "version n7", "version n6", "git", "BtbN"]):
+            print(f"🎬 FFmpeg Engine             : {first_line[:65]}...")
             return True
     except Exception:
         pass
@@ -45,13 +52,50 @@ def ensure_modern_ffmpeg():
         subprocess.run(["wget", "-q", "-O", "/tmp/ff_modern.tar.xz", url], check=True, timeout=60)
         subprocess.run("tar -xf /tmp/ff_modern.tar.xz -C /tmp && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/local/bin/ && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/bin/ 2>/dev/null || true && rm -rf /tmp/ff_modern.tar.xz /tmp/ffmpeg-*-linux64-gpl", shell=True, check=True)
         res2 = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        print(f"✅ Upgraded FFmpeg: {res2.stdout.splitlines()[0] if res2.stdout else 'done'}")
+        print(f"✅ FFmpeg upgraded: {res2.stdout.splitlines()[0] if res2.stdout else 'done'}")
         return True
     except Exception as e:
         print(f"⚠️ Notice on modern FFmpeg: {e}")
         return False
 
 ensure_modern_ffmpeg()
+
+def test_nvenc_hardware():
+    print("🔍 Probing Tesla T4 NVENC encoder hardware capability...")
+    # Test 10-bit HEVC encode
+    test_cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning",
+        "-f", "lavfi", "-i", "testsrc=duration=1:size=640x360:rate=24",
+        "-c:v", "hevc_nvenc", "-profile:v", "main10", "-pix_fmt", "p010le",
+        "-f", "null", "-"
+    ]
+    res = subprocess.run(test_cmd, capture_output=True, text=True)
+    if res.returncode == 0:
+        print("✅ Tesla T4 10-bit HEVC NVENC is 100% OPERATIONAL!")
+        return True
+    else:
+        print(f"⚠️ 10-bit NVENC test notice (code {res.returncode}):")
+        for l in res.stderr.splitlines()[-6:]:
+            if l.strip():
+                print(f"   {l.strip()}")
+        # Test 8-bit fallback
+        test_8bit = [
+            "ffmpeg", "-y", "-loglevel", "warning",
+            "-f", "lavfi", "-i", "testsrc=duration=1:size=640x360:rate=24",
+            "-c:v", "hevc_nvenc", "-f", "null", "-"
+        ]
+        res8 = subprocess.run(test_8bit, capture_output=True, text=True)
+        if res8.returncode == 0:
+            print("✅ Tesla T4 Standard 8-bit HEVC NVENC is OPERATIONAL!")
+            return True
+        else:
+            print(f"❌ 8-bit NVENC also failed (code {res8.returncode}):")
+            for l in res8.stderr.splitlines()[-6:]:
+                if l.strip():
+                    print(f"   {l.strip()}")
+            return False
+
+NVENC_OK = test_nvenc_hardware()
 
 VMAF_FFMPEG_BIN = "ffmpeg"
 
@@ -116,38 +160,48 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
 
     # Exact 1:1 command from Video_compression.bat
     if has_nvenc:
-        cmd = [
-            "ffmpeg", "-y", "-loglevel", "error", "-progress", "-", "-hide_banner",
-            "-i", in_path,
-            "-filter_complex", "[0:v:0]format=p010le[outv]",
-            "-map", "[outv]",
-            "-map", "0:a?",
-            "-fps_mode", "vfr",
-            "-c:v", vcodec,
-            "-preset", preset,
-            "-tune", "hq",
-            *rc_opts,
-            "-g", str(gop),
-            "-keyint_min", str(keyint_min),
-        ]
-        if multipass:
-            cmd += ["-multipass", multipass]
-        if not safe_mode:
-            cmd += [
+        if safe_mode:
+            # ⚡ Robust standard 8-bit YUV420p NVENC (Universal GPU compatibility)
+            cmd = [
+                "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
+                "-i", in_path,
+                "-map", "0:v:0",
+                "-map", "0:a?",
+                "-fps_mode", "vfr",
+                "-c:v", vcodec,
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                "-pix_fmt", "yuv420p",
+                "-preset", "p5",
+                *rc_opts,
+            ]
+        else:
+            # 💎 Studio Quality 10-bit HEVC NVENC (Exact batch script match)
+            cmd = [
+                "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
+                "-i", in_path,
+                "-filter_complex", "[0:v:0]format=p010le[outv]",
+                "-map", "[outv]",
+                "-map", "0:a?",
+                "-fps_mode", "vfr",
+                "-c:v", vcodec,
+                "-preset", preset,
+                "-tune", "hq",
+                *rc_opts,
+                "-g", str(gop),
+                "-keyint_min", str(keyint_min),
+                "-multipass", multipass if multipass else "fullres",
                 "-spatial-aq", "1",
                 "-temporal-aq", "1",
                 "-aq-strength", "7",
                 "-rc-lookahead", "32",
                 "-bf", "3",
                 "-b_ref_mode", "middle",
+                "-profile:v:0", "main10",
+                "-tag:v:0", "hvc1",
             ]
-        cmd += [
-            "-profile:v:0", "main10",
-            "-tag:v:0", "hvc1",
-        ]
     else:
         cmd = [
-            "ffmpeg", "-y", "-loglevel", "error", "-progress", "-", "-hide_banner",
+            "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
             "-i", in_path,
             "-map", "0:v:0",
             "-map", "0:a?",
