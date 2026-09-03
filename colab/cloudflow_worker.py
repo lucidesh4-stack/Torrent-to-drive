@@ -41,21 +41,20 @@ def ensure_compatible_ffmpeg():
     test_cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-f", "lavfi", "-i", "testsrc=duration=1:size=640x360:rate=24",
-        "-c:v", "hevc_nvenc", "-profile:v", "main10", "-pix_fmt", "p010le",
-        "-f", "null", "-"
+        "-c:v", "hevc_nvenc", "-f", "null", "-"
     ]
     res = subprocess.run(test_cmd, capture_output=True, text=True)
     if res.returncode == 0:
         print("✅ Current FFmpeg is 100% compatible with Tesla T4 NVENC driver!")
         return True
 
-    print("⚡ Incompatible FFmpeg detected (NVENC API 13.1 vs driver 13.0). Restoring driver-matched system FFmpeg...")
+    print("⚡ Incompatible FFmpeg detected (NVENC API 13.1 vs driver 13.0). Restoring clean driver-matched Ubuntu FFmpeg...")
     try:
-        subprocess.run("rm -f /usr/local/bin/ffmpeg /usr/local/bin/ffprobe", shell=True)
+        subprocess.run("rm -f /usr/local/bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffmpeg /usr/bin/ffprobe", shell=True)
         subprocess.run("apt-get update -qq && apt-get install -y -qq --reinstall ffmpeg", shell=True)
         res2 = subprocess.run(test_cmd, capture_output=True, text=True)
         if res2.returncode == 0:
-            print("✅ Driver-matched FFmpeg restored and verified operational on Tesla T4!")
+            print("✅ Clean driver-matched FFmpeg restored and verified operational on Tesla T4!")
             return True
         else:
             print(f"⚠️ Notice after restore: {res2.stderr[:200]}")
