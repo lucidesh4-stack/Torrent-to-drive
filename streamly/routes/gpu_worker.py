@@ -296,7 +296,7 @@ async def enqueue_compression(request: Request, _auth = Depends(verify_user_sess
 
 
 @gpu_router.get('/api/gpu/tasks')
-@rate_limited(cost=1.0)
+@rate_limited(cost=0.1)
 async def list_gpu_tasks(request: Request, _auth = Depends(verify_user_session)):
     sid = request.session.get('sid') or ensure_sid(request)
     return gpu_mgr.list_tasks_for_user(sid)

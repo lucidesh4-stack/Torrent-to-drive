@@ -368,7 +368,6 @@
         try {
           const data = JSON.parse(event.data);
           renderDownloads(data);
-          window.fetchGpuTasksState();
         } catch (e) {}
       };
       downloadsEventSource.onerror = () => {
