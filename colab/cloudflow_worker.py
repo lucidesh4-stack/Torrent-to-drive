@@ -51,11 +51,11 @@ def probe_video(path):
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     cmd = ["ffmpeg", "-y", "-hide_banner"]
     
-    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses CPU bottleneck!)
+    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses Colab CPU bottleneck!)
     if has_nvenc:
         cmd += ["-hwaccel", "cuda"]
         
@@ -66,24 +66,44 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     ]
     
     if has_nvenc:
-        gop = max(30, int(fps * 4)) # 4-second GOP
+        gop = max(30, int(fps * 5)) # 5-second GOP matching batch script
+        keyint_min = int(fps)
+        
+        # Exact rate-control matching your batch script
+        if mode == "CQ":
+            rc_opts = [
+                "-rc", "vbr",
+                "-cq", "30",
+                "-b:v", f"{target_k}k",
+                "-maxrate", f"{max_v}k",
+                "-bufsize", f"{bufsize}k",
+            ]
+        else:
+            rc_opts = [
+                "-rc", "vbr",
+                "-b:v", f"{target_k}k",
+                "-maxrate", f"{max_v}k",
+                "-bufsize", f"{bufsize}k",
+                "-qmin", "22",
+                "-qmax", "38",
+            ]
+
         cmd += [
-            "-profile:v", "main10",      # 10-bit HEVC (eliminates banding in shadows/gradients)
+            "-profile:v", "main10",          # 10-bit HEVC color depth (forced for quality)
             "-pix_fmt", "p010le",
-            "-preset", "p5",             # High Quality Turing preset
-            "-tune", "hq",               # Visual clarity tuning
-            "-rc", "vbr",
-            "-cq", "26",                 # Dynamic Content-Adaptive Target: near-ZERO bits on static/black frames!
-            "-b:v", f"{target_k}k",      # Target average bitrate across the full video
-            "-maxrate", f"{max_v}k",     # Bursts dynamically when motion/explosions/details demand it
-            "-bufsize", f"{bufsize}k",   # VBV buffer size
-            "-spatial_aq", "1",          # Prioritizes bits to textures/faces, 0 bits to flat black/dark backgrounds
-            "-aq-strength", "8",
-            "-temporal_aq", "1",         # Prioritizes 0 bits to non-moving frames across time
-            "-rc-lookahead", "40",       # 40-frame lookahead: banks bits during static scenes to spend on action!
-            "-bf", "4",                  # 4 B-frames for 20% smaller bitrate
-            "-b_ref_mode", "middle",     # B-frames as reference
+            "-preset", preset,               # p7 highest quality (exact match with your bat script!)
+            "-tune", "hq",                   # High visual quality tuning
+            *rc_opts,
+            "-multipass", multipass,         # 2-pass fullres macroblock analysis
+            "-spatial_aq", "1",              # Edge & fine texture adaptive quantization
+            "-temporal_aq", "1",             # Motion-based quantization (0 bits for static frames)
+            "-aq-strength", "7",             # Optimal strength matching bat script
+            "-rc-lookahead", "32",           # 32-frame forward bit distribution
+            "-bf", "3",                      # 3 B-frames
+            "-b_ref_mode", "middle",         # B-frame middle reference
             "-g", str(gop),
+            "-keyint_min", str(keyint_min),
+            "-tag:v:0", "hvc1",              # Apple / iOS hardware decoding tag
         ]
     else:
         cmd += [
@@ -121,9 +141,11 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     has_nvenc = ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME)
     duration = info.get("duration", 0)
 
-    # Try 1: Full GPU pipeline with NVDEC + NVENC (fastest: 250-350+ FPS)
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), copy_audio=True)
-    print(f"   ▶ Turbo Hardware Pipeline (NVDEC + NVENC 10-bit HQ, {target_k}k target)...")
+    mode = task.get("mode", "VBR")
+
+    # Try 1: Exact batch script match (p7, fullres, main10, copy audio)
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p7", multipass="fullres", copy_audio=True)
+    print(f"   ▶ Studio Quality Hardware Pipeline (NVDEC + NVENC p7 fullres 10-bit, mode={mode}, {target_k}k target)...")
     
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     fps_val = "0"
@@ -156,9 +178,14 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     stderr_out = p.stderr.read()
     
     # If audio copy failed (e.g. PCM / incompatible in MP4), retry with AAC transcode
-    if p.returncode != 0 and ("Could not find tag" in stderr_out or "incompatible" in stderr_out or "muxer does not support" in stderr_out):
-        print("   ⚠️ Retrying with AAC audio transcode...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), copy_audio=False)
+    if p.returncode != 0:
+        needs_aac = any(msg in stderr_out for msg in ["Could not find tag", "incompatible", "muxer does not support", "tag not found"])
+        needs_preset_fallback = ("preset" in stderr_out.lower() or "multipass" in stderr_out.lower() or "p7" in stderr_out)
+        preset_to_use = "p5" if needs_preset_fallback else "p7"
+        mp_to_use = "qres" if needs_preset_fallback else "fullres"
+
+        print(f"   ⚠️ Retrying with adaptive fallback (audio={'aac' if needs_aac else 'copy'}, preset={preset_to_use})...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset=preset_to_use, multipass=mp_to_use, copy_audio=(not needs_aac))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while True:
             line = p.stdout.readline()
