@@ -29,73 +29,29 @@ if "NVIDIA" not in GPU_NAME and "Tesla" not in GPU_NAME:
     print("⚠️ WARNING: No NVIDIA GPU detected! Make sure you selected T4 GPU in Colab:")
     print("   Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU")
 
-VMAF_FFMPEG_BIN = "ffmpeg"
-
-def ensure_vmaf_engine():
-    global VMAF_FFMPEG_BIN
+def ensure_modern_ffmpeg():
     try:
-        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
-        if "libvmaf" in fchk.stdout:
-            VMAF_FFMPEG_BIN = "ffmpeg"
+        res = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        first_line = res.stdout.splitlines()[0] if res.stdout else ""
+        if any(v in first_line for v in ["version 7", "version 6", "version n7", "version n6", "git", "BtbN"]):
             return True
     except Exception:
         pass
 
-    vmaf_path = "/usr/local/bin/ffmpeg-vmaf"
-    if os.path.exists(vmaf_path):
-        VMAF_FFMPEG_BIN = vmaf_path
+    print("⚡ Upgrading Colab to modern FFmpeg 7.x (Matching local device setup with full NVENC + VMAF)...")
+    try:
+        url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+        subprocess.run(["wget", "-q", "-O", "/tmp/ff_modern.tar.xz", url], check=True, timeout=60)
+        subprocess.run("tar -xf /tmp/ff_modern.tar.xz -C /tmp && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/local/bin/ && rm -rf /tmp/ff_modern.tar.xz /tmp/ffmpeg-*-linux64-gpl", shell=True, check=True)
+        print("✅ Colab FFmpeg upgraded to modern 7.x successfully!")
         return True
-
-    print("⚡ Installing high-speed VMAF quality benchmark engine...")
-    try:
-        setup_cmd = (
-            "wget -q -c -O /tmp/vmaf_pkg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && "
-            "tar -xJf /tmp/vmaf_pkg.tar.xz -C /tmp && "
-            "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg-vmaf && "
-            "chmod +x /usr/local/bin/ffmpeg-vmaf && "
-            "rm -rf /tmp/vmaf_pkg.tar.xz /tmp/ffmpeg-*-amd64-static"
-        )
-        res = subprocess.run(setup_cmd, shell=True, capture_output=True, text=True)
-        if os.path.exists(vmaf_path):
-            VMAF_FFMPEG_BIN = vmaf_path
-            print("✅ VMAF benchmark engine installed successfully (/usr/local/bin/ffmpeg-vmaf)!")
-            return True
-        else:
-            print(f"⚠️ VMAF engine notice: {res.stderr[:200]}")
     except Exception as e:
-        print(f"⚠️ Notice: {e}")
-    return False
+        print(f"⚠️ Notice on modern FFmpeg: {e}")
+        return False
 
-ensure_vmaf_engine()
+ensure_modern_ffmpeg()
 
-def probe_nvenc_capabilities():
-    caps = {
-        "spatial_aq": None,
-        "temporal_aq": None,
-        "aq_strength": False,
-        "b_ref_mode": None,
-        "multipass": False,
-    }
-    try:
-        res = subprocess.run(["ffmpeg", "-h", "encoder=hevc_nvenc"], capture_output=True, text=True)
-        out = res.stdout
-        if "-spatial-aq" in out: caps["spatial_aq"] = "-spatial-aq"
-        elif "-spatial_aq" in out: caps["spatial_aq"] = "-spatial_aq"
-
-        if "-temporal-aq" in out: caps["temporal_aq"] = "-temporal-aq"
-        elif "-temporal_aq" in out: caps["temporal_aq"] = "-temporal_aq"
-
-        if "-aq-strength" in out: caps["aq_strength"] = True
-        
-        if "-b_ref_mode" in out: caps["b_ref_mode"] = "-b_ref_mode"
-        elif "-b-ref-mode" in out: caps["b_ref_mode"] = "-b-ref-mode"
-
-        if "-multipass" in out: caps["multipass"] = True
-    except Exception:
-        pass
-    return caps
-
-NVENC_CAPS = probe_nvenc_capabilities()
+VMAF_FFMPEG_BIN = "ffmpeg"
 
 def probe_video(path):
     cmd = [
@@ -123,106 +79,94 @@ def probe_video(path):
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0, "codec": "unknown", "acodec": "none"}
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner",
-        "-progress", "-",
-        "-i", in_path,
-        "-map", "0:v:0",
-        "-map", "0:a?",
-        "-c:v", vcodec
-    ]
-    
-    if has_nvenc:
-        gop = max(30, int(fps * 5)) # 5-second GOP matching batch script
-        keyint_min = int(fps)
-        
-        # Exact rate-control matching original Video_compression.bat or Enhanced 95+ VMAF
-        if mode == "VMAF95_ENHANCED":
-            rc_opts = [
-                "-rc", "vbr",
-                "-cq", "25",
-                "-b:v", f"{target_k}k",
-                "-maxrate", f"{int(target_k * 2.2)}k",
-                "-bufsize", f"{int(target_k * 4.4)}k",
-                "-qmin", "18",
-                "-qmax", "33",
-            ]
-        elif mode == "CQ":
-            rc_opts = [
-                "-rc", "vbr",
-                "-cq", "30",
-                "-b:v", f"{target_k}k",
-                "-maxrate", f"{max_v}k",
-                "-bufsize", f"{bufsize}k",
-            ]
-        else:
-            rc_opts = [
-                "-rc", "vbr",
-                "-b:v", f"{target_k}k",
-                "-maxrate", f"{max_v}k",
-                "-bufsize", f"{bufsize}k",
-                "-qmin", "22",
-                "-qmax", "33",
-            ]
+    gop = max(30, int(fps * 5))
+    keyint_min = max(1, int(fps))
 
-        if safe_mode:
-            # ⚡ Robust GPU NVENC: Standard 8-bit YUV420p Main profile, universal stream compatibility on Tesla T4
+    if mode == "VMAF95_ENHANCED":
+        rc_opts = [
+            "-rc", "vbr",
+            "-cq", "25",
+            "-b:v", f"{target_k}k",
+            "-maxrate", f"{int(target_k * 2.2)}k",
+            "-bufsize", f"{int(target_k * 4.4)}k",
+            "-qmin", "18",
+            "-qmax", "33",
+        ]
+    elif mode == "CQ":
+        rc_opts = [
+            "-rc", "vbr",
+            "-cq", "30",
+            "-b:v", f"{target_k}k",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
+        ]
+    else:
+        rc_opts = [
+            "-rc", "vbr",
+            "-b:v", f"{target_k}k",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
+            "-qmin", "22",
+            "-qmax", "38",
+        ]
+
+    # Exact 1:1 command from Video_compression.bat
+    if has_nvenc:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error", "-progress", "-", "-hide_banner",
+            "-i", in_path,
+            "-filter_complex", "[0:v:0]format=p010le[outv]",
+            "-map", "[outv]",
+            "-map", "0:a?",
+            "-fps_mode", "vfr",
+            "-c:v", vcodec,
+            "-preset", preset,
+            "-tune", "hq",
+            *rc_opts,
+            "-g", str(gop),
+            "-keyint_min", str(keyint_min),
+        ]
+        if multipass:
+            cmd += ["-multipass", multipass]
+        if not safe_mode:
             cmd += [
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
-                "-pix_fmt", "yuv420p",
-                "-preset", "p5",
-                "-rc", "vbr",
-                "-b:v", f"{target_k}k",
-                "-maxrate", f"{max_v}k",
-                "-bufsize", f"{bufsize}k",
-            ]
-        else:
-            # 💎 Studio Quality 10-bit HEVC NVENC (Exact batch script match)
-            cmd += [
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=p010le",
-                "-profile:v", "main10",
-                "-pix_fmt", "p010le",
-                "-preset", preset,
-                "-tune", "hq",
-                *rc_opts,
+                "-spatial-aq", "1",
+                "-temporal-aq", "1",
+                "-aq-strength", "7",
                 "-rc-lookahead", "32",
                 "-bf", "3",
-                "-g", str(gop),
-                "-keyint_min", str(keyint_min),
-                "-tag:v:0", "hvc1",
+                "-b_ref_mode", "middle",
             ]
-
-            if NVENC_CAPS.get("multipass") and multipass:
-                cmd += ["-multipass", multipass]
-
-            if NVENC_CAPS.get("spatial_aq"):
-                cmd += [NVENC_CAPS["spatial_aq"], "1"]
-                if NVENC_CAPS.get("aq_strength"):
-                    cmd += ["-aq-strength", "7"]
-
-            if NVENC_CAPS.get("temporal_aq"):
-                cmd += [NVENC_CAPS["temporal_aq"], "1"]
-
-            if NVENC_CAPS.get("b_ref_mode"):
-                cmd += [NVENC_CAPS["b_ref_mode"], "middle"]
-    else:
         cmd += [
-            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-profile:v:0", "main10",
+            "-tag:v:0", "hvc1",
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error", "-progress", "-", "-hide_banner",
+            "-i", in_path,
+            "-map", "0:v:0",
+            "-map", "0:a?",
+            "-c:v", "libx264",
             "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
             "-b:v", f"{target_k}k",
             "-maxrate", f"{max_v}k",
             "-bufsize", f"{bufsize}k",
         ]
-        
+
     if copy_audio:
         cmd += ["-c:a", "copy"]
     else:
         cmd += ["-c:a", "aac", "-b:a", "128k", "-ac", "2"]
-        
-    cmd += ["-movflags", "+faststart", out_path]
+
+    cmd += [
+        "-map_metadata", "-1",
+        "-movflags", "+faststart",
+        out_path
+    ]
     return cmd
 
 def compress_video(in_path, out_path, task, report_progress_fn):
