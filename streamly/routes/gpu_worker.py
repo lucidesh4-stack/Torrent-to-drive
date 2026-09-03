@@ -186,11 +186,12 @@ async def gpu_poll(request: Request):
     gpu_mgr.gpu_name = body.get('gpu_name', 'NVIDIA GPU')
     gpu_mgr.worker_info = body.get('info', {})
 
-    task = await gpu_mgr.pop_next_task()
-    if task:
-        if not task.source_url:
-            task.source_url = f'/api/temp_cloud/stream?file_id={task.file_id}'
-        return {'task': task.to_dict()}
+    if not body.get('heartbeat_only', False):
+        task = await gpu_mgr.pop_next_task()
+        if task:
+            if not task.source_url:
+                task.source_url = f'/api/temp_cloud/stream?file_id={task.file_id}'
+            return {'task': task.to_dict()}
 
     return {'task': None}
 
