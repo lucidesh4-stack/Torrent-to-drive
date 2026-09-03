@@ -64,42 +64,7 @@ def ensure_compatible_ffmpeg():
 
 ensure_compatible_ffmpeg()
 
-VMAF_FFMPEG_BIN = "ffmpeg"
 
-def ensure_vmaf_engine():
-    global VMAF_FFMPEG_BIN
-    try:
-        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
-        if "libvmaf" in fchk.stdout:
-            VMAF_FFMPEG_BIN = "ffmpeg"
-            return True
-    except Exception:
-        pass
-
-    vmaf_path = "/usr/local/bin/ffmpeg-vmaf"
-    if os.path.exists(vmaf_path):
-        VMAF_FFMPEG_BIN = vmaf_path
-        return True
-
-    print("⚡ Installing standalone VMAF quality benchmark engine (/usr/local/bin/ffmpeg-vmaf)...")
-    try:
-        setup_cmd = (
-            "wget -q -c -O /tmp/vmaf_pkg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && "
-            "tar -xJf /tmp/vmaf_pkg.tar.xz -C /tmp && "
-            "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg-vmaf && "
-            "chmod +x /usr/local/bin/ffmpeg-vmaf && "
-            "rm -rf /tmp/vmaf_pkg.tar.xz /tmp/ffmpeg-*-amd64-static"
-        )
-        subprocess.run(setup_cmd, shell=True, capture_output=True, text=True)
-        if os.path.exists(vmaf_path):
-            VMAF_FFMPEG_BIN = vmaf_path
-            print("✅ VMAF benchmark engine ready!")
-            return True
-    except Exception:
-        pass
-    return False
-
-ensure_vmaf_engine()
 
 def probe_video(path):
     cmd = [
@@ -332,71 +297,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
 
     return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
 
-def ensure_vmaf_model():
-    model_path = "/tmp/vmaf_v0.6.1.json"
-    if not os.path.exists(model_path):
-        try:
-            url = "https://raw.githubusercontent.com/Netflix/vmaf/master/model/vmaf_v0.6.1.json"
-            subprocess.run(["wget", "-q", "-O", model_path, url], timeout=15)
-        except Exception:
-            pass
-    return model_path if os.path.exists(model_path) else None
 
-VMAF_LOCK = threading.Lock()
-
-def calculate_vmaf(ref_path, comp_path, sample_sec=10):
-    global VMAF_FFMPEG_BIN
-    try:
-        fchk = subprocess.run([VMAF_FFMPEG_BIN, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=5)
-        if "libvmaf" not in fchk.stdout:
-            print(f"   ℹ️ [VMAF] libvmaf filter not available in {VMAF_FFMPEG_BIN}. Skipping automated test.")
-            return None
-
-        with VMAF_LOCK:
-            print(f"   🎯 [VMAF] Running fast {sample_sec}s automated benchmark (subsample=4)...")
-            t_start = time.time()
-            vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
-
-            # Direct, universal VMAF filter without deprecated scale2ref
-            filter_str = f"[0:v]setpts=PTS-STARTPTS[d];[1:v]setpts=PTS-STARTPTS[r];[d][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_subsample=4:n_threads=2"
-
-            cmd = [
-                VMAF_FFMPEG_BIN, "-y", "-nostdin", "-hide_banner",
-                "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
-                "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
-                "-filter_complex", filter_str,
-                "-f", "null", "-"
-            ]
-
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
-
-        if os.path.exists(vmaf_log):
-            with open(vmaf_log, "r") as f:
-                vdata = json.load(f)
-            try: os.remove(vmaf_log)
-            except Exception: pass
-
-            score = None
-            if "pooled_metrics" in vdata and "vmaf" in vdata["pooled_metrics"]:
-                score = round(float(vdata["pooled_metrics"]["vmaf"].get("mean", 0)), 2)
-            elif "VMAF score" in vdata:
-                score = round(float(vdata["VMAF score"]), 2)
-
-            if score and score > 0:
-                elapsed = time.time() - t_start
-                verdict = "Visually Lossless (95+)" if score >= 95 else ("High Quality (90+)" if score >= 90 else "Noticeable Compression")
-                print(f"   🏆 [VMAF] Score: {score} / 100 ({verdict}) in {elapsed:.1f}s")
-                return score
-        else:
-            if res.stderr:
-                err_lines = [l.strip() for l in res.stderr.splitlines() if "error" in l.lower() or "vmaf" in l.lower()]
-                if err_lines:
-                    print(f"   ⚠️ [VMAF] Note: {' '.join(err_lines[-2:])}")
-    except subprocess.TimeoutExpired:
-        print("   ⚠️ [VMAF] Benchmark timed out after 35s. Proceeding directly with upload.")
-    except Exception as e:
-        print(f"   ⚠️ [VMAF] Benchmark notice: {e}")
-    return None
 
 # ==============================================================================
 # 🔄 PARALLEL JOB WORKER
@@ -450,9 +351,6 @@ def process_single_task(task):
             elapsed = time.time() - t_start
             print(f"✅ [{task_id}] Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {elapsed:.1f}s)")
 
-            # Fast Colab VMAF Benchmark (30s sample with subsampling = under 10s execution!)
-            vmaf_val = calculate_vmaf(in_path, out_path, sample_sec=30)
-
             print(f"🚀 [{task_id}] Uploading compressed video back to Cloudflow...")
             with open(out_path, "rb") as f:
                 files = {"file": (f"compressed_{filename}", f, "video/mp4")}
@@ -462,8 +360,6 @@ def process_single_task(task):
                     "orig_mb": orig_mb,
                     "new_mb": new_mb
                 }
-                if vmaf_val is not None:
-                    form_data["vmaf"] = vmaf_val
                 session.post(f"{CLOUDFLOW_URL}/api/gpu/complete", data=form_data, files=files, timeout=300)
             print(f"🎉 [{task_id}] Task completed and saved in Temp Cloud!\n")
         else:
