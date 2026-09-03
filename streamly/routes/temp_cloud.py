@@ -648,7 +648,8 @@ async def temp_cloud_unzip_archive(request: Request, payload: ArchiveOperationPa
     # Ensure file is not actively being downloaded by the download manager
     manager = DownloadManager.get_instance()
     fname = os.path.basename(target_path)
-    for task in manager.active_tasks.values():
+    active_dict = getattr(manager, "active_tasks", getattr(manager, "_tasks", {}))
+    for task in active_dict.values():
         if (task.filename == fname or task.task_id == payload.item_id) and task.status in ("DOWNLOADING", "QUEUED"):
             raise HTTPException(
                 status_code=400,

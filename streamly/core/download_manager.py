@@ -91,6 +91,14 @@ class DownloadManager:
             cls._instance = DownloadManager()
         return cls._instance
 
+    @property
+    def tasks(self) -> Dict[str, DownloadTask]:
+        return self._tasks
+
+    @property
+    def active_tasks(self) -> Dict[str, DownloadTask]:
+        return {tid: t for tid, t in self._tasks.items() if t.status in ("DOWNLOADING", "QUEUED", "EXTRACTING", "PAUSED")}
+
     def notify_update(self):
         """Notify all SSE listeners that progress has updated."""
         state = self.get_state()
