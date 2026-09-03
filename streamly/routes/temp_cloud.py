@@ -187,24 +187,46 @@ async def temp_cloud_storage(request: Request, _auth = Depends(verify_user_sessi
 
     try:
         total_phys, _, free_phys = shutil.disk_usage(user_dir)
-        if "TEMP_STORAGE_QUOTA_GB" not in os.environ and total_phys > 0:
+        # S3 / FUSE / Ceph object bucket mounts report virtual geometry (> 100 TB / Petabytes)
+        is_cloud_bucket = total_phys > (100 * 1024 * (1024 ** 3))
+        
+        if "TEMP_STORAGE_QUOTA_GB" in os.environ:
+            effective_quota_gb = TEMP_STORAGE_QUOTA_GB
+            quota_bytes = int(effective_quota_gb * (1024 ** 3))
+            is_unlimited = False
+        elif is_cloud_bucket:
+            effective_quota_gb = 1000.0  # Soft 1 TB benchmark for visual progress
             quota_bytes = total_phys
+            is_unlimited = True
+        elif total_phys > 0:
             effective_quota_gb = round(total_phys / (1024 ** 3), 1)
+            quota_bytes = total_phys
+            is_unlimited = False
         else:
             effective_quota_gb = TEMP_STORAGE_QUOTA_GB
             quota_bytes = int(effective_quota_gb * (1024 ** 3))
+            is_unlimited = False
     except Exception:
         effective_quota_gb = TEMP_STORAGE_QUOTA_GB
         quota_bytes = int(effective_quota_gb * (1024 ** 3))
+        is_unlimited = False
 
     user_used_gb = round(user_used / (1024 ** 3), 2)
-    pct = round((user_used / quota_bytes) * 100, 1) if quota_bytes > 0 else 0.0
+    if is_unlimited:
+        metrics_str = f"{user_used_gb:.2f} GB • Unlimited Bucket"
+        pct = round((user_used / (1024 ** 4)) * 100, 1)  # Percentage of 1 TB soft bar
+        storage_label = "Cloud Bucket Storage"
+    else:
+        pct = round((user_used / quota_bytes) * 100, 1) if quota_bytes > 0 else 0.0
+        metrics_str = f"{user_used_gb:.2f} / {effective_quota_gb:.1f} GB • {pct:.0f}%"
+        storage_label = "Temp NVMe Storage"
+
     pct = min(100.0, pct)
 
     return {
-        "storage_label": "Temp NVMe Storage",
-        "storage_metrics": f"{user_used_gb:.2f} / {effective_quota_gb:.1f} GB • {pct:.0f}%",
-        "storage_subtext": "Auto-expires in 24h",
+        "storage_label": storage_label,
+        "storage_metrics": metrics_str,
+        "storage_subtext": "S3 Bucket Mount Active" if is_unlimited else "Auto-expires in 24h",
         "percent": pct,
         "user_used_bytes": user_used,
         "total_bytes": quota_bytes,
