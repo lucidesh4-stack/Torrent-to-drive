@@ -93,15 +93,12 @@ TEMP_STORAGE_QUOTA_GB = float(os.environ.get("TEMP_STORAGE_QUOTA_GB", "50.0"))
 
 def get_user_temp_dir(sid: str = "") -> str:
     """Unified instance cloud storage root persisting files across restarts and sessions."""
+    global TEMP_CLOUD_ROOT
+    if TEMP_CLOUD_ROOT and os.path.exists(TEMP_CLOUD_ROOT):
+        return TEMP_CLOUD_ROOT
     target_root = _resolve_temp_cloud_root()
-    try:
-        os.makedirs(target_root, exist_ok=True)
-        return target_root
-    except Exception as e:
-        log.warning("Primary cloud dir %s not writable (%s), falling back to /tmp/streamly_temp_cloud", target_root, e)
-        fallback = "/tmp/streamly_temp_cloud" if os.name != "nt" else os.path.abspath(os.path.join(os.getcwd(), "temp_cloud_data"))
-        os.makedirs(fallback, exist_ok=True)
-        return fallback
+    TEMP_CLOUD_ROOT = target_root
+    return target_root
 
 def _format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
