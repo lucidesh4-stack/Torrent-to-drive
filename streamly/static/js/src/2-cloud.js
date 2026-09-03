@@ -2122,4 +2122,3 @@
       if (window.toast) window.toast("Compression request failed: " + e.message);
     }
   };
-})();
