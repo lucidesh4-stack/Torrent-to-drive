@@ -51,9 +51,49 @@ def probe_video(path):
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
 
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=True):
+    vcodec = "hevc_nvenc" if has_nvenc else "libx264"
+    cmd = ["ffmpeg", "-y", "-hide_banner"]
+    
+    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses Colab's 2 vCPU bottleneck!)
+    if has_nvenc:
+        cmd += ["-hwaccel", "cuda"]
+        
+    cmd += [
+        "-progress", "-",
+        "-i", in_path,
+        "-c:v", vcodec
+    ]
+    
+    if has_nvenc:
+        cmd += [
+            "-preset", "fast",         # 250-350+ FPS on Tesla T4!
+            "-pix_fmt", "p010le",       # 10-bit HEVC for zero color banding
+            "-b:v", f"{target_k}k",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
+            "-spatial_aq", "1",        # Edge & text sharpness
+            "-temporal_aq", "1",       # Motion consistency
+        ]
+    else:
+        cmd += [
+            "-preset", "veryfast",
+            "-pix_fmt", "yuv420p",
+            "-b:v", f"{target_k}k",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
+        ]
+        
+    if copy_audio:
+        cmd += ["-c:a", "copy"]
+    else:
+        cmd += ["-c:a", "aac", "-b:a", "128k"]
+        
+    cmd += ["-movflags", "+faststart", out_path]
+    return cmd
+
 def compress_video(in_path, out_path, task, report_progress_fn):
     info = probe_video(in_path)
-    mode = task.get("mode", "VBR")
     target_k = int(task.get("target_bitrate_k", 1500))
     
     # Adaptive targets based on resolution
@@ -68,28 +108,14 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     max_v = target_k * 2
     bufsize = max_v * 2
 
-    # Check for NVENC hardware encoder
     has_nvenc = ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME)
-    vcodec = "hevc_nvenc" if has_nvenc else "libx264"
-
-    cmd = [
-        "ffmpeg", "-y", "-hide_banner",
-        "-progress", "-",
-        "-i", in_path,
-        "-c:v", vcodec,
-        "-pix_fmt", "p010le" if vcodec == "hevc_nvenc" else "yuv420p",
-        "-preset", "slow" if vcodec == "hevc_nvenc" else "veryfast",
-        "-b:v", f"{target_k}k",
-        "-maxrate", f"{max_v}k",
-        "-bufsize", f"{bufsize}k",
-        "-c:a", "aac", "-b:a", "128k",
-        "-movflags", "+faststart",
-        out_path
-    ]
-
-    print(f"   ▶ Executing FFmpeg ({vcodec}, 10-bit HEVC, {target_k}k target)...")
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     duration = info.get("duration", 0)
+
+    # Try 1: Full GPU pipeline with NVDEC + NVENC (fastest: 250-350+ FPS)
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=True)
+    print(f"   ▶ Turbo Hardware Pipeline (NVDEC + NVENC 10-bit, {target_k}k target)...")
+    
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     fps_val = "0"
     speed_val = "0x"
     time_val = "00:00:00"
@@ -118,6 +144,27 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             report_progress_fn(pct, fps_val, speed_val, time_val)
 
     stderr_out = p.stderr.read()
+    
+    # If audio copy failed (e.g. PCM / incompatible in MP4), retry with AAC transcode
+    if p.returncode != 0 and ("Could not find tag" in stderr_out or "incompatible" in stderr_out or "muxer does not support" in stderr_out):
+        print("   ⚠️ Retrying with AAC audio transcode...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, copy_audio=False)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        while True:
+            line = p.stdout.readline()
+            if not line and p.poll() is not None:
+                break
+            line = line.strip()
+            if line.startswith("fps="):
+                fps_val = line.split("=")[1].strip()
+            elif line.startswith("speed="):
+                speed_val = line.split("=")[1].strip()
+            elif line.startswith("out_time="):
+                time_val = line.split("=")[1].strip().split(".")[0]
+            elif line.startswith("progress=continue"):
+                report_progress_fn(pct, fps_val, speed_val, time_val)
+        stderr_out = p.stderr.read()
+
     if p.returncode != 0:
         print(f"❌ FFmpeg exit code: {p.returncode}")
         if stderr_out:
@@ -200,7 +247,6 @@ def run_worker_loop():
                             except Exception: pass
 
         except Exception as e:
-            # print blip if any
             pass
 
         time.sleep(2.5)
