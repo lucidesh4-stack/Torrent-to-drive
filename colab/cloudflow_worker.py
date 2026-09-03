@@ -38,7 +38,8 @@ def probe_video(path):
         data = json.loads(res.stdout)
         v = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
         fmt = data.get("format", {})
-        fps_eval = eval(v.get("avg_frame_rate", "30/1")) if "/" in v.get("avg_frame_rate", "") else float(v.get("avg_frame_rate", 30))
+        fps_str = v.get("avg_frame_rate", "30/1")
+        fps_eval = eval(fps_str) if "/" in fps_str else float(fps_str or 30)
         return {
             "codec": v.get("codec_name", "unknown"),
             "width": int(v.get("width", 0)),
@@ -48,66 +49,47 @@ def probe_video(path):
             "size_mb": round(os.path.getsize(path) / (1024 * 1024), 2)
         }
     except Exception:
-        return None
+        return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
 
 def compress_video(in_path, out_path, task, report_progress_fn):
     info = probe_video(in_path)
-    if not info:
-        info = {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0}
-
     mode = task.get("mode", "VBR")
-    target_k = task.get("target_bitrate_k", 1500)
+    target_k = int(task.get("target_bitrate_k", 1500))
     
-    pixels = info["width"] * info["height"]
-    if pixels >= 6000000:       target_k = max(target_k, 6000)
-    elif pixels >= 3500000:     target_k = max(target_k, 3000)
+    # Adaptive targets based on resolution
+    pixels = info.get("width", 1920) * info.get("height", 1080)
+    if pixels >= 6000000:       target_k = max(target_k, 4500)
+    elif pixels >= 3500000:     target_k = max(target_k, 2500)
     elif pixels >= 1500000:     target_k = max(target_k, 1500)
     
-    if info["fps"] > 45:
-        target_k = int(target_k * 1.5)
+    if info.get("fps", 30) > 45:
+        target_k = int(target_k * 1.3)
         
-    gop = info["fps"] * 5
     max_v = target_k * 2
     bufsize = max_v * 2
 
-    if "CQ" in mode:
-        rc = ["-rc", "vbr", "-cq", "30", "-b:v", f"{target_k}k", "-maxrate", f"{max_v}k", "-bufsize", f"{bufsize}k"]
-    else:
-        rc = ["-rc", "vbr", "-b:v", f"{target_k}k", "-maxrate", f"{max_v}k", "-bufsize", f"{bufsize}k", "-qmin", "22", "-qmax", "38"]
+    # Check for NVENC hardware encoder
+    has_nvenc = ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME)
+    vcodec = "hevc_nvenc" if has_nvenc else "libx264"
 
-    thumb_path = f"/tmp/vth_{int(time.time())}.jpg"
-    subprocess.run(["ffmpeg", "-y", "-ss", "1.0", "-i", in_path, "-vframes", "1", "-q:v", "2", thumb_path], capture_output=True)
-
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-progress", "-", "-i", in_path]
-    if os.path.exists(thumb_path):
-        cmd += ["-i", thumb_path]
-
-    cmd += [
-        "-filter_complex", "[0:v:0]format=p010le[outv]",
-        "-map", "[outv]", "-map", "0:a?"
-    ]
-    if os.path.exists(thumb_path):
-        cmd += ["-map", "1:v:0", "-c:v:1", "copy", "-disposition:v:1", "attached_pic"]
-
-    vcodec = "hevc_nvenc" if ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME) else "libx265"
-    cmd += [
-        "-fps_mode", "vfr",
-        "-c:v:0", vcodec,
-        "-preset", "p7" if vcodec == "hevc_nvenc" else "veryfast",
-        "-tune", "hq" if vcodec == "hevc_nvenc" else "zerolatency",
-        *rc,
-        "-g", str(gop),
-        "-keyint_min", str(info["fps"]),
-        "-multipass", "fullres" if vcodec == "hevc_nvenc" else "0",
-        "-profile:v:0", "main10",
-        "-tag:v:0", "hvc1",
-        "-c:a", "copy",
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner",
+        "-progress", "-",
+        "-i", in_path,
+        "-c:v", vcodec,
+        "-pix_fmt", "p010le" if vcodec == "hevc_nvenc" else "yuv420p",
+        "-preset", "slow" if vcodec == "hevc_nvenc" else "veryfast",
+        "-b:v", f"{target_k}k",
+        "-maxrate", f"{max_v}k",
+        "-bufsize", f"{bufsize}k",
+        "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         out_path
     ]
 
+    print(f"   ▶ Executing FFmpeg ({vcodec}, 10-bit HEVC, {target_k}k target)...")
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    duration = info["duration"]
+    duration = info.get("duration", 0)
     fps_val = "0"
     speed_val = "0x"
     time_val = "00:00:00"
@@ -127,16 +109,22 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             if duration > 0:
                 parts = time_val.split(":")
                 if len(parts) == 3:
-                    sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-                    pct = min(99.0, round((sec / duration) * 100.0, 1))
+                    try:
+                        sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                        pct = min(99.0, round((sec / duration) * 100.0, 1))
+                    except Exception:
+                        pass
         elif line.startswith("progress=continue"):
             report_progress_fn(pct, fps_val, speed_val, time_val)
 
-    if os.path.exists(thumb_path):
-        try: os.remove(thumb_path)
-        except Exception: pass
+    stderr_out = p.stderr.read()
+    if p.returncode != 0:
+        print(f"❌ FFmpeg exit code: {p.returncode}")
+        if stderr_out:
+            print(f"   Error details: {stderr_out[-500:]}")
+        return False
 
-    return p.returncode == 0
+    return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
 
 def run_worker_loop():
     print("\n🟢 Colab GPU Worker is ACTIVE! Waiting for tasks from Cloudflow...\n")
@@ -155,7 +143,7 @@ def run_worker_loop():
                 if task:
                     task_id = task["task_id"]
                     filename = task.get("filename", "video.mp4")
-                    print(f"📥 [NEW JOB] Task {task_id}: {filename} ({task.get('mode', 'VBR')} Mode)")
+                    print(f"\n📥 [NEW JOB] Task {task_id}: {filename} ({task.get('mode', 'VBR')} Mode)")
 
                     source_url = task["source_url"]
                     if source_url.startswith("/"):
@@ -164,9 +152,9 @@ def run_worker_loop():
                     in_path = f"/tmp/input_{task_id}.mp4"
                     out_path = f"/tmp/compressed_{task_id}.mp4"
 
-                    print("   Downloading source video from Cloudflow...")
+                    print(f"   Downloading source video from Cloudflow...")
                     t_start = time.time()
-                    with session.get(source_url, stream=True, timeout=120) as r:
+                    with session.get(source_url, stream=True, timeout=180) as r:
                         r.raise_for_status()
                         with open(in_path, "wb") as f:
                             for chunk in r.iter_content(chunk_size=1024*1024):
@@ -189,7 +177,8 @@ def run_worker_loop():
                     if ok and os.path.exists(out_path):
                         new_mb = os.path.getsize(out_path) / (1024 * 1024)
                         saved_pct = ((orig_mb - new_mb) / orig_mb) * 100.0 if orig_mb > 0 else 0
-                        print(f"✅ Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {time.time()-t_start:.1f}s)")
+                        elapsed = time.time() - t_start
+                        print(f"✅ Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {elapsed:.1f}s)")
 
                         print("🚀 Uploading compressed video back to Cloudflow...")
                         with open(out_path, "rb") as f:
@@ -211,6 +200,7 @@ def run_worker_loop():
                             except Exception: pass
 
         except Exception as e:
+            # print blip if any
             pass
 
         time.sleep(2.5)
