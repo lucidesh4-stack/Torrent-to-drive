@@ -107,15 +107,12 @@ def probe_video(path):
 
 def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=30, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
-    cmd = ["ffmpeg", "-y", "-hide_banner"]
-    
-    # ⚡ Hardware NVDEC decoding on GPU VRAM (bypasses Colab CPU bottleneck!)
-    if has_nvenc:
-        cmd += ["-hwaccel", "cuda"]
-        
-    cmd += [
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner",
         "-progress", "-",
         "-i", in_path,
+        "-map", "0:v:0",
+        "-map", "0:a?",
         "-c:v", vcodec
     ]
     
@@ -252,14 +249,8 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     stderr_out = p.stderr.read()
     
     if p.returncode != 0:
-        needs_aac = any(msg in stderr_out for msg in ["Could not find tag", "incompatible", "muxer does not support", "tag not found"])
-        needs_safe_mode = any(msg in stderr_out.lower() for msg in ["unrecognized option", "option not found", "error splitting the argument list"])
-        needs_preset_fallback = ("preset" in stderr_out.lower() or "multipass" in stderr_out.lower() or "p7" in stderr_out or needs_safe_mode)
-        preset_to_use = "p5" if needs_preset_fallback else "p7"
-        mp_to_use = "qres" if needs_preset_fallback else "fullres"
-
-        print(f"   ⚠️ Retrying with adaptive fallback (audio={'aac' if needs_aac else 'copy'}, preset={preset_to_use}, safe_mode={needs_safe_mode})...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset=preset_to_use, multipass=mp_to_use, safe_mode=needs_safe_mode, copy_audio=(not needs_aac))
+        print(f"   ⚠️ Primary attempt exited with code {p.returncode}. Retrying with universal fallback (AAC transcode + safe_mode)...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         while True:
             line = p.stdout.readline()
