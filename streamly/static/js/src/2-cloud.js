@@ -738,14 +738,15 @@
     }
   }
 
-  window.getFileUrl = async function(item) {
+  window.getFileUrl = async function(item, forDownload = false) {
     if (!item || item.type !== "file") throw new Error("Select a file first");
     if (item.download_url) return item.download_url;
     if (typeof item.id === "string" && (item.id.startsWith("http://") || item.id.startsWith("https://"))) {
       return item.id;
     }
     if (window.driveProvider === "temp" || (item.key && item.key.startsWith("temp:"))) {
-      return `/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}`;
+      const dlParam = forDownload ? "&download=1" : "";
+      return `/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}${dlParam}`;
     }
     const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
     if (!data.url) throw new Error("No download/stream URL returned");
@@ -857,27 +858,19 @@
   window._downloadFileDirect = function (url, name) {
     if (!url) return;
     try {
-      const iframe = document.createElement("iframe");
-      iframe.style.display = "none";
-      iframe.style.width = "0";
-      iframe.style.height = "0";
-      iframe.style.border = "none";
-      iframe.src = url;
-      document.body.appendChild(iframe);
-      setTimeout(() => {
-        try { document.body.removeChild(iframe); } catch (_) {}
-      }, 60000);
-    } catch (_) {
       const a = document.createElement("a");
       a.href = url;
+      if (name) a.download = name;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      a.download = name || "";
+      a.style.display = "none";
       document.body.appendChild(a);
       a.click();
       setTimeout(() => {
         try { document.body.removeChild(a); } catch (_) {}
-      }, 5000);
+      }, 2000);
+    } catch (_) {
+      window.open(url, "_blank");
     }
   };
 
@@ -900,7 +893,7 @@
 
     // ---- 1. Resolve every URL FIRST (parallel), before any download fires. ----
     updateStatus($("cloudStatus"), `Preparing ${files.length} file(s)...`, "");
-    const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
+    const settled = await Promise.allSettled(files.map((f) => getFileUrl(f, true)));
 
     const resolved = [];
     const failed = [];

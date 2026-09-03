@@ -87,8 +87,15 @@
     videoEl.removeAttribute("src");
     videoEl.load();
 
-    videoEl.src = directUrl;
-    activeVideoEl = videoEl;
+    const dlBtn = $("vpmDownloadBtn");
+    if (dlBtn) {
+      if (provider === "temp") {
+        dlBtn.href = `/api/temp_cloud/stream?file_id=${encodeURIComponent(itemId)}&download=1`;
+      } else {
+        dlBtn.href = directUrl;
+      }
+      dlBtn.setAttribute("download", title || "video.mp4");
+    }
 
     modal.classList.remove("hidden");
     document.body.style.overflow = "hidden";

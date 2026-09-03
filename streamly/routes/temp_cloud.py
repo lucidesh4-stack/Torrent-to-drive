@@ -423,7 +423,8 @@ from fastapi.responses import StreamingResponse
 
 @temp_cloud_router.get("/api/temp_cloud/stream")
 @temp_cloud_router.get("/api/temp_cloud/file")
-async def temp_cloud_stream(request: Request, file_id: str):
+@temp_cloud_router.get("/api/temp_cloud/download_file")
+async def temp_cloud_stream(request: Request, file_id: str, download: bool = False):
     """Streams or serves a file stored in Temp Cloud with HTTP 206 Range support for video seeking & playback."""
     user_dir = get_user_temp_dir()
 
@@ -434,30 +435,36 @@ async def temp_cloud_stream(request: Request, file_id: str):
     filename = os.path.basename(target_path)
     file_size = os.path.getsize(target_path)
 
+    is_download = download or request.query_params.get("download") in ("1", "true", "yes") or request.url.path.endswith("/download_file")
+    disposition = "attachment" if is_download else "inline"
+
     # Determine MIME type
-    content_type, _ = mimetypes.guess_type(target_path)
-    if not content_type:
-        low_name = filename.lower()
-        if low_name.endswith(".mkv"):
-            content_type = "video/x-matroska"
-        elif low_name.endswith(".mp4"):
-            content_type = "video/mp4"
-        elif low_name.endswith(".webm"):
-            content_type = "video/webm"
-        elif low_name.endswith(".mov"):
-            content_type = "video/quicktime"
-        elif low_name.endswith(".avi"):
-            content_type = "video/x-msvideo"
-        elif low_name.endswith(".mp3"):
-            content_type = "audio/mpeg"
-        else:
-            content_type = "application/octet-stream"
+    if is_download:
+        content_type = "application/octet-stream"
+    else:
+        content_type, _ = mimetypes.guess_type(target_path)
+        if not content_type:
+            low_name = filename.lower()
+            if low_name.endswith(".mkv"):
+                content_type = "video/x-matroska"
+            elif low_name.endswith(".mp4"):
+                content_type = "video/mp4"
+            elif low_name.endswith(".webm"):
+                content_type = "video/webm"
+            elif low_name.endswith(".mov"):
+                content_type = "video/quicktime"
+            elif low_name.endswith(".avi"):
+                content_type = "video/x-msvideo"
+            elif low_name.endswith(".mp3"):
+                content_type = "audio/mpeg"
+            else:
+                content_type = "application/octet-stream"
 
     STREAM_CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB Turbo Buffer Chunk Size
 
     range_header = request.headers.get("range")
-    if not range_header:
-        # Full file streaming with 2MB buffer chunks
+    if not range_header or is_download:
+        # Full file streaming / direct download with 2MB buffer chunks
         def _iter_file():
             with open(target_path, "rb") as f:
                 while chunk := f.read(STREAM_CHUNK_SIZE):
@@ -467,7 +474,7 @@ async def temp_cloud_stream(request: Request, file_id: str):
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
             "Content-Type": content_type,
-            "Content-Disposition": f'inline; filename="{filename}"',
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
             "Cache-Control": "public, max-age=3600",
             "Connection": "keep-alive",
             "X-Content-Type-Options": "nosniff"
@@ -518,7 +525,7 @@ async def temp_cloud_stream(request: Request, file_id: str):
         "Accept-Ranges": "bytes",
         "Content-Length": str(length),
         "Content-Type": content_type,
-        "Content-Disposition": f'inline; filename="{filename}"',
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
         "Cache-Control": "public, max-age=3600",
         "Connection": "keep-alive",
         "X-Content-Type-Options": "nosniff"
