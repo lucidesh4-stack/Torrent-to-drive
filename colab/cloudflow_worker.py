@@ -32,7 +32,8 @@ if "NVIDIA" not in GPU_NAME and "Tesla" not in GPU_NAME:
 def ensure_modern_ffmpeg():
     try:
         res = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        first_line = res.stdout.splitlines()[0] if res.stdout else ""
+        first_line = res.stdout.splitlines()[0] if res.stdout else "unknown"
+        print(f"🎬 Current FFmpeg: {first_line}")
         if any(v in first_line for v in ["version 7", "version 6", "version n7", "version n6", "git", "BtbN"]):
             return True
     except Exception:
@@ -42,8 +43,9 @@ def ensure_modern_ffmpeg():
     try:
         url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
         subprocess.run(["wget", "-q", "-O", "/tmp/ff_modern.tar.xz", url], check=True, timeout=60)
-        subprocess.run("tar -xf /tmp/ff_modern.tar.xz -C /tmp && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/local/bin/ && rm -rf /tmp/ff_modern.tar.xz /tmp/ffmpeg-*-linux64-gpl", shell=True, check=True)
-        print("✅ Colab FFmpeg upgraded to modern 7.x successfully!")
+        subprocess.run("tar -xf /tmp/ff_modern.tar.xz -C /tmp && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/local/bin/ && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/bin/ 2>/dev/null || true && rm -rf /tmp/ff_modern.tar.xz /tmp/ffmpeg-*-linux64-gpl", shell=True, check=True)
+        res2 = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        print(f"✅ Upgraded FFmpeg: {res2.stdout.splitlines()[0] if res2.stdout else 'done'}")
         return True
     except Exception as e:
         print(f"⚠️ Notice on modern FFmpeg: {e}")
@@ -222,20 +224,20 @@ def compress_video(in_path, out_path, task, report_progress_fn):
 
     # Try 2: Robust High-Speed GPU NVENC Pipeline (p5 8-bit, universal stream compatibility, still 100% on GPU!)
     if rc != 0 and has_nvenc:
-        err_lines = [l.strip() for l in stderr_out.splitlines() if any(k in l.lower() for k in ["error", "invalid", "nvenc", "cannot", "unsupported", "failed"])]
-        print(f"   ⚡ Primary NVENC notice (code {rc}):")
-        for el in err_lines[-3:]:
-            print(f"      {el}")
+        print(f"   ❌ Primary NVENC failed (code {rc}). Stderr output:")
+        for line in stderr_out.splitlines()[-15:]:
+            if line.strip():
+                print(f"      {line.strip()}")
         print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
         cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
 
     # Try 3: Ultra-compatible CPU Software Fallback (libx264)
     if rc != 0:
-        err_lines = [l.strip() for l in stderr_out.splitlines() if any(k in l.lower() for k in ["error", "invalid", "nvenc", "cannot", "unsupported", "failed"])]
-        print(f"   ⚠️ Secondary NVENC also exited (code {rc}):")
-        for el in err_lines[-3:]:
-            print(f"      {el}")
+        print(f"   ❌ Secondary NVENC failed (code {rc}). Stderr output:")
+        for line in stderr_out.splitlines()[-15:]:
+            if line.strip():
+                print(f"      {line.strip()}")
         print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
         cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=info.get("fps", 30), mode=mode, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
