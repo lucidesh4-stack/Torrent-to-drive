@@ -301,39 +301,30 @@ def ensure_vmaf_model():
             pass
     return model_path if os.path.exists(model_path) else None
 
-def calculate_vmaf(ref_path, comp_path, sample_sec=60):
+def calculate_vmaf(ref_path, comp_path, sample_sec=30):
     global VMAF_FFMPEG_BIN
     try:
-        fchk = subprocess.run([VMAF_FFMPEG_BIN, "-hide_banner", "-filters"], capture_output=True, text=True)
+        fchk = subprocess.run([VMAF_FFMPEG_BIN, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=5)
         if "libvmaf" not in fchk.stdout:
             print(f"   ℹ️ [VMAF] libvmaf filter not available in {VMAF_FFMPEG_BIN}. Skipping automated test.")
             return None
 
-        print(f"   🎯 [VMAF] Running fast automated {sample_sec}s VMAF benchmark on Colab...")
+        print(f"   🎯 [VMAF] Running fast {sample_sec}s automated benchmark (subsample=4)...")
         t_start = time.time()
         vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
 
-        # Check for model file
-        model_file = ensure_vmaf_model()
-        model_arg = f":model=path='{model_file}'" if model_file else ""
-
-        # Exact filter string matching Video_compression/VMAF_Test.ps1
-        filter_str = (
-            f"[0:v]setpts=PTS-STARTPTS,format=yuv420p10le[d];"
-            f"[1:v]setpts=PTS-STARTPTS,format=yuv420p10le[rr];"
-            f"[rr][d]scale2ref=flags=bicubic[r][d2];"
-            f"[d2][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_threads=4{model_arg}"
-        )
+        # Direct, universal VMAF filter without deprecated scale2ref
+        filter_str = f"[0:v]setpts=PTS-STARTPTS[d];[1:v]setpts=PTS-STARTPTS[r];[d][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_subsample=4:n_threads=4"
 
         cmd = [
-            VMAF_FFMPEG_BIN, "-y", "-hide_banner", "-loglevel", "error",
+            VMAF_FFMPEG_BIN, "-y", "-nostdin", "-hide_banner",
             "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
             "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
             "-filter_complex", filter_str,
             "-f", "null", "-"
         ]
 
-        subprocess.run(cmd, capture_output=True, text=True)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
 
         if os.path.exists(vmaf_log):
             with open(vmaf_log, "r") as f:
@@ -352,6 +343,13 @@ def calculate_vmaf(ref_path, comp_path, sample_sec=60):
                 verdict = "Visually Lossless (95+)" if score >= 95 else ("High Quality (90+)" if score >= 90 else "Noticeable Compression")
                 print(f"   🏆 [VMAF] Score: {score} / 100 ({verdict}) in {elapsed:.1f}s")
                 return score
+        else:
+            if res.stderr:
+                err_lines = [l.strip() for l in res.stderr.splitlines() if "error" in l.lower() or "vmaf" in l.lower()]
+                if err_lines:
+                    print(f"   ⚠️ [VMAF] Note: {' '.join(err_lines[-2:])}")
+    except subprocess.TimeoutExpired:
+        print("   ⚠️ [VMAF] Benchmark timed out after 35s. Proceeding directly with upload.")
     except Exception as e:
         print(f"   ⚠️ [VMAF] Benchmark notice: {e}")
     return None
@@ -408,8 +406,8 @@ def process_single_task(task):
             elapsed = time.time() - t_start
             print(f"✅ [{task_id}] Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {elapsed:.1f}s)")
 
-            # Fast Colab VMAF Benchmark
-            vmaf_val = calculate_vmaf(in_path, out_path, sample_sec=60)
+            # Fast Colab VMAF Benchmark (30s sample with subsampling = under 10s execution!)
+            vmaf_val = calculate_vmaf(in_path, out_path, sample_sec=30)
 
             print(f"🚀 [{task_id}] Uploading compressed video back to Cloudflow...")
             with open(out_path, "rb") as f:
