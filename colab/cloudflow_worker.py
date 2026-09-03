@@ -36,68 +36,71 @@ if "NVIDIA" not in GPU_NAME and "Tesla" not in GPU_NAME:
     print("⚠️ WARNING: No NVIDIA GPU detected! Make sure you selected T4 GPU in Colab:")
     print("   Runtime -> Change runtime type -> Hardware accelerator -> T4 GPU")
 
-def ensure_modern_ffmpeg():
-    try:
-        res = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        first_line = res.stdout.splitlines()[0] if res.stdout else "unknown"
-        if any(v in first_line for v in ["version 7", "version 6", "version n7", "version n6", "git", "BtbN"]):
-            print(f"🎬 FFmpeg Engine             : {first_line[:65]}...")
-            return True
-    except Exception:
-        pass
-
-    print("⚡ Upgrading Colab to modern FFmpeg 7.x (Matching local device setup with full NVENC + VMAF)...")
-    try:
-        url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-        subprocess.run(["wget", "-q", "-O", "/tmp/ff_modern.tar.xz", url], check=True, timeout=60)
-        subprocess.run("tar -xf /tmp/ff_modern.tar.xz -C /tmp && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/local/bin/ && cp -f /tmp/ffmpeg-*-linux64-gpl/bin/* /usr/bin/ 2>/dev/null || true && rm -rf /tmp/ff_modern.tar.xz /tmp/ffmpeg-*-linux64-gpl", shell=True, check=True)
-        res2 = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
-        print(f"✅ FFmpeg upgraded: {res2.stdout.splitlines()[0] if res2.stdout else 'done'}")
-        return True
-    except Exception as e:
-        print(f"⚠️ Notice on modern FFmpeg: {e}")
-        return False
-
-ensure_modern_ffmpeg()
-
-def test_nvenc_hardware():
-    print("🔍 Probing Tesla T4 NVENC encoder hardware capability...")
-    # Test 10-bit HEVC encode
+def ensure_compatible_ffmpeg():
+    # Test if current ffmpeg supports NVENC on the local Tesla T4
     test_cmd = [
-        "ffmpeg", "-y", "-loglevel", "warning",
+        "ffmpeg", "-y", "-loglevel", "error",
         "-f", "lavfi", "-i", "testsrc=duration=1:size=640x360:rate=24",
         "-c:v", "hevc_nvenc", "-profile:v", "main10", "-pix_fmt", "p010le",
         "-f", "null", "-"
     ]
     res = subprocess.run(test_cmd, capture_output=True, text=True)
     if res.returncode == 0:
-        print("✅ Tesla T4 10-bit HEVC NVENC is 100% OPERATIONAL!")
+        print("✅ Current FFmpeg is 100% compatible with Tesla T4 NVENC driver!")
         return True
-    else:
-        print(f"⚠️ 10-bit NVENC test notice (code {res.returncode}):")
-        for l in res.stderr.splitlines()[-6:]:
-            if l.strip():
-                print(f"   {l.strip()}")
-        # Test 8-bit fallback
-        test_8bit = [
-            "ffmpeg", "-y", "-loglevel", "warning",
-            "-f", "lavfi", "-i", "testsrc=duration=1:size=640x360:rate=24",
-            "-c:v", "hevc_nvenc", "-f", "null", "-"
-        ]
-        res8 = subprocess.run(test_8bit, capture_output=True, text=True)
-        if res8.returncode == 0:
-            print("✅ Tesla T4 Standard 8-bit HEVC NVENC is OPERATIONAL!")
+
+    print("⚡ Incompatible FFmpeg detected (NVENC API 13.1 vs driver 13.0). Restoring driver-matched system FFmpeg...")
+    try:
+        subprocess.run("rm -f /usr/local/bin/ffmpeg /usr/local/bin/ffprobe", shell=True)
+        subprocess.run("apt-get update -qq && apt-get install -y -qq --reinstall ffmpeg", shell=True)
+        res2 = subprocess.run(test_cmd, capture_output=True, text=True)
+        if res2.returncode == 0:
+            print("✅ Driver-matched FFmpeg restored and verified operational on Tesla T4!")
             return True
         else:
-            print(f"❌ 8-bit NVENC also failed (code {res8.returncode}):")
-            for l in res8.stderr.splitlines()[-6:]:
-                if l.strip():
-                    print(f"   {l.strip()}")
-            return False
+            print(f"⚠️ Notice after restore: {res2.stderr[:200]}")
+    except Exception as e:
+        print(f"⚠️ Error restoring system FFmpeg: {e}")
+    return False
 
-NVENC_OK = test_nvenc_hardware()
+ensure_compatible_ffmpeg()
 
 VMAF_FFMPEG_BIN = "ffmpeg"
+
+def ensure_vmaf_engine():
+    global VMAF_FFMPEG_BIN
+    try:
+        fchk = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True)
+        if "libvmaf" in fchk.stdout:
+            VMAF_FFMPEG_BIN = "ffmpeg"
+            return True
+    except Exception:
+        pass
+
+    vmaf_path = "/usr/local/bin/ffmpeg-vmaf"
+    if os.path.exists(vmaf_path):
+        VMAF_FFMPEG_BIN = vmaf_path
+        return True
+
+    print("⚡ Installing standalone VMAF quality benchmark engine (/usr/local/bin/ffmpeg-vmaf)...")
+    try:
+        setup_cmd = (
+            "wget -q -c -O /tmp/vmaf_pkg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz && "
+            "tar -xJf /tmp/vmaf_pkg.tar.xz -C /tmp && "
+            "cp /tmp/ffmpeg-*-amd64-static/ffmpeg /usr/local/bin/ffmpeg-vmaf && "
+            "chmod +x /usr/local/bin/ffmpeg-vmaf && "
+            "rm -rf /tmp/vmaf_pkg.tar.xz /tmp/ffmpeg-*-amd64-static"
+        )
+        subprocess.run(setup_cmd, shell=True, capture_output=True, text=True)
+        if os.path.exists(vmaf_path):
+            VMAF_FFMPEG_BIN = vmaf_path
+            print("✅ VMAF benchmark engine ready!")
+            return True
+    except Exception:
+        pass
+    return False
+
+ensure_vmaf_engine()
 
 def probe_video(path):
     cmd = [
@@ -124,6 +127,36 @@ def probe_video(path):
         }
     except Exception:
         return {"width": 1920, "height": 1080, "fps": 30, "duration": 0, "size_mb": 0, "codec": "unknown", "acodec": "none"}
+
+def probe_nvenc_flags():
+    flags = []
+    try:
+        res = subprocess.run(["ffmpeg", "-h", "encoder=hevc_nvenc"], capture_output=True, text=True)
+        out = res.stdout
+        if "-spatial_aq" in out: flags += ["-spatial_aq", "1"]
+        elif "-spatial-aq" in out: flags += ["-spatial-aq", "1"]
+
+        if "-temporal_aq" in out: flags += ["-temporal_aq", "1"]
+        elif "-temporal-aq" in out: flags += ["-temporal-aq", "1"]
+
+        if "-aq-strength" in out: flags += ["-aq-strength", "7"]
+        if "-b_ref_mode" in out: flags += ["-b_ref_mode", "middle"]
+        elif "-b-ref-mode" in out: flags += ["-b-ref-mode", "middle"]
+        if "-multipass" in out: flags += ["-multipass", "fullres"]
+    except Exception:
+        pass
+    return flags
+
+def get_vfr_flag():
+    try:
+        res = subprocess.run(["ffmpeg", "-h"], capture_output=True, text=True)
+        if "-fps_mode" in res.stdout: return ["-fps_mode", "vfr"]
+    except Exception:
+        pass
+    return ["-vsync", "vfr"]
+
+NVENC_DYNAMIC_FLAGS = probe_nvenc_flags()
+VFR_FLAG = get_vfr_flag()
 
 def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
@@ -158,45 +191,41 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             "-qmax", "38",
         ]
 
-    # Exact 1:1 command from Video_compression.bat
     if has_nvenc:
         if safe_mode:
-            # ⚡ Robust standard 8-bit YUV420p NVENC (Universal GPU compatibility)
+            # ⚡ Robust standard 8-bit YUV420p NVENC
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
                 "-i", in_path,
                 "-map", "0:v:0",
                 "-map", "0:a?",
-                "-fps_mode", "vfr",
+                *VFR_FLAG,
                 "-c:v", vcodec,
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p",
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
                 "-pix_fmt", "yuv420p",
                 "-preset", "p5",
                 *rc_opts,
             ]
         else:
-            # 💎 Studio Quality 10-bit HEVC NVENC (Exact batch script match)
+            # 💎 Studio Quality 10-bit HEVC NVENC
             cmd = [
                 "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
                 "-i", in_path,
-                "-filter_complex", "[0:v:0]format=p010le[outv]",
-                "-map", "[outv]",
+                "-map", "0:v:0",
                 "-map", "0:a?",
-                "-fps_mode", "vfr",
+                *VFR_FLAG,
                 "-c:v", vcodec,
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-profile:v", "main10",
+                "-pix_fmt", "p010le",
                 "-preset", preset,
                 "-tune", "hq",
                 *rc_opts,
-                "-g", str(gop),
-                "-keyint_min", str(keyint_min),
-                "-multipass", multipass if multipass else "fullres",
-                "-spatial-aq", "1",
-                "-temporal-aq", "1",
-                "-aq-strength", "7",
                 "-rc-lookahead", "32",
                 "-bf", "3",
-                "-b_ref_mode", "middle",
-                "-profile:v:0", "main10",
+                "-g", str(gop),
+                "-keyint_min", str(keyint_min),
+                *NVENC_DYNAMIC_FLAGS,
                 "-tag:v:0", "hvc1",
             ]
     else:
