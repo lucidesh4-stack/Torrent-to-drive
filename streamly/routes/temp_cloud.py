@@ -282,7 +282,7 @@ async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _au
                         "size_str": _format_size(fsize),
                         "type": "archive" if is_arch else "file",
                         "is_archive": is_arch,
-                        "is_video": entry.name.lower().endswith((".mkv", ".mp4", ".avi", ".mov", ".webm")),
+                        "is_video": entry.name.lower().endswith((".mkv", ".mp4", ".avi", ".mov", ".webm", ".m4v", ".ts", ".flv", ".wmv")),
                         "created_at": created_at,
                         "last_update": created_at,
                         "expiry_seconds": expiry_sec,
