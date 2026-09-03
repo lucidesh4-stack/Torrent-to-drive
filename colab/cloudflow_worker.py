@@ -342,7 +342,9 @@ def ensure_vmaf_model():
             pass
     return model_path if os.path.exists(model_path) else None
 
-def calculate_vmaf(ref_path, comp_path, sample_sec=30):
+VMAF_LOCK = threading.Lock()
+
+def calculate_vmaf(ref_path, comp_path, sample_sec=10):
     global VMAF_FFMPEG_BIN
     try:
         fchk = subprocess.run([VMAF_FFMPEG_BIN, "-hide_banner", "-filters"], capture_output=True, text=True, timeout=5)
@@ -350,22 +352,23 @@ def calculate_vmaf(ref_path, comp_path, sample_sec=30):
             print(f"   ℹ️ [VMAF] libvmaf filter not available in {VMAF_FFMPEG_BIN}. Skipping automated test.")
             return None
 
-        print(f"   🎯 [VMAF] Running fast {sample_sec}s automated benchmark (subsample=4)...")
-        t_start = time.time()
-        vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
+        with VMAF_LOCK:
+            print(f"   🎯 [VMAF] Running fast {sample_sec}s automated benchmark (subsample=4)...")
+            t_start = time.time()
+            vmaf_log = f"/tmp/vmaf_{int(time.time()*1000)}.json"
 
-        # Direct, universal VMAF filter without deprecated scale2ref
-        filter_str = f"[0:v]setpts=PTS-STARTPTS[d];[1:v]setpts=PTS-STARTPTS[r];[d][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_subsample=4:n_threads=4"
+            # Direct, universal VMAF filter without deprecated scale2ref
+            filter_str = f"[0:v]setpts=PTS-STARTPTS[d];[1:v]setpts=PTS-STARTPTS[r];[d][r]libvmaf=log_path='{vmaf_log}':log_fmt=json:n_subsample=4:n_threads=2"
 
-        cmd = [
-            VMAF_FFMPEG_BIN, "-y", "-nostdin", "-hide_banner",
-            "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
-            "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
-            "-filter_complex", filter_str,
-            "-f", "null", "-"
-        ]
+            cmd = [
+                VMAF_FFMPEG_BIN, "-y", "-nostdin", "-hide_banner",
+                "-ss", "10", "-t", str(sample_sec), "-i", comp_path,
+                "-ss", "10", "-t", str(sample_sec), "-i", ref_path,
+                "-filter_complex", filter_str,
+                "-f", "null", "-"
+            ]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
 
         if os.path.exists(vmaf_log):
             with open(vmaf_log, "r") as f:
