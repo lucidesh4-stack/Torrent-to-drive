@@ -539,15 +539,30 @@ def _format_bytes(num: int) -> str:
     return f"{n:.2f} PB"
 
 
+_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
 async def _fetch_apibay(client: httpx.AsyncClient, q: str, timeout: float) -> list[dict[str, Any]]:
-    resp = await client.get(
-        "https://apibay.org/q.php",
-        params={"q": q, "cat": "0"},
-        headers={"User-Agent": "Streamly/1.0"},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = await client.get(
+            "https://apibay.org/q.php",
+            params={"q": q, "cat": "0"},
+            headers=_BROWSER_HEADERS,
+            timeout=timeout,
+        )
+        if resp.status_code in (403, 503):
+            log.debug("apibay returned %s (Cloudflare datacenter protection active)", resp.status_code)
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.debug("apibay search failed: %s", e)
+        return []
+
     if not isinstance(data, list):
         return []
     rows: list[dict[str, Any]] = []
@@ -572,14 +587,21 @@ async def _fetch_apibay(client: httpx.AsyncClient, q: str, timeout: float) -> li
 
 
 async def _fetch_torrents_csv(client: httpx.AsyncClient, q: str, timeout: float) -> list[dict[str, Any]]:
-    resp = await client.get(
-        "https://torrents-csv.com/service/search",
-        params={"q": q, "size": 50},
-        headers={"User-Agent": "Streamly/1.0"},
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = await client.get(
+            "https://torrents-csv.com/service/search",
+            params={"q": q, "size": 50},
+            headers=_BROWSER_HEADERS,
+            timeout=timeout,
+        )
+        if resp.status_code in (403, 503):
+            log.debug("torrents-csv returned %s", resp.status_code)
+            return []
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        log.debug("torrents-csv search failed: %s", e)
+        return []
     items = data.get("torrents", []) if isinstance(data, dict) else []
     rows: list[dict[str, Any]] = []
     for item in items if isinstance(items, list) else []:
