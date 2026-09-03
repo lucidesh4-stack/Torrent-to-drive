@@ -162,12 +162,13 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
                 "-maxrate", f"{max_v}k",
                 "-bufsize", f"{bufsize}k",
                 "-qmin", "22",
-                "-qmax", "38",
+                "-qmax", "33",
             ]
 
+        # Automatic dimension normalization for vertical videos & 10-bit color depth
         cmd += [
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=p010le",
             "-profile:v", "main10",          # 10-bit HEVC color depth (forced for quality)
-            "-pix_fmt", "p010le",
             "-preset", preset,               # p7 highest quality (exact match with bat script!)
             "-tune", "hq",                   # High visual quality tuning
             *rc_opts,
@@ -194,6 +195,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
                 cmd += [NVENC_CAPS["b_ref_mode"], "middle"]
     else:
         cmd += [
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
             "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
             "-b:v", f"{target_k}k",
@@ -204,7 +206,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     if copy_audio:
         cmd += ["-c:a", "copy"]
     else:
-        cmd += ["-c:a", "aac", "-b:a", "128k"]
+        cmd += ["-c:a", "aac", "-b:a", "128k", "-ac", "2"]
         
     cmd += ["-movflags", "+faststart", out_path]
     return cmd
@@ -212,13 +214,6 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
 def compress_video(in_path, out_path, task, report_progress_fn):
     info = probe_video(in_path)
     target_k = int(task.get("target_bitrate_k", 1500))
-    
-    # Adaptive targets based on resolution (Exact match with Video_compression.bat)
-    pixels = info.get("width", 1920) * info.get("height", 1080)
-    if pixels >= 6000000:       target_k = max(target_k, 6000)
-    elif pixels >= 3500000:     target_k = max(target_k, 3000)
-    elif pixels >= 1500000:     target_k = max(target_k, 1500)
-    
     if info.get("fps", 30) > 45:
         target_k = int(target_k * 1.5)
         
@@ -230,61 +225,55 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     duration = info.get("duration", 0)
     mode = task.get("mode", "VBR")
 
-    # Try 1: Exact batch script match (p7, fullres, main10, copy audio)
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p7", multipass="fullres", copy_audio=True)
-    print(f"   ▶ Studio Quality Hardware Pipeline (NVDEC + NVENC p7 fullres 10-bit, mode={mode}, {target_k}k target, max={max_v}k)...")
-    
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    fps_val = "0"
-    speed_val = "0x"
-    time_val = "00:00:00"
-    pct = 0.0
-
-    while True:
-        line = p.stdout.readline()
-        if not line and p.poll() is not None:
-            break
-        line = line.strip()
-        if line.startswith("fps="):
-            fps_val = line.split("=")[1].strip()
-        elif line.startswith("speed="):
-            speed_val = line.split("=")[1].strip()
-        elif line.startswith("out_time="):
-            time_val = line.split("=")[1].strip().split(".")[0]
-            if duration > 0:
-                parts = time_val.split(":")
-                if len(parts) == 3:
-                    try:
-                        sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
-                        pct = min(99.0, round((sec / duration) * 100.0, 1))
-                    except Exception:
-                        pass
-        elif line.startswith("progress=continue"):
-            report_progress_fn(pct, fps_val, speed_val, time_val)
-
-    stderr_out = p.stderr.read()
-    
-    if p.returncode != 0:
-        print(f"   ⚠️ Primary attempt exited with code {p.returncode}. Retrying with universal fallback (AAC transcode + safe_mode)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    def _run_cmd(ffmpeg_args):
+        p_proc = subprocess.Popen(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        _fps = "0"
+        _spd = "0x"
+        _tme = "00:00:00"
+        _pct = 0.0
         while True:
-            line = p.stdout.readline()
-            if not line and p.poll() is not None:
+            line = p_proc.stdout.readline()
+            if not line and p_proc.poll() is not None:
                 break
             line = line.strip()
             if line.startswith("fps="):
-                fps_val = line.split("=")[1].strip()
+                _fps = line.split("=")[1].strip()
             elif line.startswith("speed="):
-                speed_val = line.split("=")[1].strip()
+                _spd = line.split("=")[1].strip()
             elif line.startswith("out_time="):
-                time_val = line.split("=")[1].strip().split(".")[0]
+                _tme = line.split("=")[1].strip().split(".")[0]
+                if duration > 0:
+                    parts = _tme.split(":")
+                    if len(parts) == 3:
+                        try:
+                            sec = float(parts[0]) * 3600 + float(parts[1]) * 60 + float(parts[2])
+                            _pct = min(99.0, round((sec / duration) * 100.0, 1))
+                        except Exception:
+                            pass
             elif line.startswith("progress=continue"):
-                report_progress_fn(pct, fps_val, speed_val, time_val)
-        stderr_out = p.stderr.read()
+                report_progress_fn(_pct, _fps, _spd, _tme)
+        err = p_proc.stderr.read()
+        return p_proc.returncode, err
 
-    if p.returncode != 0:
-        print(f"❌ FFmpeg exit code: {p.returncode}")
+    # Try 1: Studio Quality NVENC Pipeline
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True)
+    print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, mode={mode}, {target_k}k target)...")
+    rc, stderr_out = _run_cmd(cmd)
+
+    # Try 2: Safe NVENC Pipeline (AAC transcode + safe_mode)
+    if rc != 0 and has_nvenc:
+        print(f"   ⚠️ Primary attempt exited with code {rc}. Retrying with NVENC safe fallback (AAC transcode + safe_mode)...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
+        rc, stderr_out = _run_cmd(cmd)
+
+    # Try 3: Ultra-compatible CPU Software Fallback (libx264)
+    if rc != 0:
+        print(f"   ⚠️ NVENC rejected stream parameters (code {rc}). Retrying with high-compatibility CPU software encoder (libx264)...")
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=info.get("fps", 30), mode=mode, safe_mode=True, copy_audio=False)
+        rc, stderr_out = _run_cmd(cmd)
+
+    if rc != 0:
+        print(f"❌ FFmpeg exit code: {rc}")
         if stderr_out:
             print(f"   Error details: {stderr_out[-500:]}")
         return False
