@@ -34,7 +34,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates ffmpeg \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates ffmpeg p7zip-full unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 user

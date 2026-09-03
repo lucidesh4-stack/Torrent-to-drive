@@ -47,19 +47,57 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
 
     log.info("Extracting archive %s -> %s", filename, dest_dir)
 
+    file_sz = os.path.getsize(archive_path) if os.path.exists(archive_path) else 0
+    header = b""
+    try:
+        with open(archive_path, "rb") as hf:
+            header = hf.read(1024)
+    except Exception:
+        pass
+
+    # Detect HTML error page saved as zip (e.g. expired CDN token, Cloudflare 403, etc.)
+    header_lower = header.lower()
+    if b"<!doctype html" in header_lower or b"<html" in header_lower or b"<head" in header_lower:
+        snippet = header.decode("utf-8", errors="ignore")[:200].replace("\n", " ").strip()
+        log.error("Archive %s is an HTML error response (%d bytes), not a real zip file. Snippet: %s", filename, file_sz, snippet)
+        raise ValueError(f"The downloaded file is an HTML error response ({file_sz} bytes) from the host, not a valid archive. The download link may have expired or was blocked.")
+
+    if len(header) < 4:
+        raise ValueError(f"Archive file '{filename}' is empty or too small ({file_sz} bytes).")
+
     try:
         if filename_lower.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, 'r', allowZip64=True) as zf:
-                for member in zf.infolist():
-                    # Prevent Zip-Slip directory traversal attack
-                    target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
-                    if not target_file_path.startswith(dest_dir_real):
-                        log.warning("Zip-Slip security attempt detected for member: %s. Skipping.", member.filename)
-                        continue
+            extracted_any = False
+            try:
+                with zipfile.ZipFile(archive_path, 'r', allowZip64=True) as zf:
+                    for member in zf.infolist():
+                        # Prevent Zip-Slip directory traversal attack
+                        target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
+                        if not target_file_path.startswith(dest_dir_real):
+                            log.warning("Zip-Slip security attempt detected for member: %s. Skipping.", member.filename)
+                            continue
+                        try:
+                            zf.extract(member, dest_dir)
+                            extracted_any = True
+                        except Exception as me:
+                            log.warning("Could not extract member %s: %s", member.filename, me)
+            except Exception as zip_err:
+                log.warning("Python zipfile failed on %s: %s; attempting 7z/unzip CLI fallback", filename, zip_err)
+                import subprocess
+                cmd_run = False
+                for cli in (["7z", "x", archive_path, f"-o{dest_dir}", "-y"], ["unzip", "-o", archive_path, "-d", dest_dir]):
                     try:
-                        zf.extract(member, dest_dir)
-                    except Exception as me:
-                        log.warning("Could not extract member %s: %s", member.filename, me)
+                        res = subprocess.run(cli, capture_output=True, text=True)
+                        if res.returncode == 0 or (os.path.exists(dest_dir) and len(os.listdir(dest_dir)) > 0):
+                            cmd_run = True
+                            log.info("CLI fallback %s successfully extracted archive %s", cli[0], filename)
+                            break
+                    except Exception:
+                        pass
+                if not cmd_run:
+                    if header.startswith(b"PK\x03\x04"):
+                        raise ValueError(f"Zip archive '{filename}' ({file_sz / (1024*1024):.1f} MB) is incomplete or truncated. The download may have been interrupted before completing.")
+                    raise zip_err
 
         elif filename_lower.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2")):
             mode = "r:*"
