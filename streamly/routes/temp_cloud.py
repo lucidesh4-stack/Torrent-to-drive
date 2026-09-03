@@ -645,6 +645,16 @@ async def temp_cloud_unzip_archive(request: Request, payload: ArchiveOperationPa
     if not is_archive(target_path):
         raise HTTPException(status_code=400, detail="File is not a supported archive format (.zip, .rar, .7z, .tar.gz)")
 
+    # Ensure file is not actively being downloaded by the download manager
+    manager = DownloadManager.get_instance()
+    fname = os.path.basename(target_path)
+    for task in manager.active_tasks.values():
+        if (task.filename == fname or task.task_id == payload.item_id) and task.status in ("DOWNLOADING", "QUEUED"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{fname}' is still actively downloading ({task.progress:.1f}%). Please wait for the download to finish before unzipping."
+            )
+
     try:
         parent_dir = os.path.dirname(target_path)
         dest_dir = await asyncio.to_thread(safe_extract_archive, target_path, extract_to=parent_dir, delete_archive=payload.delete_source)

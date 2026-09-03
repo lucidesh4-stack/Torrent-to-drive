@@ -178,6 +178,14 @@
         archiveBtn.classList.add("hidden");
       }
     }
+    if (cmArchiveBtn) {
+      if (isZipCandidate || isUnzipCandidate) {
+        cmArchiveBtn.classList.remove("hidden");
+        cmArchiveBtn.textContent = isZipCandidate ? "📦 Zip Folder" : "📂 Unzip Archive";
+      } else {
+        cmArchiveBtn.classList.add("hidden");
+      }
+    }
 
     // GPU Compress candidate (video files)
     const gpuBtn = $("gpuCompressBtn");
@@ -974,7 +982,7 @@
         toast("Zip failed: " + (err.message || err));
         updateStatus($("cloudStatus"), err.message || "Zip failed", "error");
       }
-    } else if (item.type === "file") {
+    } else if (item.type === "file" || item.type === "archive" || item.is_archive) {
       // UNZIP ARCHIVE
       updateStatus($("cloudStatus"), `Extracting archive "${item.name}"...`, "");
       toast(`Extracting archive "${item.name}"...`);
@@ -2005,6 +2013,12 @@
         window.openVideoPlayerModal("temp", item.id, item.name || "Temp Video", item.size_str || (item.size ? formatBytes(item.size) : ""));
         return;
       }
+    }
+    if (item.type === "archive" || item.is_archive || ["zip", "rar", "7z", "tar", "gz", "tgz", "bz2"].includes(ext)) {
+      if (confirm(`Extract archive "${item.name}" into Temp Cloud?`)) {
+        return window.archiveSelectedAction();
+      }
+      return;
     }
     window.open(`/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}`, "_blank", "noopener,noreferrer");
   };

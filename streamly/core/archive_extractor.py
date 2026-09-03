@@ -49,14 +49,17 @@ def safe_extract_archive(archive_path: str, extract_to: str, delete_archive: boo
 
     try:
         if filename_lower.endswith(".zip"):
-            with zipfile.ZipFile(archive_path, 'r') as zf:
+            with zipfile.ZipFile(archive_path, 'r', allowZip64=True) as zf:
                 for member in zf.infolist():
                     # Prevent Zip-Slip directory traversal attack
                     target_file_path = os.path.realpath(os.path.join(dest_dir, member.filename))
                     if not target_file_path.startswith(dest_dir_real):
                         log.warning("Zip-Slip security attempt detected for member: %s. Skipping.", member.filename)
                         continue
-                    zf.extract(member, dest_dir)
+                    try:
+                        zf.extract(member, dest_dir)
+                    except Exception as me:
+                        log.warning("Could not extract member %s: %s", member.filename, me)
 
         elif filename_lower.endswith((".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2")):
             mode = "r:*"
