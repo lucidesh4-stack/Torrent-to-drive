@@ -311,8 +311,13 @@ class DownloadManager:
         # Progress hook
         def _on_progress(downloaded: int, total: int, speed_mbps: float):
             task.downloaded_bytes = downloaded
-            task.total_bytes = total
-            task.progress = (downloaded / total * 100.0) if total > 0 else 0.0
+            if total > 0:
+                effective_total = max(total, downloaded)
+                task.total_bytes = effective_total
+                task.progress = min(99.9, (downloaded / effective_total * 100.0))
+            else:
+                task.total_bytes = downloaded
+                task.progress = 0.0
             task.speed_mbps = speed_mbps
             self.notify_update()
 
