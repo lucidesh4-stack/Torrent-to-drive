@@ -498,28 +498,41 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
             else:
                 content_type = "application/octet-stream"
 
-    STREAM_CHUNK_SIZE = 2 * 1024 * 1024  # 2 MB Turbo Buffer Chunk Size
+    STREAM_CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB High-Throughput FUSE Buffer Chunk Size
 
     range_header = request.headers.get("range")
-    if not range_header or is_download:
-        # Full file streaming / direct download with 2MB buffer chunks
-        def _iter_file():
-            with open(target_path, "rb") as f:
-                while chunk := f.read(STREAM_CHUNK_SIZE):
-                    yield chunk
 
+    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_size: int = STREAM_CHUNK_SIZE):
+        """Asynchronously streams file chunks via threadpool to prevent blocking the event loop on FUSE bucket I/O."""
+        def _read_sync(file_obj, sz):
+            return file_obj.read(sz)
+
+        with open(path, "rb", buffering=0) as f:
+            if start_byte > 0:
+                f.seek(start_byte)
+            remaining = byte_length
+            while remaining > 0:
+                to_read = min(chunk_size, remaining)
+                chunk = await asyncio.to_thread(_read_sync, f, to_read)
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    if not range_header:
+        # Full file streaming / direct single-connection download
         headers = {
             "Content-Length": str(file_size),
             "Accept-Ranges": "bytes",
             "Content-Type": content_type,
             "Content-Disposition": f'{disposition}; filename="{filename}"',
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": "public, max-age=86400",
             "Connection": "keep-alive",
             "X-Content-Type-Options": "nosniff"
         }
-        return StreamingResponse(_iter_file(), headers=headers, status_code=200)
+        return StreamingResponse(_iter_file_chunks(target_path, 0, file_size), headers=headers, status_code=200)
 
-    # Standard RFC 7233 Range parser: bytes=start-end, bytes=start-, or bytes=-suffix_len
+    # Standard RFC 7233 Range parser: supports bytes=start-end, bytes=start-, and bytes=-suffix_len
     try:
         range_val = range_header.strip().lower().replace("bytes=", "")
         if range_val.startswith("-"):
@@ -546,29 +559,17 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
         end = file_size - 1
         length = file_size
 
-    def _iter_range(start_byte: int, byte_length: int):
-        with open(target_path, "rb") as f:
-            f.seek(start_byte)
-            bytes_left = byte_length
-            while bytes_left > 0:
-                chunk_size = min(STREAM_CHUNK_SIZE, bytes_left)
-                data = f.read(chunk_size)
-                if not data:
-                    break
-                bytes_left -= len(data)
-                yield data
-
     headers = {
         "Content-Range": f"bytes {start}-{end}/{file_size}",
         "Accept-Ranges": "bytes",
         "Content-Length": str(length),
         "Content-Type": content_type,
         "Content-Disposition": f'{disposition}; filename="{filename}"',
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": "public, max-age=86400",
         "Connection": "keep-alive",
         "X-Content-Type-Options": "nosniff"
     }
-    return StreamingResponse(_iter_range(start, length), headers=headers, status_code=206)
+    return StreamingResponse(_iter_file_chunks(target_path, start, length), headers=headers, status_code=206)
 
 
 class DeletePayload(BaseModel):
