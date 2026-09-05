@@ -300,19 +300,20 @@ async def temp_cloud_list(request: Request, folder_id: Optional[str] = None, _au
                         "expiry_str": expiry_str
                     })
                 elif entry.is_file():
-                    if entry.name.endswith(".part"):
-                        continue
                     fsize = stat.st_size
                     is_arch = is_archive(entry.name)
+                    is_part = entry.name.endswith(".part") or ".part-Frag" in entry.name or entry.name.endswith(".ytdl")
+                    is_vid = entry.name.lower().endswith((".mkv", ".mp4", ".avi", ".mov", ".webm", ".m4v", ".ts", ".flv", ".wmv", ".mp4.part", ".ts.part", ".mkv.part"))
                     files_list.append({
                         "id": rel_path,
                         "file_id": rel_path,
                         "name": entry.name,
                         "size": fsize,
                         "size_str": _format_size(fsize),
-                        "type": "archive" if is_arch else "file",
+                        "type": "archive" if is_arch else ("part" if is_part else "file"),
                         "is_archive": is_arch,
-                        "is_video": entry.name.lower().endswith((".mkv", ".mp4", ".avi", ".mov", ".webm", ".m4v", ".ts", ".flv", ".wmv")),
+                        "is_part": is_part,
+                        "is_video": is_vid,
                         "created_at": created_at,
                         "last_update": created_at,
                         "expiry_seconds": expiry_sec,
@@ -606,6 +607,39 @@ async def temp_cloud_delete(request: Request, payload: DeletePayload, _auth = De
         return {"success": True, "message": "Item deleted from Temp Cloud"}
     except Exception as e:
         log.error("Delete failed for %s: %s", target_path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@temp_cloud_router.post("/api/temp_cloud/clean_parts")
+@rate_limited(cost=1.0)
+async def temp_cloud_clean_parts(request: Request, _auth = Depends(verify_user_session), _csrf = Depends(verify_csrf)):
+    """Deletes all incomplete .part, .part-Frag*, and .ytdl cache files in Temp Cloud to reclaim storage space."""
+    sid = request.session.get("sid") or ensure_sid(request)
+    user_dir = get_user_temp_dir(sid)
+    deleted_count = 0
+    reclaimed_bytes = 0
+
+    try:
+        for root, _, files in os.walk(user_dir):
+            for fname in files:
+                if fname.endswith(".part") or ".part-Frag" in fname or fname.endswith(".ytdl"):
+                    fpath = os.path.join(root, fname)
+                    try:
+                        fsize = os.path.getsize(fpath)
+                        os.remove(fpath)
+                        deleted_count += 1
+                        reclaimed_bytes += fsize
+                    except Exception:
+                        pass
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "reclaimed_bytes": reclaimed_bytes,
+            "reclaimed_str": _format_size(reclaimed_bytes),
+            "message": f"Cleaned {deleted_count} cache/part files ({_format_size(reclaimed_bytes)} freed)"
+        }
+    except Exception as e:
+        log.error("Clean parts failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

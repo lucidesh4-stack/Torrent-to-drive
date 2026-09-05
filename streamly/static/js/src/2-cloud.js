@@ -134,7 +134,7 @@
     const dlBtn = $("downloadBtn");
     if (dlBtn) dlBtn.disabled = count === 0;
 
-    const selectedFiles = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.type === "archive" || x.is_video || x.download_url));
+    const selectedFiles = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).filter(x => x && (x.type === "file" || x.type === "archive" || x.type === "part" || x.is_video || x.download_url));
     const hasFolder = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
@@ -747,7 +747,7 @@
   }
 
   window.getFileUrl = async function(item, forDownload = false) {
-    if (!item || item.type !== "file") throw new Error("Select a file first");
+    if (!item || (item.type !== "file" && item.type !== "part" && item.type !== "archive")) throw new Error("Select a file first");
     if (item.download_url) return item.download_url;
     if (typeof item.id === "string" && (item.id.startsWith("http://") || item.id.startsWith("https://"))) {
       return item.id;
@@ -791,7 +791,7 @@
     const selectedItems = items.filter((it) => selectedKeys.has(it.key));
     if (selectedItems.length === 0) return toast("Select item(s) first");
 
-    const files = selectedItems.filter((it) => it.type === "file" || it.download_url);
+    const files = selectedItems.filter((it) => it.type === "file" || it.type === "part" || it.download_url);
     const folderCount = selectedItems.length - files.length;
 
     if (files.length === 0) {
@@ -888,7 +888,7 @@
     if (selectedItems.length === 0) return toast("Select item(s) first");
 
     const folders = selectedItems.filter((it) => it.type === "folder");
-    const files = selectedItems.filter((it) => it.type === "file" || it.download_url);
+    const files = selectedItems.filter((it) => it.type === "file" || it.type === "part" || it.download_url);
 
     // Folders can't be direct-downloaded — route them through zip.
     if (folders.length > 0 && files.length === 0) return zipSelected();
@@ -1108,7 +1108,7 @@
     const filesToSend = [];
     for (const key of selectedKeys) {
       const it = items.find(x => x.key === key);
-      if (it && (it.type === "file" || it.type === "archive" || it.download_url)) {
+      if (it && (it.type === "file" || it.type === "archive" || it.type === "part" || it.download_url)) {
         filesToSend.push(it);
       }
     }
@@ -1306,12 +1306,16 @@
     const subtitle = $("driveProviderSubtitle");
     const nfBtn = $("newFolderBtn");
     const cmNfBtn = $("cmNewFolderBtn");
+    const cpBtn = $("cleanPartsBtn");
+    const cmCpBtn = $("cmCleanPartsBtn");
 
     if (isTemp) {
       if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.tempCloudCurrentFolder == null); }
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.tempCloudCurrentFolder == null); }
       if (nfBtn) nfBtn.classList.remove("hidden");
       if (cmNfBtn) cmNfBtn.classList.remove("hidden");
+      if (cpBtn) cpBtn.classList.remove("hidden");
+      if (cmCpBtn) cmCpBtn.classList.remove("hidden");
       if (subtitle) subtitle.textContent = "Temp Cloud (High-Speed Local Storage)";
       await updateTempCloudStorageHeader();
       loadTempCloudList();
@@ -1321,6 +1325,8 @@
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.offcloudCurrentFolder == null); }
       if (nfBtn) nfBtn.classList.add("hidden");
       if (cmNfBtn) cmNfBtn.classList.add("hidden");
+      if (cpBtn) cpBtn.classList.add("hidden");
+      if (cmCpBtn) cmCpBtn.classList.add("hidden");
       if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
       if (typeof window.renderStorage === "function") window.renderStorage();
       loadOffcloudList();
@@ -1330,6 +1336,8 @@
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (currentFolder || 0) == 0; }
       if (nfBtn) nfBtn.classList.add("hidden");
       if (cmNfBtn) cmNfBtn.classList.add("hidden");
+      if (cpBtn) cpBtn.classList.add("hidden");
+      if (cmCpBtn) cmCpBtn.classList.add("hidden");
       if (subtitle) subtitle.textContent = "Browse your saved files and folders";
       if (typeof window.renderStorage === "function") window.renderStorage();
       loadFolder(currentFolder || 0);
@@ -1871,6 +1879,8 @@
         icon.className = "icon";
         if (item.type === "folder") {
           icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else if (item.is_part || item.type === "part") {
+          icon.innerHTML = `<span style="font-size: 15px; display: inline-flex; align-items: center; justify-content: center;">🧩</span>`;
         } else {
           icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>`;
         }
@@ -1882,7 +1892,13 @@
 
         const statusTd = document.createElement("td");
         statusTd.className = "muted";
-        statusTd.textContent = item.type === "folder" ? `${item.items_count || 0} items` : "Ready";
+        if (item.type === "folder") {
+          statusTd.textContent = `${item.items_count || 0} items`;
+        } else if (item.is_part || item.type === "part") {
+          statusTd.innerHTML = `<span style="color:#f59e0b; font-weight:600; font-size:11px; background:rgba(245, 158, 11, 0.12); padding:2px 7px; border-radius:4px; border:1px solid rgba(245, 158, 11, 0.3);">🧩 Fragment</span>`;
+        } else {
+          statusTd.textContent = "Ready";
+        }
 
         const sizeTd = document.createElement("td");
         sizeTd.className = "muted";
@@ -1949,6 +1965,8 @@
         ic.className = "cm-ic";
         if (item.type === "folder") {
           ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
+        } else if (item.is_part || item.type === "part") {
+          ic.innerHTML = `<span style="font-size: 16px; display: flex; align-items: center; justify-content: center;">🧩</span>`;
         } else {
           ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
         }
@@ -1961,7 +1979,11 @@
         const meta = document.createElement("div");
         meta.className = "cm-meta";
         const s1 = document.createElement("span");
-        s1.textContent = item.size_str || "-";
+        if (item.is_part || item.type === "part") {
+          s1.innerHTML = `<span style="color:#f59e0b; font-weight:600;">🧩 ${escapeHtml(item.size_str || "-")}</span>`;
+        } else {
+          s1.textContent = item.size_str || "-";
+        }
         const s2 = document.createElement("span");
         if (item.expiry_str) {
           s2.innerHTML = `<span style="color:#f59e0b; font-weight:500;">⏱️ ${escapeHtml(item.expiry_str)}</span>`;
@@ -2007,6 +2029,13 @@
       return;
     }
 
+    if (item.is_part || item.type === "part") {
+      if (confirm(`"${item.name}" is an incomplete stream part / cache file (${item.size_str || '-'}).\n\nDirectly download this file?`)) {
+        window.open(`/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}&download=1`, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
     const ext = String(item.name || "").split(".").pop().toLowerCase();
     if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts", "mp3", "m4a", "aac"].includes(ext) || item.is_video) {
       if (typeof window.openVideoPlayerModal === "function") {
@@ -2023,12 +2052,37 @@
     window.open(`/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}`, "_blank", "noopener,noreferrer");
   };
 
+  window.cleanPartsAction = async function() {
+    if (!confirm("Are you sure you want to purge all incomplete stream cache and .part fragment files? This will safely free up storage space.")) return;
+    updateStatus($("cloudStatus"), "Purging stream cache & .part files...", "");
+    try {
+      const res = await postJson("/api/temp_cloud/clean_parts", {});
+      if (res && res.success) {
+        toast(res.message || `Cleaned ${res.deleted_count} cache files (${res.reclaimed_str} freed)`);
+        loadTempCloudList();
+        loadTempCloudListMobile();
+        updateTempCloudStorageHeader();
+      } else {
+        toast((res && res.detail) || "Failed to purge part files");
+      }
+    } catch (e) {
+      toast(e.message || "Failed to clean parts");
+    } finally {
+      updateStatus($("cloudStatus"), "", "");
+    }
+  };
+
   // Hook provider buttons
   document.addEventListener("DOMContentLoaded", () => {
     const tempBtn = $("driveProviderTemp");
     const tempBtnM = $("driveProviderTempMobile");
     if (tempBtn) tempBtn.addEventListener("click", () => setDriveProvider("temp"));
     if (tempBtnM) tempBtnM.addEventListener("click", () => setDriveProvider("temp"));
+
+    const cpBtn = $("cleanPartsBtn");
+    const cmCpBtn = $("cmCleanPartsBtn");
+    if (cpBtn) cpBtn.addEventListener("click", () => window.cleanPartsAction());
+    if (cmCpBtn) cmCpBtn.addEventListener("click", () => window.cleanPartsAction());
 
     // Restore saved provider on load
     try {

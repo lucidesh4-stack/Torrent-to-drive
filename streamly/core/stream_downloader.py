@@ -139,11 +139,13 @@ class HLSStreamDownloader:
                     os.remove(output_path)
                 except Exception:
                     pass
+            self._cleanup_fragments(base_name)
             return None
         except Exception as e:
             log.warning("yt-dlp stream download failed (%s: %s); falling back to ffmpeg", type(e).__name__, e)
 
         if self.cancel_flag[0] or self._interrupted:
+            self._cleanup_fragments(base_name)
             return None
 
         # 2. Fallback to FFmpeg native stream capture
@@ -163,12 +165,27 @@ class HLSStreamDownloader:
                     os.remove(output_path)
                 except Exception:
                     pass
+            self._cleanup_fragments(base_name)
             return None
         except Exception as e:
             log.error("FFmpeg stream fallback failed: %s", e)
+            self._cleanup_fragments(base_name)
             raise e
 
         return None
+
+    def _cleanup_fragments(self, base_name: str):
+        """Cleans up leftover fragment parts or ytdl temp files for a given base filename."""
+        try:
+            for fn in os.listdir(self.target_dir):
+                if fn.startswith(base_name) and (".part" in fn or ".ytdl" in fn):
+                    fp = os.path.join(self.target_dir, fn)
+                    try:
+                        os.remove(fp)
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("Cleanup fragments error: %s", e)
 
     def _download_via_ytdlp(
         self,
