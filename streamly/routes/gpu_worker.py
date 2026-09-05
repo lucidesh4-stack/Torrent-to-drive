@@ -272,11 +272,12 @@ async def enqueue_compression(request: Request, _auth = Depends(verify_user_sess
     except Exception:
         return JSONResponse(status_code=400, content={'success': False, 'error': 'Invalid request'})
 
-    file_id = body.get('file_id', '').strip()
-    filename = body.get('filename') or os.path.basename(file_id)
-    mode = body.get('mode', 'VBR')
+    raw_file_id = body.get('file_id')
+    file_id = str(raw_file_id).strip() if raw_file_id is not None else ''
+    filename = str(body.get('filename') or (os.path.basename(file_id) if file_id else 'video.mp4'))
+    mode = str(body.get('mode', 'VBR'))
     target_k = int(body.get('target_bitrate_k', 1500))
-    source_type = body.get('source_type', 'temp_cloud')
+    source_type = str(body.get('source_type', 'temp_cloud'))
     source_url = body.get('source_url')
 
     if not file_id and not source_url:

@@ -636,17 +636,18 @@ async def run_telethon_upload(app, rs, session_str, api_id, api_hash, file_url, 
                 log.warning("Direct Seedr Content-Length check failed: %s: %s. Using reported size %d.", type(e).__name__, e, size)
                 exact_size = size
         
+        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid, app=app, seq_num=seq_num)
+
         part_size = 512 * 1024
-        # audit H5: wait_for(output_queue.get()
         parts_count = (exact_size + part_size - 1) // part_size
         max_bytes = _TG_HARD_MAX
-        if exact_size > max_bytes:
-            raise ValueError(f"File too large for Telegram MTProto upload: {exact_size} bytes (max {max_bytes})")
-
-        if parts_count > _TG_MAX_PARTS:
-            raise ValueError(f"File parts ({parts_count}) exceed Telegram upload limit of {_TG_MAX_PARTS} parts (file too large).")
-
-        tracker = ProgressTracker(rs, task_id, filename, exact_size, cancel_flag, sid, app=app, seq_num=seq_num)
+        if exact_size > max_bytes or parts_count > _TG_MAX_PARTS:
+            err_msg = f"File too large for Telegram upload: {exact_size / (1024*1024):.1f} MB (Telegram limit is 2000 MB). Please compress via Colab GPU first."
+            log.warning("Task %s rejected: %s", task_id, err_msg)
+            tracker.update_status(f"FAILED: {err_msg}")
+            if seq_num is not None:
+                await advance_sequence_turn(rs, chat_id, seq_num)
+            return
 
         max_attempts = 3
         backoff = 5.0

@@ -161,9 +161,20 @@ class CloudService:
     async def list_items(self, client: AsyncSeedrClient, folder_id: int) -> dict[str, Any]:
         try:
             http_client = await self._get_client()
+            contents = None
+            for attempt in range(2):
+                try:
+                    async with AsyncSeedr(token=client.token, httpx_client=http_client) as async_seedr:
+                        contents = await async_seedr.list_contents(folder_id=str(folder_id))
+                        break
+                except Exception as ex:
+                    if attempt == 0:
+                        log.warning("Seedr list_contents attempt 1 failed (%s); retrying in 0.5s...", ex)
+                        await asyncio.sleep(0.5)
+                    else:
+                        raise ex
+
             async with AsyncSeedr(token=client.token, httpx_client=http_client) as async_seedr:
-                contents = await async_seedr.list_contents(folder_id=str(folder_id))
-                
                 space_used = contents.space_used
                 space_max = contents.space_max
                 
