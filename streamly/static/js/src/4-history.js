@@ -60,30 +60,30 @@
           }
         };
 
-        const makeAddBtn = (provider, label) => {
-          const btn = document.createElement("button");
-          btn.style.padding = "4px 8px";
-          btn.style.fontSize = "11px";
-          btn.textContent = label;
-          btn.title = `Add to ${label}`;
-          btn.onclick = async () => {
-            btn.disabled = true;
-            btn.textContent = "...";
-            try {
-              await postJson("/api/add", { magnet: item.magnet, provider: provider });
-              toast(`Added to ${label}: ` + item.title);
-              await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
-              btn.textContent = "✓";
-            } catch (e) {
-              toast("Failed: " + e.message);
-              btn.disabled = false;
-              btn.textContent = label;
-            }
-          };
-          return btn;
+        const addSeedrBtn = document.createElement("button");
+        addSeedrBtn.className = "secondary hist-icon";
+        addSeedrBtn.title = "Add to Seedr";
+        const plusSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-plus"><path d="M5 12h14M12 5v14"/></svg>`;
+        const checkSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
+        addSeedrBtn.innerHTML = plusSvg;
+        addSeedrBtn.onclick = async () => {
+          addSeedrBtn.disabled = true;
+          addSeedrBtn.innerHTML = "...";
+          try {
+            await postJson("/api/add", { magnet: item.magnet, provider: "seedr" });
+            toast("Added to Seedr: " + item.title);
+            await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
+            addSeedrBtn.innerHTML = checkSvg;
+            setTimeout(() => {
+              addSeedrBtn.innerHTML = plusSvg;
+              addSeedrBtn.disabled = false;
+            }, 1500);
+          } catch (e) {
+            toast("Failed: " + e.message);
+            addSeedrBtn.disabled = false;
+            addSeedrBtn.innerHTML = plusSvg;
+          }
         };
-
-        const addSeedrBtn = makeAddBtn("seedr", "Seedr");
         
         const delBtn = document.createElement("button");
         delBtn.className = "danger ghost hist-icon";
