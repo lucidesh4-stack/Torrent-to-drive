@@ -366,7 +366,12 @@ async def temp_cloud_download(request: Request, payload: DownloadPayload, _auth 
 
     manager = DownloadManager.get_instance()
     task = await manager.enqueue(payload.url, target_dir=user_dir, auto_unzip=payload.auto_unzip)
-    msg = "Media Grabber album queued! Downloading sequentially..." if task.task_type in ("bunkr", "media_grabber") else "1DM Turbo download started!"
+    if task.task_type == "stream":
+        msg = "📡 HLS/DASH Stream download started via yt-dlp!"
+    elif task.task_type in ("bunkr", "media_grabber"):
+        msg = "Media Grabber album queued! Downloading sequentially..."
+    else:
+        msg = "1DM Turbo download started!"
 
     return {
         "success": True,

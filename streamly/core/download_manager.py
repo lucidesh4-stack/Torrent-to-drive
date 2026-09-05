@@ -15,6 +15,7 @@ from typing import Optional, Dict, List, Any
 from .direct_downloader import Direct1DMDownloader
 from .archive_extractor import is_archive, safe_extract_archive
 from .bunkr_engine import is_bunkr_url, is_gallery_dl_url, UniversalMediaGrabberDownloader, BunkrSequentialDownloader
+from .stream_downloader import is_hls_or_dash_url, derive_stream_filename, HLSStreamDownloader
 
 log = logging.getLogger(__name__)
 
@@ -138,9 +139,18 @@ class DownloadManager:
         auto_unzip: bool = True
     ) -> DownloadTask:
         task_id = f"dl_{uuid.uuid4().hex[:10]}"
-        is_gallery = is_gallery_dl_url(url)
-        task_type = "media_grabber" if is_gallery else "direct"
-        filename = os.path.basename(url.split("?")[0]) or ("Media Album" if is_gallery else "file")
+        is_stream = is_hls_or_dash_url(url)
+        is_gallery = not is_stream and is_gallery_dl_url(url)
+
+        if is_stream:
+            task_type = "stream"
+            filename = derive_stream_filename(url)
+        elif is_gallery:
+            task_type = "media_grabber"
+            filename = "Media Album"
+        else:
+            task_type = "direct"
+            filename = os.path.basename(url.split("?")[0]) or "file"
 
         task = DownloadTask(
             task_id=task_id,
@@ -249,10 +259,45 @@ class DownloadManager:
 
     async def _run_task(self, task: DownloadTask):
         """Executes a single download task."""
-        if task.task_type in ("bunkr", "media_grabber"):
+        if task.task_type == "stream":
+            await self._run_stream_task(task)
+        elif task.task_type in ("bunkr", "media_grabber"):
             await self._run_media_grabber_task(task)
         else:
             await self._run_direct_1dm_task(task)
+
+    async def _run_stream_task(self, task: DownloadTask):
+        downloader = HLSStreamDownloader(
+            target_dir=task.target_dir,
+            cancel_flag=task.cancel_flag,
+            pause_event=task.pause_event
+        )
+        task.downloader_instance = downloader
+
+        def _on_stream_progress(downloaded: int, total: int, speed_mbps: float):
+            task.downloaded_bytes = downloaded
+            task.total_bytes = total
+            if total > 0:
+                task.progress = min(99.0, (downloaded / total * 100.0))
+            task.speed_mbps = speed_mbps
+            self.notify_update()
+
+        downloaded_file = await downloader.download(
+            task.url,
+            custom_filename=task.filename,
+            progress_callback=_on_stream_progress
+        )
+        if downloaded_file and os.path.exists(downloaded_file):
+            task.filename = os.path.basename(downloaded_file)
+            task.total_bytes = os.path.getsize(downloaded_file)
+            task.downloaded_bytes = task.total_bytes
+            task.progress = 100.0
+            task.status = "COMPLETED"
+            task.speed_mbps = 0.0
+        else:
+            if not task.cancel_flag[0]:
+                task.status = "FAILED"
+                task.error = task.error or "Stream capture failed"
 
     async def _run_direct_1dm_task(self, task: DownloadTask):
         downloader = Direct1DMDownloader(

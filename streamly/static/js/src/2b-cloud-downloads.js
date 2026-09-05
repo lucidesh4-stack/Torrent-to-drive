@@ -183,13 +183,15 @@
           const total = formatBytes(item.total_bytes || 0);
           const isPaused = item.status === "PAUSED";
           const isMedia = item.type === "media_grabber" || item.type === "bunkr";
-          const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (isMedia ? "MEDIA GRABBER" : "1DM TURBO"));
+          const isStream = item.type === "stream";
+          const statusText = item.status === "EXTRACTING" ? "EXTRACTING..." : (isPaused ? "PAUSED" : (isStream ? "HLS STREAM" : (isMedia ? "MEDIA GRABBER" : "1DM TURBO")));
+          const badgeBg = isStream ? "background: rgba(168,85,247,0.2); color: #c084fc;" : "background: rgba(59,130,246,0.2); color: #60a5fa;";
 
           return `
           <div data-task-id="${item.task_id}" style="background: rgba(15,23,42,0.9); border: 1px solid rgba(59,130,246,0.3); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
               <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
-                <span class="dl-status-badge" style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: rgba(59,130,246,0.2); color: #60a5fa; text-transform: uppercase; flex-shrink: 0;">${statusText}</span>
+                <span class="dl-status-badge" style="font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; ${badgeBg} text-transform: uppercase; flex-shrink: 0;">${statusText}</span>
                 <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
               <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
@@ -232,6 +234,7 @@
           <div data-task-id="${item.task_id}" style="padding: 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; min-width: 0;">
               <div style="display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; overflow: hidden;">
+                ${item.type === "stream" ? `<span style="font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 4px; background: rgba(168,85,247,0.2); color: #c084fc; text-transform: uppercase; flex-shrink: 0;">📡 STREAM</span>` : ""}
                 <span class="dl-status-badge" style="font-size: 10px; font-weight: 700; padding: 3px 6px; border-radius: 4px; ${statusBadge} text-transform: uppercase; flex-shrink: 0;">${item.status}</span>
                 <strong style="font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; display: block;" title="${fname}">${fname}</strong>
               </div>
