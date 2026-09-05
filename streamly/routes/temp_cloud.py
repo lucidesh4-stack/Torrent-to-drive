@@ -498,12 +498,16 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
             else:
                 content_type = "application/octet-stream"
 
-    STREAM_CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB High-Throughput FUSE Buffer Chunk Size
+    # 256 KB chunks for streaming ensure the first video frame arrives in <20ms and stream flows without stutter/buffering.
+    # 4 MB chunks for downloads maximize bulk network I/O throughput.
+    STREAM_CHUNK_SIZE_DOWNLOAD = 4 * 1024 * 1024  # 4 MB for bulk download
+    STREAM_CHUNK_SIZE_STREAM = 256 * 1024         # 256 KB for instant, smooth video playback without buffering
+    chunk_size = STREAM_CHUNK_SIZE_DOWNLOAD if is_download else STREAM_CHUNK_SIZE_STREAM
 
     range_header = request.headers.get("range")
 
-    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_size: int = STREAM_CHUNK_SIZE):
-        """Asynchronously streams file chunks via threadpool to prevent blocking the event loop on FUSE bucket I/O."""
+    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_sz: int):
+        """Asynchronously streams file chunks via threadpool with early client-disconnect termination."""
         def _read_sync(file_obj, sz):
             return file_obj.read(sz)
 
@@ -512,7 +516,9 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
                 f.seek(start_byte)
             remaining = byte_length
             while remaining > 0:
-                to_read = min(chunk_size, remaining)
+                if await request.is_disconnected():
+                    break
+                to_read = min(chunk_sz, remaining)
                 chunk = await asyncio.to_thread(_read_sync, f, to_read)
                 if not chunk:
                     break
@@ -530,11 +536,13 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
             "Connection": "keep-alive",
             "X-Content-Type-Options": "nosniff"
         }
-        return StreamingResponse(_iter_file_chunks(target_path, 0, file_size), headers=headers, status_code=200)
+        return StreamingResponse(_iter_file_chunks(target_path, 0, file_size, chunk_size), headers=headers, status_code=200)
 
     # Standard RFC 7233 Range parser: supports bytes=start-end, bytes=start-, and bytes=-suffix_len
     try:
         range_val = range_header.strip().lower().replace("bytes=", "")
+        if "," in range_val:
+            range_val = range_val.split(",")[0].strip()
         if range_val.startswith("-"):
             # Suffix range (e.g. bytes=-500 -> last 500 bytes)
             suffix_len = int(range_val[1:])

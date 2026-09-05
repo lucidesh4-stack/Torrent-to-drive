@@ -35,10 +35,11 @@
     prompt("Direct Stream Link:", absUrl);
   }
 
-  function openInVlc(url) {
-    if (!url) return;
-    const absUrl = getAbsoluteUrl(url);
-    window.location.href = "vlc://" + absUrl;
+  function showBuffering(show) {
+    const sp = $("vpmBufferingSpinner");
+    if (!sp) return;
+    if (show) sp.classList.remove("hidden");
+    else sp.classList.add("hidden");
   }
 
   function toggleFullscreen(modal, videoEl) {
@@ -101,6 +102,8 @@
     return strId;
   }
 
+  let stallRecoveryTimer = null;
+
   window.openVideoPlayerModal = async function(provider, itemId, title = "Video Stream", meta = "") {
     const modal = $("videoPlayerModal");
     const titleEl = $("vpmTitle");
@@ -127,15 +130,16 @@
     if (titleEl) titleEl.textContent = title;
     if (metaEl) metaEl.textContent = meta;
 
-    // Reset error overlay
+    // Reset error overlay and spinner
     if (errorOverlay) errorOverlay.classList.add("hidden");
+    showBuffering(true);
 
     // Reset previous media element state
     videoEl.pause();
     videoEl.removeAttribute("src");
-    videoEl.load();
+    clearTimeout(stallRecoveryTimer);
 
-    // Assign source and active player
+    // Assign stream source and track active element
     videoEl.src = directUrl;
     activeVideoEl = videoEl;
 
@@ -150,20 +154,12 @@
       dlBtn.setAttribute("download", title || "video.mp4");
     }
 
-    const vlcBtn = $("vpmVlcBtn");
-    if (vlcBtn) {
-      vlcBtn.onclick = () => openInVlc(directUrl);
-    }
-
     const copyBtn = $("vpmCopyBtn");
     if (copyBtn) {
       copyBtn.onclick = () => copyToClipboard(directUrl);
     }
 
     // Setup error overlay buttons
-    const errVlcBtn = $("vpmErrorVlcBtn");
-    if (errVlcBtn) errVlcBtn.onclick = () => openInVlc(directUrl);
-
     const errCopyBtn = $("vpmErrorCopyBtn");
     if (errCopyBtn) errCopyBtn.onclick = () => copyToClipboard(directUrl);
 
@@ -173,8 +169,42 @@
       errDlBtn.setAttribute("download", title || "video.mp4");
     }
 
+    // Dynamic buffer and stall-recovery listeners for zero-lag streaming
+    videoEl.onwaiting = function() {
+      showBuffering(true);
+      clearTimeout(stallRecoveryTimer);
+      // If buffer stalls for >3 seconds, auto-nudge playback by 10ms to kick browser decoders
+      stallRecoveryTimer = setTimeout(() => {
+        if (videoEl && !videoEl.paused && videoEl.readyState < 3) {
+          try {
+            videoEl.currentTime = videoEl.currentTime + 0.01;
+            videoEl.play().catch(() => {});
+          } catch (e) {}
+        }
+      }, 3500);
+    };
+
+    videoEl.onseeking = function() {
+      showBuffering(true);
+    };
+
+    videoEl.onseeked = function() {
+      showBuffering(false);
+    };
+
+    videoEl.onplaying = function() {
+      showBuffering(false);
+      clearTimeout(stallRecoveryTimer);
+    };
+
+    videoEl.oncanplay = function() {
+      showBuffering(false);
+    };
+
     // Error handler for unsupported codecs (e.g. MKV/AC3)
     videoEl.onerror = function() {
+      showBuffering(false);
+      clearTimeout(stallRecoveryTimer);
       const err = videoEl.error;
       console.warn("Video element decode/network error:", err);
       if (errorOverlay) {
@@ -183,6 +213,7 @@
     };
 
     videoEl.onloadeddata = function() {
+      showBuffering(false);
       if (errorOverlay) errorOverlay.classList.add("hidden");
     };
 
@@ -190,12 +221,11 @@
     document.body.style.overflow = "hidden";
     clearElementFocus();
 
-    // Start playback
-    videoEl.load();
+    // Start playback immediately
     const p = videoEl.play();
     if (p && typeof p.catch === "function") {
       p.catch((err) => {
-        console.warn("Video playback was interrupted or codec is unsupported:", err);
+        console.warn("Video autoplay was prevented or codec is unsupported:", err);
       });
     }
   };
@@ -204,6 +234,9 @@
     const modal = $("videoPlayerModal");
     const videoEl = $("vpmVideo");
     const errorOverlay = $("vpmErrorOverlay");
+
+    clearTimeout(stallRecoveryTimer);
+    showBuffering(false);
 
     if (videoEl) {
       videoEl.pause();
