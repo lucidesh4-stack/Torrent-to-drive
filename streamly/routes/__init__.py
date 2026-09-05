@@ -5,7 +5,6 @@ from .search import search_router
 from .history import history_router
 from .telegram import telegram_router
 from .queue import queue_router
-from .offcloud import offcloud_router
 from .temp_cloud import temp_cloud_router
 from .gpu_worker import gpu_router
 
@@ -16,6 +15,5 @@ def register_routes(app: FastAPI):
     app.include_router(history_router)
     app.include_router(telegram_router)
     app.include_router(queue_router)
-    app.include_router(offcloud_router)
     app.include_router(temp_cloud_router)
     app.include_router(gpu_router)

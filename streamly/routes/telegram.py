@@ -1181,13 +1181,7 @@ async def _enqueue_telegram_item(request: Request, payload: SendFilePayload, cli
         raise HTTPException(status_code=503, detail="Redis unavailable")
         
     provider = (payload.provider or "seedr").strip().lower()
-    if provider == "offcloud":
-        if not payload.download_url:
-            raise HTTPException(status_code=400, detail="download_url is required for Offcloud files")
-        file_info = payload.download_url
-        filename = payload.file_name or file_info.split("/")[-1].split("?")[0] or "file"
-        size = payload.file_size or 0
-    elif provider == "temp":
+    if provider == "temp":
         from .temp_cloud import get_user_temp_dir
         user_dir = get_user_temp_dir(sid)
         rel_id = (payload.download_url or payload.file_name or "").strip()

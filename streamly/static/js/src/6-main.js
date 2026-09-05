@@ -142,13 +142,7 @@
     if (typeof window.cloudRefresh === "function") {
       window.cloudRefresh();
     } else {
-      if (window.driveProvider === "offcloud") {
-        if (typeof window.loadOffcloudList === "function") {
-          window.loadOffcloudList();
-        }
-      } else {
-        loadFolder(currentFolder);
-      }
+      loadFolder(currentFolder);
     }
   });
   $("upBtn").addEventListener("click", () => { if (typeof window.cloudGoUp === "function") window.cloudGoUp(); });
@@ -215,76 +209,8 @@
   if ($("modeNormal")) $("modeNormal").addEventListener("click", () => setSeriesMode(false));
   if ($("modeSeries")) $("modeSeries").addEventListener("click", () => setSeriesMode(true));
 
-  // OFFCLOUD CONFIG MODAL TRIGGERS
-  window.promptOffcloudApiKey = function(callback) {
-    const ov = $("offcloudConfigOverlay");
-    if (!ov) return;
-    const input = $("offcloudApiKeyInput");
-    const status = $("offcloudConfigStatus");
-    if (input) input.value = "";
-    if (status) status.textContent = "";
-    ov.classList.remove("hidden");
-    
-    // Wire the save button
-    $("saveOffcloudKeyBtn").onclick = async () => {
-      const key = input.value.trim();
-      if (!key) {
-        status.textContent = "API key cannot be empty.";
-        status.className = "status error";
-        return;
-      }
-      status.textContent = "Validating key...";
-      status.className = "status";
-      try {
-        const res = await postJson("/api/offcloud/config", { api_key: key });
-        status.textContent = "Saved successfully!";
-        status.className = "status success";
-        window.offcloudEnabled = true;
-        setTimeout(() => {
-          ov.classList.add("hidden");
-          if (callback) callback();
-        }, 800);
-      } catch (e) {
-        status.textContent = e.message || "Failed to save API key.";
-        status.className = "status error";
-      }
-    };
-  }
-
-  // Bind offcloud settings and toggle listeners
-  if ($("offcloudSettingsBtn")) $("offcloudSettingsBtn").addEventListener("click", () => promptOffcloudApiKey());
-  if ($("closeOffcloudConfigBtn")) $("closeOffcloudConfigBtn").addEventListener("click", () => $("offcloudConfigOverlay").classList.add("hidden"));
-  if ($("disconnectOffcloudBtn")) $("disconnectOffcloudBtn").addEventListener("click", async () => {
-    const status = $("offcloudConfigStatus");
-    status.textContent = "Disconnecting...";
-    try {
-      await postJson("/api/offcloud/config", { api_key: " " });
-      status.textContent = "Disconnected.";
-      window.offcloudEnabled = false;
-      setTimeout(() => {
-        $("offcloudConfigOverlay").classList.add("hidden");
-      }, 800);
-    } catch (e) {
-      status.textContent = "Failed to disconnect.";
-    }
-  });
-
   if ($("driveProviderSeedr")) $("driveProviderSeedr").addEventListener("click", () => setDriveProvider("seedr"));
-  if ($("driveProviderOffcloud")) $("driveProviderOffcloud").addEventListener("click", () => {
-    if (!window.offcloudEnabled) {
-      promptOffcloudApiKey(() => setDriveProvider("offcloud"));
-    } else {
-      setDriveProvider("offcloud");
-    }
-  });
   if ($("driveProviderSeedrMobile")) $("driveProviderSeedrMobile").addEventListener("click", () => setDriveProvider("seedr"));
-  if ($("driveProviderOffcloudMobile")) $("driveProviderOffcloudMobile").addEventListener("click", () => {
-    if (!window.offcloudEnabled) {
-      promptOffcloudApiKey(() => setDriveProvider("offcloud"));
-    } else {
-      setDriveProvider("offcloud");
-    }
-  });
 
   window.filterSearchTimer = null;
   window.debouncedFilterSearch = function() {
@@ -376,13 +302,7 @@
       if (typeof window.cloudRefresh === "function") {
         window.cloudRefresh();
       } else {
-        if (window.driveProvider === "offcloud") {
-          if (typeof window.loadOffcloudListMobile === "function") {
-            window.loadOffcloudListMobile();
-          }
-        } else {
-          loadFolder(currentFolder);
-        }
+        loadFolder(currentFolder);
       }
     });
   }
@@ -578,13 +498,6 @@
           localStorage.removeItem(key);
         }
       }
-    } catch (_) {}
-
-    window.offcloudEnabled = false;
-    try {
-      const res = await fetch("/api/offcloud/enabled", { credentials: "same-origin" });
-      const data = await res.json();
-      window.offcloudEnabled = !!(data && data.enabled);
     } catch (_) {}
 
     let initialTab = window.location.hash.replace("#", "") || "search";

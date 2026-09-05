@@ -490,7 +490,7 @@
     box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35) !important;
   }
   .mode-toggle:has(#modeSeries.active) .mode-toggle-highlight,
-  .mode-toggle:has(#driveProviderOffcloudMobile.active) .mode-toggle-highlight {
+  .mode-toggle:has(#driveProviderTempMobile.active) .mode-toggle-highlight {
     transform: translateX(100%) !important;
   }
 

@@ -174,9 +174,6 @@
         if (res && res.queued) {
           updateStatus($("searchStatus"), "✓ Added to Queue: " + magnetName, "ok");
           toast("Added to local queue: " + magnetName);
-        } else if (res && res.provider === "offcloud") {
-          updateStatus($("searchStatus"), "✓ Added to Offcloud: " + magnetName, "ok");
-          toast("Added to Offcloud: " + magnetName);
         } else {
           updateStatus($("searchStatus"), "✓ Added: " + magnetName, "ok");
           toast("Added to Seedr: " + magnetName);
@@ -296,8 +293,6 @@
           const res = await postJson("/api/add", { magnet: result.magnet, size: result.size_bytes || 0, provider: window.driveProvider || "auto" });
           if (res && res.queued) {
             toast("Added to queue: " + (result.name || "torrent"));
-          } else if (res && res.provider === "offcloud") {
-            toast("Added to Offcloud: " + (result.name || "torrent"));
           } else {
             toast("Added to Seedr: " + (result.name || "torrent"));
           }

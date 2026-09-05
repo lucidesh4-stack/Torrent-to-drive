@@ -82,19 +82,6 @@
       }
     }
     
-    // Offcloud: Explore folder or return direct URL
-    if (p === "offcloud") {
-      try {
-        const res = await fetch(`/api/offcloud/explore/${encodeURIComponent(strId)}`, { credentials: "same-origin" });
-        const data = await res.json();
-        if (data && data.files && data.files.length > 0) {
-          return data.files[0].download_url || strId;
-        }
-      } catch (e) {
-        console.warn("Offcloud direct URL fetch failed:", e);
-      }
-    }
-
     if (p === "telegram") {
       return `/api/telegram/download/${encodeURIComponent(strId)}`;
     }

@@ -48,7 +48,6 @@ class AppConfig(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = "-1004247146382"
     cloudflare_worker_proxy: str = "https://streamly-proxy.lucidesh.workers.dev"
-    offcloud_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -108,7 +107,6 @@ class AppConfig(BaseSettings):
             telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TG_BOT_TOKEN") or os.getenv("BOT_TOKEN") or "",
             telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", "-1004247146382"),
             cloudflare_worker_proxy=os.getenv("CLOUDFLARE_WORKER_PROXY", "").strip() or "https://streamly-proxy.lucidesh.workers.dev",
-            offcloud_api_key=os.getenv("OFFCLOUD_API_KEY", "").strip(),
             bitsearch_url=os.getenv("BITSEARCH_URL", "https://bitsearch.eu/api/v1/search"),
             search_providers=providers,
         )

@@ -67,36 +67,23 @@
           btn.textContent = label;
           btn.title = `Add to ${label}`;
           btn.onclick = async () => {
-            if (provider === "offcloud" && !window.offcloudEnabled) {
-              if (typeof window.promptOffcloudApiKey === "function") {
-                window.promptOffcloudApiKey(async () => {
-                  await performAdd();
-                });
-                return;
-              }
-            }
-            await performAdd();
-
-            async function performAdd() {
-              btn.disabled = true;
-              btn.textContent = "...";
-              try {
-                await postJson("/api/add", { magnet: item.magnet, provider: provider });
-                toast(`Added to ${label}: ` + item.title);
-                await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
-                btn.textContent = "✓";
-              } catch (e) {
-                toast("Failed: " + e.message);
-                btn.disabled = false;
-                btn.textContent = label;
-              }
+            btn.disabled = true;
+            btn.textContent = "...";
+            try {
+              await postJson("/api/add", { magnet: item.magnet, provider: provider });
+              toast(`Added to ${label}: ` + item.title);
+              await saveToHistory(item.magnet, item.title, item.size); // Update timestamp
+              btn.textContent = "✓";
+            } catch (e) {
+              toast("Failed: " + e.message);
+              btn.disabled = false;
+              btn.textContent = label;
             }
           };
           return btn;
         };
 
         const addSeedrBtn = makeAddBtn("seedr", "Seedr");
-        const addOffcloudBtn = makeAddBtn("offcloud", "Offcloud");
         
         const delBtn = document.createElement("button");
         delBtn.className = "danger ghost hist-icon";
@@ -116,7 +103,7 @@
           }
         };
         
-        btnGroup.append(copyBtn, addSeedrBtn, addOffcloudBtn, delBtn);
+        btnGroup.append(copyBtn, addSeedrBtn, delBtn);
         actionTd.appendChild(btnGroup);
         
         tr.append(nameTd, actionTd);

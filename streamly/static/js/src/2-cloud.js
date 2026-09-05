@@ -25,10 +25,6 @@
       loadTempCloudListMobile();
       return;
     }
-    if (window.driveProvider === "offcloud") {
-      setDriveProvider("offcloud");
-      return;
-    }
     if (currentFolder === 0) return;
     const target = folderStack.length ? folderStack.pop() : 0;
     loadFolder(target, { _fromStack: true });
@@ -46,31 +42,7 @@
       await loadTempCloudListMobile();
       return;
     }
-    if (window.driveProvider === "offcloud") {
-      if (window.offcloudCurrentFolder) {
-        let folderName = "Folder";
-        const subtitle = $("driveProviderSubtitle");
-        if (subtitle && subtitle.textContent.startsWith("Folder: ")) {
-          folderName = subtitle.textContent.replace("Folder: ", "");
-        }
-        updateStatus($("cloudStatus"), "Refreshing archive...", "");
-        try {
-          const res = await fetch(`/api/offcloud/explore/${window.offcloudCurrentFolder}`, { credentials: "same-origin" });
-          const data = await res.json();
-          if (!data.success) throw new Error(data.detail || "Failed to explore folder");
-          renderOffcloudFolder(window.offcloudCurrentFolder, folderName, data.files || []);
-        } catch (e) {
-          toast("Error: " + e.message);
-        } finally {
-          updateStatus($("cloudStatus"), "", "");
-        }
-      } else {
-        await loadOffcloudList();
-        await loadOffcloudListMobile();
-      }
-    } else {
-      await loadFolder(currentFolder || 0);
-    }
+    await loadFolder(currentFolder || 0);
   };
 
   window.updateSelection = function() {
@@ -138,10 +110,8 @@
     const hasFolder = Array.from(selectedKeys).map(k => currentItems.find(x => x.key === k)).some(x => x && x.type === "folder");
     const telegramBtn = $("telegramBtn");
     if (telegramBtn) telegramBtn.disabled = selectedFiles.length === 0 || hasFolder;
-    // Offcloud has no delete API -> disable/grey the Delete button in Offcloud mode
-    // (same treatment as the Up button at root). Enabled normally for Seedr.
     const deleteBtn = $("deleteBtn");
-    if (deleteBtn) deleteBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
+    if (deleteBtn) deleteBtn.disabled = count === 0;
 
     // Archive Action (Zip folder / Unzip archive)
     const archiveBtn = $("archiveActionBtn");
@@ -246,7 +216,7 @@
       }
     }
     const cmDelBtn = $("cmBulkDelete");
-    if (cmDelBtn) cmDelBtn.disabled = (window.driveProvider === "offcloud") || count === 0;
+    if (cmDelBtn) cmDelBtn.disabled = count === 0;
     // Mobile select-all checkbox state
     const cmAll = $("cmSelectAll");
     if (cmAll) {
@@ -388,7 +358,7 @@
   window.syncCloudAutoRefresh = function() {
     clearTimeout(cloudAutoRefreshTimer);
     cloudAutoRefreshTimer = null;
-    if (window.driveProvider === "offcloud") return;
+    if (window.driveProvider === "temp") return;
     const cloudVisible = $("cloudView") && !$("cloudView").classList.contains("hidden");
     if (isAuthenticated && cloudVisible && (transfers.length > 0 || seedrQueue.length > 0)) {
       cloudAutoRefreshTimer = setTimeout(() => loadFolder(currentFolder || 0, { silent: true }), CLOUD_TRANSFER_REFRESH_MS);
@@ -1064,12 +1034,6 @@
 
   window.deleteSelected = async function() {
     if (selectedKeys.size === 0) return toast("Select item(s) first");
-    
-    // Offcloud has no delete API; the delete button is disabled in Offcloud mode
-    // (see updateSelection). Guard here too in case it's ever invoked directly.
-    if (window.driveProvider === "offcloud") {
-      return toast("Delete isn't supported for Offcloud downloads.");
-    }
 
     const payload = items
       .filter(it => selectedKeys.has(it.key))
@@ -1128,8 +1092,7 @@
     }
     
     updateStatus($("cloudStatus"), `Preparing transfer for ${filesToSend.length} file(s)...`, "");
-    
-    const isOffcloud = window.driveProvider === "offcloud";
+
     const batchPayloads = [];
 
     for (const item of filesToSend) {
@@ -1142,25 +1105,6 @@
             file_name: item.name,
             file_size: item.size,
             download_url: item.id
-          };
-        } else if (isOffcloud) {
-          let dlUrl = item.download_url;
-          if (!dlUrl) {
-            const res = await fetch(`/api/offcloud/explore/${item.id}`, { credentials: "same-origin" });
-            const data = await res.json();
-            if (data.success && data.files && data.files.length > 0) {
-              dlUrl = data.files[0].download_url;
-            }
-          }
-          if (!dlUrl) {
-            throw new Error("Download URL not found");
-          }
-          payload = {
-            file_id: item.id,
-            provider: "offcloud",
-            file_name: item.name,
-            file_size: item.size,
-            download_url: dlUrl
           };
         } else {
           payload = { file_id: item.id, provider: "seedr" };
@@ -1245,10 +1189,8 @@
     openTelegramSettings();
   }
 
-  // =================== OFFCLOUD INTEGRATION: Drive provider pill ===================
-  window.driveProvider = "seedr"; // "seedr" | "offcloud"
-  window.offcloudCurrentFolder = null; // Stores request_id if exploring an Offcloud folder
-
+  // =================== Drive provider pill ===================
+  window.driveProvider = "seedr"; // "seedr" | "temp"
   window.tempCloudCurrentFolder = null;
 
   const MAGNET_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"><path d="M5 14V8a7 7 0 0 1 14 0v6h-4V8a3 3 0 0 0-6 0v6H5z" fill="#f43f5e"/><rect x="5" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/><rect x="15" y="14" width="4" height="4" rx="0.5" fill="#cbd5e1"/></svg>`;
@@ -1257,8 +1199,6 @@
   window.setDriveProvider = async function(provider) {
     if (provider === "temp") {
       window.driveProvider = "temp";
-    } else if (provider === "offcloud") {
-      window.driveProvider = "offcloud";
     } else {
       window.driveProvider = "seedr";
     }
@@ -1267,29 +1207,21 @@
     } catch (_) {}
     
     const isSeedr = window.driveProvider === "seedr";
-    const isOffcloud = window.driveProvider === "offcloud";
     const isTemp = window.driveProvider === "temp";
     
-    window.offcloudCurrentFolder = null;
     window.tempCloudCurrentFolder = null;
 
     const seedrBtn = $("driveProviderSeedr");
-    const offcloudBtn = $("driveProviderOffcloud");
     const tempBtn = $("driveProviderTemp");
     const seedrBtnMobile = $("driveProviderSeedrMobile");
-    const offcloudBtnMobile = $("driveProviderOffcloudMobile");
     const tempBtnMobile = $("driveProviderTempMobile");
 
     if (seedrBtn) seedrBtn.classList.toggle("active", isSeedr);
-    if (offcloudBtn) offcloudBtn.classList.toggle("active", isOffcloud);
     if (tempBtn) tempBtn.classList.toggle("active", isTemp);
     if (seedrBtnMobile) seedrBtnMobile.classList.toggle("active", isSeedr);
-    if (offcloudBtnMobile) offcloudBtnMobile.classList.toggle("active", isOffcloud);
     if (tempBtnMobile) tempBtnMobile.classList.toggle("active", isTemp);
 
     // Update Desktop and Mobile Magnet/Link Action Icons
-    const dIcon = $("desktopActionIcon") || ($("pasteMagnetBtn") ? $("pasteMagnetBtn").querySelector("svg") : null);
-    const mIcon = $("mobileActionIcon") || ($("cmMagnetBtn") ? $("cmMagnetBtn").querySelector("svg") : null);
     const pBtn = $("pasteMagnetBtn");
     const cmBtn = $("cmMagnetBtn");
 
@@ -1320,17 +1252,6 @@
       await updateTempCloudStorageHeader();
       loadTempCloudList();
       loadTempCloudListMobile();
-    } else if (isOffcloud) {
-      if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (window.offcloudCurrentFolder == null); }
-      if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (window.offcloudCurrentFolder == null); }
-      if (nfBtn) nfBtn.classList.add("hidden");
-      if (cmNfBtn) cmNfBtn.classList.add("hidden");
-      if (cpBtn) cpBtn.classList.add("hidden");
-      if (cmCpBtn) cmCpBtn.classList.add("hidden");
-      if (subtitle) subtitle.textContent = "Files sent via Offcloud (large-file overflow)";
-      if (typeof window.renderStorage === "function") window.renderStorage();
-      loadOffcloudList();
-      loadOffcloudListMobile();
     } else {
       if (upBtn) { upBtn.classList.remove("hidden"); upBtn.disabled = (currentFolder || 0) == 0; }
       if (cmUpBtn) { cmUpBtn.classList.remove("hidden"); cmUpBtn.disabled = (currentFolder || 0) == 0; }
@@ -1367,398 +1288,12 @@
     } catch (_) {}
   }
 
-  function offcloudStatusLabel(status) {
-    switch (status) {
-      case "downloaded": return "Ready";
-      case "error": return "Error";
-      case "created": return "Downloading…";
-      default: return status || "Unknown";
-    }
-  }
-
-  function isOffcloudFolder(name) {
-    if (!name) return false;
-    const archiveExtensions = new Set(["zip", "rar", "tar", "gz", "7z"]);
-    const knownFileExtensions = new Set([
-      "mp4", "mkv", "avi", "mov", "m4v", "webm", "flv", "ts", "wmv", "mpg", "mpeg",
-      "mp3", "wav", "m4a", "flac", "ogg", "wma", "iso",
-      "pdf", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-      "jpg", "jpeg", "png", "gif", "bmp", "svg", "webp"
-    ]);
-    const parts = name.split(".");
-    if (parts.length <= 1) return true; // No dot -> folder
-    const ext = parts.pop().toLowerCase();
-    
-    if (archiveExtensions.has(ext)) return true;
-    return !knownFileExtensions.has(ext);
-  }
-
-  window.handleOffcloudRowClick = async function(item) {
-    if (item.status !== "downloaded") {
-      toast("Download is still in progress or has failed (" + item.status + ")");
-      return;
-    }
-    updateStatus($("cloudStatus"), "Exploring archive...", "");
-    try {
-      const res = await fetch(`/api/offcloud/explore/${item.request_id}`, { credentials: "same-origin" });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.detail || "Failed to explore folder");
-      
-      const files = data.files || [];
-      if (files.length === 0) {
-        toast("No files found in this archive.");
-        return;
-      }
-      
-      if (files.length === 1) {
-        await playOrDownloadOffcloudFile(files[0]);
-      } else {
-        renderOffcloudFolder(item.request_id, item.file_name, files);
-      }
-    } catch (e) {
-      toast("Error: " + e.message);
-    } finally {
-      updateStatus($("cloudStatus"), "", "");
-    }
-  }
-
-  window.playOrDownloadOffcloudFile = async function(file) {
-    const ext = String(file.name || "").split(".").pop().toLowerCase();
-    if (["mp4", "webm", "mov", "m4v", "mkv", "avi", "ts"].includes(ext)) {
-      if (typeof window.openVideoPlayerModal === "function") {
-        const itemKey = file.download_url || file.request_id;
-        window.openVideoPlayerModal("offcloud", itemKey, file.name || "Offcloud Video", file.size_str || "");
-        return;
-      }
-      window.open(file.download_url, "_blank", "noopener,noreferrer");
-    } else {
-      window.open(file.download_url, "_blank", "noopener,noreferrer");
-    }
-  }
-
-  async function fetchOffcloudListItems() {
-    const res = await fetch("/api/offcloud/list", { credentials: "same-origin", cache: "no-store" });
-    const data = await parseResponse(res);
-    return data.items || [];
-  }
-
   window.reloadCloudView = function(opts = {}) {
     if (window.driveProvider === "temp") {
       loadTempCloudList();
       loadTempCloudListMobile();
-    } else if (window.driveProvider === "offcloud") {
-      loadOffcloudList();
-      loadOffcloudListMobile();
     } else {
       loadFolder(currentFolder || 0, opts);
-    }
-  };
-
-  window.loadOffcloudList = async function() {
-    const body = $("cloudBody");
-    const empty = $("cloudEmpty");
-    if (!body) return;
-    updateStatus($("cloudStatus"), "Loading Offcloud list...", "");
-    try {
-      const listItems = await fetchOffcloudListItems();
-      if (window.driveProvider !== "offcloud") return;
-      body.textContent = "";
-
-      // Normalize Offcloud items to match Seedr item schema
-      window.items = listItems.map(item => {
-        const type = isOffcloudFolder(item.file_name) ? "folder" : "file";
-        const key = `offcloud:${item.request_id}`;
-        return {
-          ...item,
-          key: key,
-          id: item.request_id,
-          name: item.file_name || "Unnamed",
-          type: type,
-          size: item.size_bytes || 0,
-          size_str: item.size_bytes ? bytes(item.size_bytes) : "-",
-          last_update: item.created_at || Math.floor(Date.now() / 1000)
-        };
-      });
-
-      window.items.sort((a, b) => {
-        if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
-        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
-      });
-
-      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
-      selectedKeys.clear();
-      lastClickedKey = null;
-      updateSelection();
-
-      for (const item of window.items) {
-        const tr = document.createElement("tr");
-        tr.dataset.key = item.key;
-
-        const checkTd = document.createElement("td");
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.className = "row-check";
-        cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(item.key, true, false); });
-        checkTd.appendChild(cb);
-
-        const nameTd = document.createElement("td");
-        const nameCell = document.createElement("div");
-        nameCell.className = "name-cell";
-        const icon = document.createElement("span");
-        icon.className = "icon";
-        if (item.type === "folder") {
-          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
-        } else {
-          icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
-        }
-        const name = document.createElement("span");
-        name.className = "truncate";
-        name.textContent = item.name;
-        nameCell.append(icon, name);
-        nameTd.appendChild(nameCell);
-
-        const statusTd = document.createElement("td");
-        statusTd.className = "muted";
-        statusTd.textContent = offcloudStatusLabel(item.status);
-
-        const sizeTd = document.createElement("td");
-        sizeTd.className = "muted";
-        sizeTd.textContent = item.size_str;
-
-        const dateTd = document.createElement("td");
-        dateTd.className = "muted";
-        dateTd.textContent = item.created_at ? fmtDate(item.created_at * 1000) : "-";
-
-        tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
-        tr.style.cursor = "pointer";
-        tr.addEventListener("click", (e) => {
-          if (e.target.closest(".row-check")) return;
-          toggleKey(item.key, e.ctrlKey || e.metaKey, e.shiftKey);
-        });
-        tr.addEventListener("dblclick", () => handleOffcloudRowClick(item));
-        body.appendChild(tr);
-      }
-      updateStatus($("cloudStatus"), "", "");
-    } catch (err) {
-      if (window.driveProvider !== "offcloud") return;
-      updateStatus($("cloudStatus"), err.message || "Failed to load Offcloud list", "error");
-    }
-  }
-
-  window.loadOffcloudListMobile = async function() {
-    const list = $("cloudMobileList");
-    if (!list) return;
-    const cnt = $("cmCount");
-    const empty = $("cloudMobileEmpty");
-    try {
-      const listItems = await fetchOffcloudListItems();
-      if (window.driveProvider !== "offcloud") return;
-      list.textContent = "";
-
-      // Normalize Offcloud items to match Seedr item schema
-      window.items = listItems.map(item => {
-        const type = isOffcloudFolder(item.file_name) ? "folder" : "file";
-        const key = `offcloud:${item.request_id}`;
-        return {
-          ...item,
-          key: key,
-          id: item.request_id,
-          name: item.file_name || "Unnamed",
-          type: type,
-          size: item.size_bytes || 0,
-          size_str: item.size_bytes ? bytes(item.size_bytes) : "-",
-          last_update: item.created_at || Math.floor(Date.now() / 1000)
-        };
-      });
-
-      if (cnt) cnt.textContent = `${window.items.length} item${window.items.length === 1 ? "" : "s"}`;
-      if (empty) empty.classList.toggle("hidden", window.items.length !== 0);
-
-      for (const item of window.items) {
-        const row = document.createElement("div");
-        row.className = "cm-row";
-        row.dataset.key = item.key;
-
-        const tick = document.createElement("div");
-        tick.className = "cm-tick";
-        tick.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-        const ic = document.createElement("div");
-        ic.className = "cm-ic";
-        if (item.type === "folder") {
-          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-folder"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>`;
-        } else {
-          ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
-        }
-
-        const info = document.createElement("div");
-        info.className = "cm-info";
-        const fn = document.createElement("div");
-        fn.className = "cm-fn";
-        fn.textContent = item.name;
-        const meta = document.createElement("div");
-        meta.className = "cm-meta";
-        const s1 = document.createElement("span");
-        s1.textContent = offcloudStatusLabel(item.status);
-        const s2 = document.createElement("span");
-        s2.textContent = item.size_str;
-        meta.append(s1, s2);
-        info.append(fn, meta);
-
-        row.append(tick, ic, info);
-        row.addEventListener("click", (e) => {
-          if (cmTapTimer) {
-            clearTimeout(cmTapTimer);
-            cmTapTimer = null;
-            handleOffcloudRowClick(item);
-            return;
-          }
-          cmTapTimer = setTimeout(() => {
-            cmTapTimer = null;
-            toggleKey(item.key, true, false);
-          }, 250);
-        });
-        list.appendChild(row);
-      }
-    } catch (err) {
-      updateStatus($("cloudStatus"), err.message || "Failed to load Offcloud list", "error");
-    }
-  }
-
-  window.renderOffcloudFolder = function(requestId, folderName, files) {
-    window.offcloudCurrentFolder = requestId;
-    
-    const upBtn = $("upBtn");
-    const cmUpBtn = $("cmUpBtn");
-    if (upBtn) {
-      upBtn.classList.remove("hidden");
-      upBtn.disabled = false;
-    }
-    if (cmUpBtn) {
-      cmUpBtn.classList.remove("hidden");
-      cmUpBtn.disabled = false;
-    }
-
-    const subtitle = $("driveProviderSubtitle");
-    if (subtitle) subtitle.textContent = "Folder: " + folderName;
-
-    // Normalize explored files to match Seedr item schema
-    window.items = files.map((file, index) => {
-      const key = `offcloud_file:${requestId}:${index}`;
-      return {
-        ...file,
-        key: key,
-        id: file.download_url,
-        name: file.name || "Unnamed",
-        type: "file",
-        size: file.size || 0,
-        size_str: file.size ? bytes(file.size) : "-",
-        last_update: Math.floor(Date.now() / 1000)
-      };
-    });
-
-    window.items.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-
-    const body = $("cloudBody");
-    const empty = $("cloudEmpty");
-    if (body) {
-      body.textContent = "";
-      if (empty) empty.classList.add("hidden");
-      
-      window.items.forEach((file) => {
-        const tr = document.createElement("tr");
-        tr.dataset.key = file.key;
-        
-        const checkTd = document.createElement("td");
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.className = "row-check";
-        cb.addEventListener("click", (e) => { e.stopPropagation(); toggleKey(file.key, true, false); });
-        checkTd.appendChild(cb);
-        
-        const nameTd = document.createElement("td");
-        const nameCell = document.createElement("div");
-        nameCell.className = "name-cell";
-        const icon = document.createElement("span");
-        icon.className = "icon";
-        icon.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
-        const name = document.createElement("span");
-        name.className = "truncate";
-        name.textContent = file.name;
-        nameCell.append(icon, name);
-        nameTd.appendChild(nameCell);
-
-        const statusTd = document.createElement("td");
-        statusTd.className = "muted";
-        statusTd.textContent = "Ready";
-
-        const sizeTd = document.createElement("td");
-        sizeTd.className = "muted";
-        sizeTd.textContent = "-";
-
-        const dateTd = document.createElement("td");
-        dateTd.className = "muted";
-        dateTd.textContent = "-";
-
-        tr.append(checkTd, nameTd, statusTd, sizeTd, dateTd);
-        tr.style.cursor = "pointer";
-        tr.addEventListener("click", (e) => {
-          if (e.target.closest(".row-check")) return;
-          toggleKey(file.key, e.ctrlKey || e.metaKey, e.shiftKey);
-        });
-        tr.addEventListener("dblclick", () => playOrDownloadOffcloudFile(file));
-        body.appendChild(tr);
-      });
-    }
-
-    const list = $("cloudMobileList");
-    const mEmpty = $("cloudMobileEmpty");
-    const cnt = $("cmCount");
-    if (list) {
-      list.textContent = "";
-      if (mEmpty) mEmpty.classList.add("hidden");
-      if (cnt) cnt.textContent = `${window.items.length} item${window.items.length === 1 ? "" : "s"}`;
-
-      window.items.forEach((file) => {
-        const row = document.createElement("div");
-        row.className = "cm-row";
-        row.dataset.key = file.key;
-
-        const tick = document.createElement("div");
-        tick.className = "cm-tick";
-        tick.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-        const ic = document.createElement("div");
-        ic.className = "cm-ic";
-        ic.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-video"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>`;
-
-        const info = document.createElement("div");
-        info.className = "cm-info";
-        const fn = document.createElement("div");
-        fn.className = "cm-fn";
-        fn.textContent = file.name;
-        const meta = document.createElement("div");
-        meta.className = "cm-meta";
-        const s1 = document.createElement("span");
-        s1.textContent = "Ready";
-        meta.append(s1);
-        info.append(fn, meta);
-
-        row.append(tick, ic, info);
-        row.addEventListener("click", (e) => {
-          if (cmTapTimer) {
-            clearTimeout(cmTapTimer);
-            cmTapTimer = null;
-            playOrDownloadOffcloudFile(file);
-            return;
-          }
-          cmTapTimer = setTimeout(() => {
-            cmTapTimer = null;
-            toggleKey(file.key, true, false);
-          }, 250);
-        });
-        list.appendChild(row);
-      });
     }
   };
 
@@ -1810,8 +1345,6 @@
       let msg = "Added: " + magnetName;
       if (res && res.queued) {
         msg = "Added to queue: " + magnetName;
-      } else if (res && res.provider === "offcloud") {
-        msg = "Added to Offcloud: " + magnetName;
       } else {
         msg = "Added to Seedr: " + magnetName;
       }
@@ -2087,8 +1620,10 @@
     // Restore saved provider on load
     try {
       const savedProvider = localStorage.getItem("streamly:drive_provider");
-      if (savedProvider && ["temp", "offcloud"].includes(savedProvider)) {
-        setDriveProvider(savedProvider);
+      if (savedProvider === "temp") {
+        setDriveProvider("temp");
+      } else {
+        setDriveProvider("seedr");
       }
     } catch (_) {}
 
