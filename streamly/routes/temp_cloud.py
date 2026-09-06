@@ -507,7 +507,7 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
 
     range_header = request.headers.get("range")
 
-    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_sz: int):
+    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_sz: int = 256 * 1024):
         """Asynchronously streams file chunks via threadpool with early client-disconnect termination."""
         def _read_sync(file_obj, sz):
             return file_obj.read(sz)
@@ -578,7 +578,7 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
         "Connection": "keep-alive",
         "X-Content-Type-Options": "nosniff"
     }
-    return StreamingResponse(_iter_file_chunks(target_path, start, length), headers=headers, status_code=206)
+    return StreamingResponse(_iter_file_chunks(target_path, start, length, chunk_size), headers=headers, status_code=206)
 
 
 class DeletePayload(BaseModel):
