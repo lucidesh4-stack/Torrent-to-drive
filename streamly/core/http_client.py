@@ -158,7 +158,8 @@ class OptimizedDownloader:
             # disk write takes, on EVERY 512KB chunk of EVERY download. Offloading
             # each write to a thread via asyncio.to_thread keeps the event loop free
             # to serve other requests while this write is in flight.
-            with open(dest_path, 'wb') as f:
+            f = await asyncio.to_thread(open, dest_path, 'wb')
+            try:
                 async for chunk in response.aiter_bytes(chunk_size=512*1024):
                     await asyncio.to_thread(f.write, chunk)
                     bytes_downloaded += len(chunk)
@@ -167,6 +168,8 @@ class OptimizedDownloader:
                         elapsed = time.time() - start_time
                         speed = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0
                         progress_callback(bytes_downloaded, speed)
+            finally:
+                await asyncio.to_thread(f.close)
 
         elapsed = time.time() - start_time
         speed_mbps = (bytes_downloaded / 1024 / 1024 / elapsed) * 8 if elapsed > 0 else 0

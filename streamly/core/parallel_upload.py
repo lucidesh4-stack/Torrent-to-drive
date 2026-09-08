@@ -39,19 +39,23 @@ async def fast_upload_file(
     uploaded_bytes = [0]
     lock = asyncio.Lock()
 
-    async def worker():
-        with open(file_path, "rb") as f:
-            while not queue.empty():
-                try:
-                    part_index = queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    break
+    def _read_part_sync(path: str, offset: int, size: int) -> bytes:
+        with open(path, "rb") as f:
+            f.seek(offset)
+            return f.read(size)
 
-                f.seek(part_index * part_size)
-                chunk = f.read(part_size)
-                if not chunk:
-                    queue.task_done()
-                    continue
+    async def worker():
+        while not queue.empty():
+            try:
+                part_index = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+            offset = part_index * part_size
+            chunk = await asyncio.to_thread(_read_part_sync, file_path, offset, part_size)
+            if not chunk:
+                queue.task_done()
+                continue
 
                 if is_big:
                     req = SaveBigFilePartRequest(file_id, part_index, total_parts, chunk)

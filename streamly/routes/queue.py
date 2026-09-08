@@ -181,6 +181,10 @@ async def seedr_queue_daemon_loop(app):
                 if f.get("name"):
                     completed_names.add(f.get("name").lower())
 
+            # 1. Identify transfers that must be cancelled (oversized, ghost, stopped/failed)
+            to_cancel = []
+            valid_transfers = []
+
             for t in list(transfers):
                 t_id = t.get("id")
                 t_name = t.get("name") or ""
@@ -190,101 +194,149 @@ async def seedr_queue_daemon_loop(app):
                 
                 if t_size > 4.5 * 1024 * 1024 * 1024:
                     log.warning("Active torrent '%s' resolved to size %s (> 4.5 GB). Cancelling.", t_name, t_size)
-                    try:
-                        await cloud.delete_transfer(client, t_id)
-                        active_changed = True
-                    except Exception as err:
-                        log.error("Failed to cancel oversized torrent: %s", err)
+                    to_cancel.append((t_id, t_name, "oversized"))
                 elif t_size > maximum:
                     log.warning("Active torrent '%s' resolved to size %s which exceeds storage quota %s. Cancelling.", t_name, t_size, maximum)
-                    try:
-                        await cloud.delete_transfer(client, t_id)
-                        active_changed = True
-                    except Exception as err:
-                        log.error("Failed to cancel quota-exceeding torrent: %s", err)
+                    to_cancel.append((t_id, t_name, "quota-exceeding"))
                 elif t_name and t_name.lower() in completed_names:
                     log.warning("Ghost transfer detected for completed torrent '%s'. Deleting duplicate transfer.", t_name)
-                    try:
-                        await cloud.delete_transfer(client, t_id)
-                        active_changed = True
-                    except Exception as err:
-                        log.error("Failed to delete ghost transfer: %s", err)
+                    to_cancel.append((t_id, t_name, "ghost"))
                 elif t_stopped or "error" in t_status or "failed" in t_status:
                     log.warning("Transfer '%s' is stopped/failed (status: %s). Cancelling so it doesn't block the queue.", t_name, t_status)
-                    try:
-                        await cloud.delete_transfer(client, t_id)
-                        active_changed = True
-                    except Exception as err:
-                        log.error("Failed to delete stopped/failed transfer: %s", err)
+                    to_cancel.append((t_id, t_name, "stopped/failed"))
                 else:
-                    t_progress = _safe_float(t.get("progress", 0.0))
-                    t_speed = _safe_float(t.get("download_rate", 0.0))
-                    is_loading = t_status.startswith("loading") or "seeder" in t_status or "collecting" in t_status or "stuck" in t_status
-                    is_stuck = is_loading and (t_progress < 1.0) and (t_speed == 0.0)
-                    
-                    if is_stuck:
-                        stuck_key = f"streamly:stuck_torrent:{t_id}"
-                        try:
-                            first_seen_str = await rs.get(stuck_key)
+                    valid_transfers.append(t)
 
-                            now = time.time()
-                            if not first_seen_str:
-                                await rs.set(stuck_key, str(now), ex=1800)
-                            else:
-                                try:
-                                    first_seen = float(first_seen_str)
-                                except ValueError:
-                                    first_seen = now
-                                if now - first_seen >= 300:
-                                    log.warning("Torrent '%s' is stuck loading for 5+ mins. Re-queuing to the end of the queue...", t_name)
-                                    magnet = None
-                                    try:
-                                        magnet_bytes = await rs._execute("HGET", "streamly:magnet_mapping", t_name.lower())
-                                        if magnet_bytes:
-                                            magnet = magnet_bytes.decode("utf-8") if isinstance(magnet_bytes, bytes) else magnet_bytes
-                                    except Exception as me:
-                                        log.debug("Failed to HGET magnet mapping: %s", me)
-                                    
-                                    if not magnet:
-                                        try:
-                                            history = await rs.get_history("global_history")
-                                            for hist_item in history:
-                                                h_title = hist_item.get("title", "")
-                                                if h_title and (h_title.lower() == t_name.lower() or t_name.lower() in h_title.lower() or h_title.lower() in t_name.lower()):
-                                                    magnet = hist_item.get("magnet")
-                                                    if magnet:
-                                                        break
-                                        except Exception as he:
-                                            log.debug("Failed to find magnet in history: %s", he)
-                                    
-                                    if magnet:
-                                        await rs._execute("DEL", stuck_key)
-                                        try:
-                                            await cloud.delete_transfer(client, t_id)
-                                            active_changed = True
-                                        except Exception as err:
-                                            log.error("Failed to delete stuck transfer: %s", err)
-                                        
-                                        queued_item = {
-                                            "task_id": f"stk-{t_id}",
-                                            "magnet": magnet,
-                                            "name": t_name,
-                                            "size": t_size,
-                                            "time": int(time.time()),
-                                            "retries": 0
-                                        }
-                                        try:
-                                            await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
-                                            log.info("Re-queued stuck torrent '%s' to the back of the queue successfully.", t_name)
-                                        except Exception as qe:
-                                            log.error("Failed to re-queue stuck torrent: %s", qe)
-                        except Exception as stuck_err:
-                            log.error("Error processing stuck check for transfer %s: %s", t_id, stuck_err)
+            # Parallelize HTTP delete_transfer API calls if any need cancellation (eliminates N+1 HTTP calls)
+            if to_cancel:
+                async def _cancel_single(tid, name, reason):
+                    try:
+                        await cloud.delete_transfer(client, tid)
+                        return True
+                    except Exception as err:
+                        log.error("Failed to delete %s transfer '%s': %s", reason, name, err)
+                        return False
+
+                results = await asyncio.gather(*[_cancel_single(tid, name, reason) for tid, name, reason in to_cancel])
+                if any(results):
+                    active_changed = True
+
+            # 2. Batch-inspect stuck transfers vs non-stuck transfers
+            stuck_transfers = []
+            non_stuck_keys_to_del = []
+
+            for t in valid_transfers:
+                t_id = t.get("id")
+                t_status = str(t.get("status", "")).lower()
+                t_progress = _safe_float(t.get("progress", 0.0))
+                t_speed = _safe_float(t.get("download_rate", 0.0))
+                is_loading = t_status.startswith("loading") or "seeder" in t_status or "collecting" in t_status or "stuck" in t_status
+                is_stuck = is_loading and (t_progress < 1.0) and (t_speed == 0.0)
+
+                if is_stuck:
+                    stuck_transfers.append(t)
+                else:
+                    non_stuck_keys_to_del.append(f"streamly:stuck_torrent:{t_id}")
+
+            # Batch DEL non-stuck keys in a single Redis command (eliminates N+1 Redis DELs)
+            if non_stuck_keys_to_del:
+                try:
+                    await rs._execute("DEL", *non_stuck_keys_to_del)
+                except Exception:
+                    pass
+
+            # 3. Batch-check stuck torrent timestamps via MGET (eliminates N+1 Redis GETs)
+            if stuck_transfers:
+                stuck_keys = [f"streamly:stuck_torrent:{t.get('id')}" for t in stuck_transfers]
+                try:
+                    first_seen_values = await rs._execute("MGET", *stuck_keys) or []
+                except Exception as mget_err:
+                    log.debug("MGET failed, falling back: %s", mget_err)
+                    first_seen_values = [None] * len(stuck_transfers)
+
+                now = time.time()
+                keys_to_init = []
+
+                for t, raw_val in zip(stuck_transfers, first_seen_values):
+                    t_id = t.get("id")
+                    t_name = t.get("name") or ""
+                    t_size = max(0, _safe_int(t.get("size", 0)))
+                    stuck_key = f"streamly:stuck_torrent:{t_id}"
+                    first_seen_str = raw_val.decode("utf-8") if isinstance(raw_val, bytes) else raw_val
+
+                    if not first_seen_str:
+                        keys_to_init.append((stuck_key, str(now)))
                     else:
                         try:
-                            await rs._execute("DEL", f"streamly:stuck_torrent:{t_id}")
-                        except Exception:
-                            pass
+                            first_seen = float(first_seen_str)
+                        except ValueError:
+                            first_seen = now
+
+                        if now - first_seen >= 300:
+                            log.warning("Torrent '%s' is stuck loading for 5+ mins. Re-queuing to the end of the queue...", t_name)
+                            magnet = None
+                            try:
+                                magnet_bytes = await rs._execute("HGET", "streamly:magnet_mapping", t_name.lower())
+                                if magnet_bytes:
+                                    magnet = magnet_bytes.decode("utf-8") if isinstance(magnet_bytes, bytes) else magnet_bytes
+                            except Exception as me:
+                                log.debug("Failed to HGET magnet mapping: %s", me)
+                            
+                            if not magnet:
+                                try:
+                                    history = await rs.get_history("global_history")
+                                    for hist_item in history:
+                                        h_title = hist_item.get("title", "")
+                                        if h_title and (h_title.lower() == t_name.lower() or t_name.lower() in h_title.lower() or h_title.lower() in t_name.lower()):
+                                            magnet = hist_item.get("magnet")
+                                            if magnet:
+                                                break
+                                except Exception as he:
+                                    log.debug("Failed to find magnet in history: %s", he)
+                            
+                            if magnet:
+                                await rs._execute("DEL", stuck_key)
+                                try:
+                                    await cloud.delete_transfer(client, t_id)
+                                    active_changed = True
+                                except Exception as err:
+                                    log.error("Failed to delete stuck transfer: %s", err)
+                                
+                                queued_item = {
+                                    "task_id": f"stk-{t_id}",
+                                    "magnet": magnet,
+                                    "name": t_name,
+                                    "size": t_size,
+                                    "time": int(time.time()),
+                                    "retries": 0
+                                }
+                                try:
+                                    await rs._execute("RPUSH", "streamly:seedr_queue", _json.dumps(queued_item))
+                                    log.info("Re-queued stuck torrent '%s' to the back of the queue successfully.", t_name)
+                                except Exception as qe:
+                                    log.error("Failed to re-queue stuck torrent: %s", qe)
+
+                if keys_to_init:
+                    try:
+                        await asyncio.gather(*[rs.set(k, v, ex=1800) for k, v in keys_to_init])
+                    except Exception as set_err:
+                        log.debug("Failed to batch set stuck keys: %s", set_err)
+
+            # 4. Clean up any orphaned stuck tracking keys whose transfers no longer exist
+            try:
+                all_stuck_keys = await rs.keys("streamly:stuck_torrent:*")
+                if all_stuck_keys:
+                    current_ids = {str(t.get("id")) for t in transfers}
+                    orphan_keys = []
+                    for k in all_stuck_keys:
+                        k_str = k.decode("utf-8") if isinstance(k, bytes) else str(k)
+                        tid_part = k_str.split(":")[-1]
+                        if tid_part not in current_ids:
+                            orphan_keys.append(k)
+                    if orphan_keys:
+                        await rs._execute("DEL", *orphan_keys)
+            except Exception as orphan_err:
+                log.debug("Failed to batch clean orphan stuck keys: %s", orphan_err)
                         
             if active_changed:
                 storage = await cloud.list_items(client, 0)

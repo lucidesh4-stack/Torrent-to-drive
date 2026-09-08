@@ -196,13 +196,26 @@ async def upload_via_bot_api(bot_token: str, chat_id: str, file_path: str, filen
     url = f"https://api.telegram.org/bot{bot_token}/sendDocument"
     file_size = os.path.getsize(file_path)
     
+    async def _file_streamer(path: str, chunk_size: int = 512 * 1024):
+        def _read_sync(f_obj):
+            return f_obj.read(chunk_size)
+
+        f = await asyncio.to_thread(open, path, "rb")
+        try:
+            while True:
+                chunk = await asyncio.to_thread(_read_sync, f)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await asyncio.to_thread(f.close)
+
     async with httpx.AsyncClient(timeout=600.0, follow_redirects=True) as client:
-        with open(file_path, "rb") as f:
-            files = {"document": (filename, f)}
-            data = {"chat_id": chat_id}
-            response = await client.post(url, data=data, files=files)
-            response.raise_for_status()
-            return response.json()
+        files = {"document": (filename, _file_streamer(file_path))}
+        data = {"chat_id": chat_id}
+        response = await client.post(url, data=data, files=files)
+        response.raise_for_status()
+        return response.json()
 
 # Default hooks
 async def _log_connect(c): log.debug("TG client connected")
