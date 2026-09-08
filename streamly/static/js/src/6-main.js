@@ -336,17 +336,59 @@
     $("appScreen").classList.remove("hidden");
   });
   document.addEventListener("keydown", (e) => {
+    // 1. "/" to focus search
+    if (e.key === "/") {
+      const isTyping = ["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName) || e.target.isContentEditable;
+      const anyModalVisible = document.querySelector(".overlay:not(.hidden), #videoPlayerModal:not(.hidden)");
+
+      if (!isTyping && !anyModalVisible) {
+        e.preventDefault();
+        setTab("search");
+        const queryInput = $("searchQuery");
+        if (queryInput) {
+          queryInput.focus();
+          queryInput.select();
+        }
+      }
+      return; // done handling "/"
+    }
+
+    // 2. "Escape" to close modals
     if (e.key === "Escape") {
       if (!$("loginScreen").classList.contains("hidden")) {
         $("loginScreen").classList.add("hidden");
         $("appScreen").classList.remove("hidden");
+        return;
       }
-      if (!$("telegramAuthOverlay").classList.contains("hidden")) {
-        $("telegramAuthOverlay").classList.add("hidden");
-      }
-      if (!$("telegramTransfersOverlay").classList.contains("hidden")) {
-        const closeTransfers = $("closeTelegramTransfersBtn");
-        if (closeTransfers) closeTransfers.click();
+
+      // Use a generic query to find active modal
+      const activeModal = document.querySelector(".overlay:not(.hidden), #videoPlayerModal:not(.hidden)");
+      if (activeModal) {
+        const closeBtn = activeModal.querySelector(".ghost[id*='close'], button[id*='close'], .ghost, #vpmCloseBtn");
+        if (closeBtn) {
+          closeBtn.click();
+        } else {
+          activeModal.classList.add("hidden");
+        }
+
+        // Pause video if closing video player modal
+        if (activeModal.id === "videoPlayerModal" || activeModal.id === "videoOverlay") {
+          const video = $("vpmVideo") || $("videoPlayer");
+          if (video) video.pause();
+        }
+
+        // Restore tab highlights if closing generic overlays
+        if (activeModal.id === "historyOverlay" || activeModal.id === "telegramTransfersOverlay") {
+          if (typeof window.restoreActiveMainTabHighlight === "function") {
+            window.restoreActiveMainTabHighlight();
+          }
+        }
+      } else {
+        // Also close search suggestions if no overlay is open
+        const suggestBox = $("suggestBox");
+        if (suggestBox && !suggestBox.classList.contains("hidden")) {
+           suggestBox.classList.add("hidden");
+        }
       }
     }
   });
@@ -467,7 +509,6 @@
   $("addMagnetBtn").addEventListener("click", () => search(false, 1));
   $("searchQuery").addEventListener("keydown", (e) => {
     if (e.key === "Enter") search(false, 1);
-    else if (e.key === "Escape") $("suggestBox").classList.add("hidden");
   });
   $("searchQuery").addEventListener("blur", () => {
     setTimeout(() => {
