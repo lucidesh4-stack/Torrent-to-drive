@@ -1,6 +1,6 @@
 // Entrypoint for Native ES Modules
 import './src/1-core.js?v=20260905_3';
-import './src/2-cloud.js?v=20260905_3';
+import './src/2-cloud.js?v=20260911_1';
 import './src/2b-cloud-downloads.js?v=20260905_3';
 import './src/3b-series.js?v=20260905_3';
 import './src/4-history.js?v=20260905_4';

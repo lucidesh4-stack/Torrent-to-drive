@@ -724,7 +724,8 @@
     }
     if (window.driveProvider === "temp" || (item.key && item.key.startsWith("temp:"))) {
       const dlParam = forDownload ? "&download=1" : "";
-      return `/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}${dlParam}`;
+      const origin = (typeof window !== "undefined" && window.location && window.location.origin) ? window.location.origin : "";
+      return `${origin}/api/temp_cloud/stream?file_id=${encodeURIComponent(item.id)}${dlParam}`;
     }
     const data = await parseResponse(await fetch(`/api/url?file_id=${encodeURIComponent(item.id)}`, { credentials: "same-origin" }));
     if (!data.url) throw new Error("No download/stream URL returned");
@@ -775,7 +776,7 @@
     );
 
     try {
-      const settled = await Promise.allSettled(files.map((f) => getFileUrl(f)));
+      const settled = await Promise.allSettled(files.map((f) => getFileUrl(f, true)));
 
       const urls = [];
       const failed = [];
