@@ -458,13 +458,13 @@ async def temp_cloud_downloads_sse(request: Request):
 
 
 import mimetypes
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 @temp_cloud_router.get("/api/temp_cloud/stream")
 @temp_cloud_router.get("/api/temp_cloud/file")
 @temp_cloud_router.get("/api/temp_cloud/download_file")
 async def temp_cloud_stream(request: Request, file_id: str, download: bool = False):
-    """Streams or serves a file stored in Temp Cloud with HTTP 206 Range support for video seeking & playback."""
+    """Streams or serves a file stored in Temp Cloud with high-performance zero-copy FileResponse and HTTP 206 Range support."""
     user_dir = get_user_temp_dir()
 
     target_path = os.path.realpath(os.path.join(user_dir, file_id.lstrip("/\\")))
@@ -472,7 +472,6 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
         raise HTTPException(status_code=404, detail="File not found in Temp Cloud")
 
     filename = os.path.basename(target_path)
-    file_size = os.path.getsize(target_path)
 
     is_download = download or request.query_params.get("download") in ("1", "true", "yes") or request.url.path.endswith("/download_file")
     disposition = "attachment" if is_download else "inline"
@@ -499,86 +498,18 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
             else:
                 content_type = "application/octet-stream"
 
-    # 256 KB chunks for streaming ensure the first video frame arrives in <20ms and stream flows without stutter/buffering.
-    # 4 MB chunks for downloads maximize bulk network I/O throughput.
-    STREAM_CHUNK_SIZE_DOWNLOAD = 4 * 1024 * 1024  # 4 MB for bulk download
-    STREAM_CHUNK_SIZE_STREAM = 256 * 1024         # 256 KB for instant, smooth video playback without buffering
-    chunk_size = STREAM_CHUNK_SIZE_DOWNLOAD if is_download else STREAM_CHUNK_SIZE_STREAM
-
-    range_header = request.headers.get("range")
-
-    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_sz: int = 256 * 1024):
-        """Asynchronously streams file chunks via threadpool with early client-disconnect termination."""
-        def _read_sync(file_obj, sz):
-            return file_obj.read(sz)
-
-        with open(path, "rb", buffering=0) as f:
-            if start_byte > 0:
-                f.seek(start_byte)
-            remaining = byte_length
-            while remaining > 0:
-                if await request.is_disconnected():
-                    break
-                to_read = min(chunk_sz, remaining)
-                chunk = await asyncio.to_thread(_read_sync, f, to_read)
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-                yield chunk
-
-    if not range_header:
-        # Full file streaming / direct single-connection download
-        headers = {
-            "Content-Length": str(file_size),
-            "Accept-Ranges": "bytes",
-            "Content-Type": content_type,
-            "Content-Disposition": f'{disposition}; filename="{filename}"',
-            "Cache-Control": "public, max-age=86400",
-            "Connection": "keep-alive",
-            "X-Content-Type-Options": "nosniff"
-        }
-        return StreamingResponse(_iter_file_chunks(target_path, 0, file_size, chunk_size), headers=headers, status_code=200)
-
-    # Standard RFC 7233 Range parser: supports bytes=start-end, bytes=start-, and bytes=-suffix_len
-    try:
-        range_val = range_header.strip().lower().replace("bytes=", "")
-        if "," in range_val:
-            range_val = range_val.split(",")[0].strip()
-        if range_val.startswith("-"):
-            # Suffix range (e.g. bytes=-500 -> last 500 bytes)
-            suffix_len = int(range_val[1:])
-            start = max(0, file_size - suffix_len)
-            end = file_size - 1
-        elif "-" in range_val:
-            parts = range_val.split("-", 1)
-            start = int(parts[0]) if parts[0] else 0
-            end = int(parts[1]) if parts[1] else file_size - 1
-        else:
-            start = int(range_val)
-            end = file_size - 1
-
-        if end >= file_size:
-            end = file_size - 1
-        if start < 0 or start > end:
-            start = 0
-            end = file_size - 1
-        length = end - start + 1
-    except Exception:
-        start = 0
-        end = file_size - 1
-        length = file_size
-
     headers = {
-        "Content-Range": f"bytes {start}-{end}/{file_size}",
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(length),
-        "Content-Type": content_type,
-        "Content-Disposition": f'{disposition}; filename="{filename}"',
         "Cache-Control": "public, max-age=86400",
-        "Connection": "keep-alive",
         "X-Content-Type-Options": "nosniff"
     }
-    return StreamingResponse(_iter_file_chunks(target_path, start, length, chunk_size), headers=headers, status_code=206)
+
+    return FileResponse(
+        path=target_path,
+        filename=filename,
+        media_type=content_type,
+        content_disposition_type=disposition,
+        headers=headers
+    )
 
 
 class DeletePayload(BaseModel):
