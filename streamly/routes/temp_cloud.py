@@ -498,18 +498,89 @@ async def temp_cloud_stream(request: Request, file_id: str, download: bool = Fal
             else:
                 content_type = "application/octet-stream"
 
+    file_size = os.path.getsize(target_path)
+
+    # 1 MB chunks for download maximize throughput on network FUSE mounts without exhausting kernel descriptors.
+    # 256 KB chunks for streaming ensure instant video playback and seeking.
+    STREAM_CHUNK_SIZE_DOWNLOAD = 1024 * 1024  # 1 MB
+    STREAM_CHUNK_SIZE_STREAM = 256 * 1024     # 256 KB
+    chunk_size = STREAM_CHUNK_SIZE_DOWNLOAD if is_download else STREAM_CHUNK_SIZE_STREAM
+
+    range_header = request.headers.get("range")
+
+    async def _iter_file_chunks(path: str, start_byte: int, byte_length: int, chunk_sz: int):
+        """Asynchronously streams file chunks with 1MB buffered I/O, disconnect detection, and graceful error handling."""
+        def _read_sync(file_obj, sz):
+            return file_obj.read(sz)
+
+        try:
+            with open(path, "rb", buffering=1024 * 1024) as f:
+                if start_byte > 0:
+                    f.seek(start_byte)
+                remaining = byte_length
+                while remaining > 0:
+                    if await request.is_disconnected():
+                        break
+                    to_read = min(chunk_sz, remaining)
+                    chunk = await asyncio.to_thread(_read_sync, f, to_read)
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+        except (OSError, ConnectionResetError, asyncio.CancelledError) as e:
+            log.debug("Stream client disconnected or connection closed early: %s", e)
+            return
+
+    if not range_header:
+        headers = {
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+            "Content-Type": content_type,
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "public, max-age=86400",
+            "Connection": "keep-alive",
+            "X-Content-Type-Options": "nosniff"
+        }
+        return StreamingResponse(_iter_file_chunks(target_path, 0, file_size, chunk_size), headers=headers, status_code=200)
+
+    try:
+        range_val = range_header.strip().lower().replace("bytes=", "")
+        if "," in range_val:
+            range_val = range_val.split(",")[0].strip()
+        if range_val.startswith("-"):
+            suffix_len = int(range_val[1:])
+            start = max(0, file_size - suffix_len)
+            end = file_size - 1
+        elif "-" in range_val:
+            parts = range_val.split("-", 1)
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+        else:
+            start = int(range_val)
+            end = file_size - 1
+
+        if end >= file_size:
+            end = file_size - 1
+        if start < 0 or start > end:
+            start = 0
+            end = file_size - 1
+        length = end - start + 1
+    except Exception:
+        start = 0
+        end = file_size - 1
+        length = file_size
+
     headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(length),
+        "Content-Type": content_type,
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
         "Cache-Control": "public, max-age=86400",
+        "Connection": "keep-alive",
         "X-Content-Type-Options": "nosniff"
     }
-
-    return FileResponse(
-        path=target_path,
-        filename=filename,
-        media_type=content_type,
-        content_disposition_type=disposition,
-        headers=headers
-    )
+    return StreamingResponse(_iter_file_chunks(target_path, start, length, chunk_size), headers=headers, status_code=206)
 
 
 class DeletePayload(BaseModel):
