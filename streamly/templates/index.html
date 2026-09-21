@@ -511,8 +511,8 @@
         <div>
           <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px;">Rate Control Mode</label>
           <select id="gpuCompressMode" style="width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;">
-            <option value="VBR" selected>Original VBR (1500k - Video_compression.bat)</option>
-            <option value="CQ">Original CQ 30 (Video_compression.bat)</option>
+            <option value="VBR" selected>Smart Dynamic Budget (Max ~2.0 Mbps Ceiling - CQ 26)</option>
+            <option value="CQ">Balanced Efficiency (Max ~1.5 Mbps Ceiling - CQ 28)</option>
             <option value="VMAF95_ENHANCED">Enhanced 95+ VMAF Pro (CQ 25 + Dynamic Floor)</option>
           </select>
         </div>
@@ -521,9 +521,10 @@
           <label style="font-size: 12px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 4px;">Video Target Bitrate</label>
           <select id="gpuTargetBitrate" style="width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;">
             <option value="1000">1000 kbps (High Compression ~80% smaller)</option>
-            <option value="1500" selected>1500 kbps (Balanced 1080p ~70% smaller - Recommended)</option>
-            <option value="2500">2500 kbps (High Quality 1080p ~50% smaller)</option>
-            <option value="4000">4000 kbps (HQ 2K/4K)</option>
+            <option value="1500">1500 kbps (Balanced 1080p ~75% smaller)</option>
+            <option value="2000" selected>2000 kbps (Smart Budget 1080p ~65% smaller - Recommended)</option>
+            <option value="3000">3000 kbps (High Quality 1080p/2K)</option>
+            <option value="5000">5000 kbps (HQ 2K/4K)</option>
           </select>
         </div>
 

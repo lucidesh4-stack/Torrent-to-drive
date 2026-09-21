@@ -276,7 +276,7 @@ async def enqueue_compression(request: Request, _auth = Depends(verify_user_sess
     file_id = str(raw_file_id).strip() if raw_file_id is not None else ''
     filename = str(body.get('filename') or (os.path.basename(file_id) if file_id else 'video.mp4'))
     mode = str(body.get('mode', 'VBR'))
-    target_k = int(body.get('target_bitrate_k', 1500))
+    target_k = int(body.get('target_bitrate_k', 2000))
     source_type = str(body.get('source_type', 'temp_cloud'))
     source_url = body.get('source_url')
 

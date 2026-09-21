@@ -140,10 +140,11 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     elif mode == "CQ":
         rc_opts = [
             "-rc", "vbr",
-            "-cq", "30",
+            "-cq", "28",
             "-b:v", f"{target_k}k",
-            "-maxrate", f"{max_v}k",
-            "-bufsize", f"{bufsize}k",
+            "-maxrate", f"{int(target_k * 1.75)}k",
+            "-bufsize", f"{int(target_k * 2.5)}k",
+            "-multipass", "fullres",
         ]
     else:
         rc_opts = [
@@ -220,7 +221,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
 
 def compress_video(in_path, out_path, task, report_progress_fn):
     info = probe_video(in_path)
-    target_k = int(task.get("target_bitrate_k", 1500))
+    target_k = int(task.get("target_bitrate_k", 2000))
     if info.get("fps", 30) > 45:
         target_k = int(target_k * 1.5)
         

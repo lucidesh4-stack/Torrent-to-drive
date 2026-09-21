@@ -1695,7 +1695,7 @@
     if (!item) return;
 
     const mode = $("gpuCompressMode") ? $("gpuCompressMode").value : "VBR";
-    const bitrate = $("gpuTargetBitrate") ? parseInt($("gpuTargetBitrate").value) : 1500;
+    const bitrate = $("gpuTargetBitrate") ? parseInt($("gpuTargetBitrate").value) : 2000;
 
     window.closeGpuCompressModal();
     if (window.toast) window.toast("⚡ Queuing video for Colab GPU compression...");
