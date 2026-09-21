@@ -148,11 +148,11 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     else:
         rc_opts = [
             "-rc", "vbr",
+            "-cq", "26",
             "-b:v", f"{target_k}k",
-            "-maxrate", f"{max_v}k",
-            "-bufsize", f"{bufsize}k",
-            "-qmin", "22",
-            "-qmax", "38",
+            "-maxrate", f"{int(target_k * 1.75)}k",
+            "-bufsize", f"{int(target_k * 2.5)}k",
+            "-multipass", "fullres",
         ]
 
     if has_nvenc:
