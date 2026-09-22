@@ -122,10 +122,16 @@ def get_vfr_flag():
 NVENC_DYNAMIC_FLAGS = probe_nvenc_flags()
 VFR_FLAG = get_vfr_flag()
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, cq_val=32, mode="MODE_1", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, cq_val=32, mode="MODE_1", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=0, height=0):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     gop = max(30, int(fps * 5))
     keyint_min = max(1, int(fps))
+
+    # Conditional bypass: 99.9% of videos are even (1920x1080, 1280x720, etc.).
+    # Only apply -vf scale if an odd dimension is detected or as fallback in safe_mode.
+    vf_opts = []
+    if (width > 0 and height > 0 and (width % 2 != 0 or height % 2 != 0)) or (safe_mode and (width == 0 or height == 0)):
+        vf_opts = ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]
 
     if mode == "VMAF95_ENHANCED":
         rc_opts = [
@@ -167,7 +173,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
                 "-map", "0:a?",
                 *VFR_FLAG,
                 "-c:v", vcodec,
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                *vf_opts,
                 "-pix_fmt", "yuv420p",
                 "-preset", "p5",
                 *rc_opts,
@@ -181,7 +187,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
                 "-map", "0:a?",
                 *VFR_FLAG,
                 "-c:v", vcodec,
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                *vf_opts,
                 "-profile:v", "main10",
                 "-pix_fmt", "p010le",
                 "-preset", preset,
@@ -201,6 +207,7 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             "-map", "0:v:0",
             "-map", "0:a?",
             "-c:v", "libx264",
+            *vf_opts,
             "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
             "-b:v", f"{target_k}k",
@@ -288,7 +295,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
         return p_proc.returncode, err
 
     # Try 1: Studio Quality 10-bit NVENC Pipeline (Mode 1 True Capped CQ)
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True)
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=width, height=height)
     print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, Mode 1, {res_label}, {max_v}k ceiling)...")
     rc, stderr_out = _run_cmd(cmd)
 
@@ -299,7 +306,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             if line.strip():
                 print(f"      {line.strip()}")
         print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False, width=width, height=height)
         rc, stderr_out = _run_cmd(cmd)
 
     # Try 3: Ultra-compatible CPU Software Fallback (libx264)
@@ -309,7 +316,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             if line.strip():
                 print(f"      {line.strip()}")
         print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=fps, cq_val=cq_val, mode=mode, safe_mode=True, copy_audio=False)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=fps, cq_val=cq_val, mode=mode, safe_mode=True, copy_audio=False, width=width, height=height)
         rc, stderr_out = _run_cmd(cmd)
 
     if rc != 0:
