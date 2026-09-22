@@ -1694,11 +1694,8 @@
     const item = window._targetGpuItem;
     if (!item) return;
 
-    const mode = $("gpuCompressMode") ? $("gpuCompressMode").value : "VBR";
-    const bitrate = $("gpuTargetBitrate") ? parseInt($("gpuTargetBitrate").value) : 2000;
-
     window.closeGpuCompressModal();
-    if (window.toast) window.toast("⚡ Queuing video for Colab GPU compression...");
+    if (window.toast) window.toast("⚡ Queuing video for Colab GPU compression (Mode 1)...");
 
     try {
       const res = await window.postJson("/api/gpu/compress", {
@@ -1706,8 +1703,8 @@
         filename: item.name,
         source_type: window.driveProvider === "temp" ? "temp_cloud" : "seedr",
         source_url: item.download_url || null,
-        mode: mode,
-        target_bitrate_k: bitrate
+        mode: "MODE_1",
+        target_bitrate_k: 1400
       });
       if (res && res.success) {
         if (window.toast) window.toast("✅ Queued for Colab GPU! Opening tasks drawer...");

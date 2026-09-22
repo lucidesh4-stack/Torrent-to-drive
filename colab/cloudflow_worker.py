@@ -122,7 +122,7 @@ def get_vfr_flag():
 NVENC_DYNAMIC_FLAGS = probe_nvenc_flags()
 VFR_FLAG = get_vfr_flag()
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, mode="VBR", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, cq_val=32, mode="MODE_1", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     gop = max(30, int(fps * 5))
     keyint_min = max(1, int(fps))
@@ -141,18 +141,19 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
         rc_opts = [
             "-rc", "vbr",
             "-cq", "28",
-            "-b:v", f"{target_k}k",
-            "-maxrate", f"{int(target_k * 1.75)}k",
-            "-bufsize", f"{int(target_k * 2.5)}k",
+            "-b:v", "0",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
             "-multipass", "fullres",
         ]
     else:
+        # Mode 1 Pure from video compressor.bat: Dynamic True Capped CQ
         rc_opts = [
             "-rc", "vbr",
-            "-cq", "26",
-            "-b:v", f"{target_k}k",
-            "-maxrate", f"{int(target_k * 1.75)}k",
-            "-bufsize", f"{int(target_k * 2.5)}k",
+            "-cq", str(cq_val),
+            "-b:v", "0",
+            "-maxrate", f"{max_v}k",
+            "-bufsize", f"{bufsize}k",
             "-multipass", "fullres",
         ]
 
@@ -220,19 +221,41 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
 
 def compress_video(in_path, out_path, task, report_progress_fn):
     info = probe_video(in_path)
-    target_k = int(task.get("target_bitrate_k", 2000))
-    if info.get("fps", 30) > 45:
-        target_k = int(target_k * 1.5)
-        
-    # EXACT MATCH with Video_compression.bat: MAX_V = TARGET * 2, BUFSIZE = MAX_V * 2
-    max_v = target_k * 2
-    bufsize = max_v * 2
+    width = int(info.get("width", 1920) or 1920)
+    height = int(info.get("height", 1080) or 1080)
+    fps = info.get("fps", 30) or 30
+    total_pixels = width * height
+
+    # Mode 1 Pure from video compressor.bat (Smart Adaptive Space Saver by Resolution & FPS):
+    if total_pixels <= 1400000:
+        target_k = 1000
+        cq_val = 32
+        res_label = "<=720p"
+    elif total_pixels <= 2900000:
+        target_k = 1400
+        cq_val = 32
+        res_label = "1080p"
+    elif total_pixels <= 5500000:
+        target_k = 2400
+        cq_val = 28
+        res_label = "1440p"
+    else:
+        target_k = 4500
+        cq_val = 26
+        res_label = "4K"
+
+    if fps > 45:
+        target_k = int(target_k * 1.3)
+
+    max_v = target_k
+    bufsize = int(target_k * 1.5)
 
     has_nvenc = ("NVIDIA" in GPU_NAME or "Tesla" in GPU_NAME)
     duration = info.get("duration", 0)
-    mode = task.get("mode", "VBR")
+    mode = task.get("mode", "MODE_1")
 
-    print(f"   📹 Input: {info.get('width')}x{info.get('height')} @ {info.get('fps')}fps, video={info.get('codec')}, audio={info.get('acodec')}, size={info.get('size_mb')}MB")
+    print(f"   📹 Input: {width}x{height} @ {fps}fps ({res_label}), video={info.get('codec')}, audio={info.get('acodec')}, size={info.get('size_mb')}MB")
+    print(f"   ⚡ Mode 1 Active: Ceiling={max_v}k, CQ={cq_val}, VBV Buffer={bufsize}k, GOP={max(30, int(fps * 5))}")
 
     def _run_cmd(ffmpeg_args):
         p_proc = subprocess.Popen(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -264,9 +287,9 @@ def compress_video(in_path, out_path, task, report_progress_fn):
         err = p_proc.stderr.read()
         return p_proc.returncode, err
 
-    # Try 1: Studio Quality 10-bit NVENC Pipeline
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True)
-    print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, mode={mode}, {target_k}k target)...")
+    # Try 1: Studio Quality 10-bit NVENC Pipeline (Mode 1 True Capped CQ)
+    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True)
+    print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, Mode 1, {res_label}, {max_v}k ceiling)...")
     rc, stderr_out = _run_cmd(cmd)
 
     # Try 2: Robust High-Speed GPU NVENC Pipeline (p5 8-bit, universal stream compatibility, still 100% on GPU!)
@@ -276,7 +299,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             if line.strip():
                 print(f"      {line.strip()}")
         print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=info.get("fps", 30), mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
 
     # Try 3: Ultra-compatible CPU Software Fallback (libx264)
@@ -286,7 +309,7 @@ def compress_video(in_path, out_path, task, report_progress_fn):
             if line.strip():
                 print(f"      {line.strip()}")
         print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=info.get("fps", 30), mode=mode, safe_mode=True, copy_audio=False)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=fps, cq_val=cq_val, mode=mode, safe_mode=True, copy_audio=False)
         rc, stderr_out = _run_cmd(cmd)
 
     if rc != 0:
