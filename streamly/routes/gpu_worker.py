@@ -239,7 +239,8 @@ async def gpu_complete(
 
     user_dir = get_user_temp_dir(task.sid)
     dest_filename = file.filename or f'compressed_{task.filename}'
-    if not dest_filename.endswith('.mp4'):
+    valid_exts = ('.mp4', '.mkv', '.webm', '.mov', '.m4v')
+    if not any(dest_filename.lower().endswith(ext) for ext in valid_exts):
         dest_filename = f'{dest_filename}.mp4'
 
     out_dir = os.path.dirname(os.path.join(user_dir, task.file_id)) if task.file_id else user_dir

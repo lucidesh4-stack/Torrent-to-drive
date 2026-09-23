@@ -122,10 +122,11 @@ def get_vfr_flag():
 NVENC_DYNAMIC_FLAGS = probe_nvenc_flags()
 VFR_FLAG = get_vfr_flag()
 
-def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, cq_val=32, mode="MODE_1", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=0, height=0):
+def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=24, cq_val=32, mode="MODE_1", preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=0, height=0, thumb_path=None):
     vcodec = "hevc_nvenc" if has_nvenc else "libx264"
     gop = max(30, int(fps * 5))
     keyint_min = max(1, int(fps))
+    is_mkv = out_path.lower().endswith(".mkv")
 
     # Conditional bypass: 99.9% of videos are even (1920x1080, 1280x720, etc.).
     # Only apply -vf scale if an odd dimension is detected or as fallback in safe_mode.
@@ -133,46 +134,42 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     if (width > 0 and height > 0 and (width % 2 != 0 or height % 2 != 0)) or (safe_mode and (width == 0 or height == 0)):
         vf_opts = ["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"]
 
-    if mode == "VMAF95_ENHANCED":
-        rc_opts = [
-            "-rc", "vbr",
-            "-cq", "25",
-            "-b:v", f"{target_k}k",
-            "-maxrate", f"{int(target_k * 2.2)}k",
-            "-bufsize", f"{int(target_k * 4.4)}k",
-            "-qmin", "18",
-            "-qmax", "33",
-        ]
-    elif mode == "CQ":
-        rc_opts = [
-            "-rc", "vbr",
-            "-cq", "28",
-            "-b:v", "0",
-            "-maxrate", f"{max_v}k",
-            "-bufsize", f"{bufsize}k",
-            "-multipass", "fullres",
-        ]
-    else:
-        # Mode 1 Pure from video compressor.bat: Dynamic True Capped CQ
-        rc_opts = [
-            "-rc", "vbr",
-            "-cq", str(cq_val),
-            "-b:v", "0",
-            "-maxrate", f"{max_v}k",
-            "-bufsize", f"{bufsize}k",
-            "-multipass", "fullres",
-        ]
+    rc_opts = [
+        "-rc", "vbr",
+        "-cq", str(cq_val),
+        "-b:v", "0",
+        "-maxrate", f"{max_v}k",
+        "-bufsize", f"{bufsize}k",
+        "-multipass", "fullres",
+    ]
+
+    has_thumb = bool(thumb_path and os.path.exists(thumb_path) and not safe_mode)
+
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
+        "-i", in_path,
+    ]
+
+    if has_thumb and not is_mkv:
+        cmd += ["-i", thumb_path]
+
+    cmd += [
+        "-map", "0:v:0",
+        "-map", "0:a?",
+    ]
+
+    if not safe_mode:
+        cmd += ["-map", "0:s?"]
+
+    if has_thumb and not is_mkv:
+        cmd += ["-map", "1:v:0"]
 
     if has_nvenc:
         if safe_mode:
             # ⚡ Robust standard 8-bit YUV420p NVENC
-            cmd = [
-                "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
-                "-i", in_path,
-                "-map", "0:v:0",
-                "-map", "0:a?",
+            cmd += [
                 *VFR_FLAG,
-                "-c:v", vcodec,
+                "-c:v:0", vcodec,
                 *vf_opts,
                 "-pix_fmt", "yuv420p",
                 "-preset", "p5",
@@ -180,33 +177,29 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
             ]
         else:
             # 💎 Studio Quality 10-bit HEVC NVENC
-            cmd = [
-                "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
-                "-i", in_path,
-                "-map", "0:v:0",
-                "-map", "0:a?",
+            cmd += [
                 *VFR_FLAG,
-                "-c:v", vcodec,
+                "-c:v:0", vcodec,
                 *vf_opts,
-                "-profile:v", "main10",
-                "-pix_fmt", "p010le",
+                "-profile:v:0", "main10",
+                "-pix_fmt:v:0", "p010le",
                 "-preset", preset,
                 "-tune", "hq",
                 *rc_opts,
                 "-rc-lookahead", "32",
-                "-bf", "3",
-                "-g", str(gop),
-                "-keyint_min", str(keyint_min),
+                "-spatial_aq", "1",
+                "-temporal_aq", "1",
+                "-aq-strength", "7",
+                "-bf:v:0", "3",
+                "-b_ref_mode:v:0", "middle",
+                "-g:v:0", str(gop),
+                "-keyint_min:v:0", str(keyint_min),
                 *NVENC_DYNAMIC_FLAGS,
                 "-tag:v:0", "hvc1",
             ]
     else:
-        cmd = [
-            "ffmpeg", "-y", "-loglevel", "warning", "-progress", "-", "-hide_banner",
-            "-i", in_path,
-            "-map", "0:v:0",
-            "-map", "0:a?",
-            "-c:v", "libx264",
+        cmd += [
+            "-c:v:0", "libx264",
             *vf_opts,
             "-preset", "veryfast",
             "-pix_fmt", "yuv420p",
@@ -220,7 +213,28 @@ def build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps
     else:
         cmd += ["-c:a", "aac", "-b:a", "128k", "-ac", "2"]
 
+    if not safe_mode:
+        if is_mkv:
+            cmd += ["-c:s", "copy"]
+        else:
+            cmd += ["-c:s", "mov_text"]
+
+    if has_thumb:
+        if is_mkv:
+            cmd += [
+                "-attach", thumb_path,
+                "-metadata:s:t", "mimetype=image/jpeg",
+                "-metadata:s:t", "filename=cover.jpg",
+            ]
+        else:
+            cmd += [
+                "-c:v:1", "copy",
+                "-disposition:v:1", "attached_pic",
+            ]
+
     cmd += [
+        "-map_metadata", "0",
+        "-map_chapters", "0",
         "-movflags", "+faststart",
         out_path
     ]
@@ -261,8 +275,20 @@ def compress_video(in_path, out_path, task, report_progress_fn):
     duration = info.get("duration", 0)
     mode = task.get("mode", "MODE_1")
 
-    print(f"   📹 Input: {width}x{height} @ {fps}fps ({res_label}), video={info.get('codec')}, audio={info.get('acodec')}, size={info.get('size_mb')}MB")
-    print(f"   ⚡ Mode 1 Active: Ceiling={max_v}k, CQ={cq_val}, VBV Buffer={bufsize}k, GOP={max(30, int(fps * 5))}")
+    # 🖼️ Extract 5-second studio thumbnail for cover art (Requirement 2)
+    thumb_path = os.path.splitext(out_path)[0] + "_thumb.jpg"
+    thumb_sec = 5.0 if duration >= 6.0 else (1.0 if duration >= 2.0 else 0.0)
+    has_thumb = False
+    try:
+        t_res = subprocess.run([
+            "ffmpeg", "-y", "-loglevel", "error", "-ss", str(thumb_sec), "-i", in_path,
+            "-frames:v", "1", "-update", "1", "-q:v", "2", thumb_path
+        ], capture_output=True, timeout=15)
+        if t_res.returncode == 0 and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 500:
+            has_thumb = True
+            print(f"   🖼️ Extracted 5s studio cover thumbnail ({os.path.getsize(thumb_path) // 1024} KB)")
+    except Exception as e:
+        print(f"   ⚠️ Thumbnail extraction warning: {e}")
 
     def _run_cmd(ffmpeg_args):
         p_proc = subprocess.Popen(ffmpeg_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -294,38 +320,44 @@ def compress_video(in_path, out_path, task, report_progress_fn):
         err = p_proc.stderr.read()
         return p_proc.returncode, err
 
-    # Try 1: Studio Quality 10-bit NVENC Pipeline (Mode 1 True Capped CQ)
-    cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=width, height=height)
-    print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, Mode 1, {res_label}, {max_v}k ceiling)...")
-    rc, stderr_out = _run_cmd(cmd)
-
-    # Try 2: Robust High-Speed GPU NVENC Pipeline (p5 8-bit, universal stream compatibility, still 100% on GPU!)
-    if rc != 0 and has_nvenc:
-        print(f"   ❌ Primary NVENC failed (code {rc}). Stderr output:")
-        for line in stderr_out.splitlines()[-15:]:
-            if line.strip():
-                print(f"      {line.strip()}")
-        print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False, width=width, height=height)
+    try:
+        # Try 1: Studio Quality 10-bit NVENC Pipeline (Mode 1 True Capped CQ)
+        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p7", multipass="fullres", safe_mode=False, copy_audio=True, width=width, height=height, thumb_path=thumb_path if has_thumb else None)
+        print(f"   ▶ Studio Quality Hardware Pipeline (NVENC p7 10-bit, Mode 1, {res_label}, {max_v}k ceiling)...")
         rc, stderr_out = _run_cmd(cmd)
 
-    # Try 3: Ultra-compatible CPU Software Fallback (libx264)
-    if rc != 0:
-        print(f"   ❌ Secondary NVENC failed (code {rc}). Stderr output:")
-        for line in stderr_out.splitlines()[-15:]:
-            if line.strip():
-                print(f"      {line.strip()}")
-        print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
-        cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=fps, cq_val=cq_val, mode=mode, safe_mode=True, copy_audio=False, width=width, height=height)
-        rc, stderr_out = _run_cmd(cmd)
+        # Try 2: Robust High-Speed GPU NVENC Pipeline (p5 8-bit, universal stream compatibility, still 100% on GPU!)
+        if rc != 0 and has_nvenc:
+            print(f"   ❌ Primary NVENC failed (code {rc}). Stderr output:")
+            for line in stderr_out.splitlines()[-15:]:
+                if line.strip():
+                    print(f"      {line.strip()}")
+            print(f"   ⚡ Retrying with universal GPU NVENC (Tesla T4 p5 8-bit YUV420p)...")
+            cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc, fps=fps, cq_val=cq_val, mode=mode, preset="p5", multipass=None, safe_mode=True, copy_audio=False, width=width, height=height, thumb_path=None)
+            rc, stderr_out = _run_cmd(cmd)
 
-    if rc != 0:
-        print(f"❌ FFmpeg exit code: {rc}")
-        if stderr_out:
-            print(f"   Error details: {stderr_out[-500:]}")
-        return False
+        # Try 3: Ultra-compatible CPU Software Fallback (libx264)
+        if rc != 0:
+            print(f"   ❌ Secondary NVENC failed (code {rc}). Stderr output:")
+            for line in stderr_out.splitlines()[-15:]:
+                if line.strip():
+                    print(f"      {line.strip()}")
+            print(f"   ⚠️ Falling back to CPU software encoder (libx264)...")
+            cmd = build_ffmpeg_cmd(in_path, out_path, target_k, max_v, bufsize, has_nvenc=False, fps=fps, cq_val=cq_val, mode=mode, safe_mode=True, copy_audio=False, width=width, height=height, thumb_path=None)
+            rc, stderr_out = _run_cmd(cmd)
 
-    return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
+        if rc != 0:
+            print(f"❌ FFmpeg exit code: {rc}")
+            if stderr_out:
+                print(f"   Error details: {stderr_out[-500:]}")
+            return False
+
+        return os.path.exists(out_path) and os.path.getsize(out_path) > 1000
+
+    finally:
+        if has_thumb and os.path.exists(thumb_path):
+            try: os.remove(thumb_path)
+            except Exception: pass
 
 
 
@@ -349,8 +381,13 @@ def process_single_task(task):
     if source_url.startswith("/"):
         source_url = f"{CLOUDFLOW_URL}{source_url}"
 
-    in_path = f"/tmp/input_{task_id}.mp4"
-    out_path = f"/tmp/compressed_{task_id}.mp4"
+    in_ext = os.path.splitext(filename)[1].lower()
+    if in_ext not in [".mkv", ".mp4", ".mov", ".m4v", ".webm"]:
+        in_ext = ".mp4"
+    out_ext = ".mkv" if in_ext == ".mkv" else ".mp4"
+
+    in_path = f"/tmp/input_{task_id}{in_ext}"
+    out_path = f"/tmp/compressed_{task_id}{out_ext}"
 
     try:
         print(f"   [{task_id}] Downloading source video from Cloudflow...")
@@ -382,8 +419,11 @@ def process_single_task(task):
             print(f"✅ [{task_id}] Finished! {orig_mb:.1f} MB -> {new_mb:.1f} MB ({saved_pct:.1f}% saved in {elapsed:.1f}s)")
 
             print(f"🚀 [{task_id}] Uploading compressed video back to Cloudflow...")
+            mime = "video/x-matroska" if out_ext == ".mkv" else "video/mp4"
+            base_name = os.path.splitext(filename)[0]
+            out_filename = f"compressed_{base_name}{out_ext}"
             with open(out_path, "rb") as f:
-                files = {"file": (f"compressed_{filename}", f, "video/mp4")}
+                files = {"file": (out_filename, f, mime)}
                 form_data = {
                     "task_id": task_id,
                     "secret": WORKER_SECRET,
